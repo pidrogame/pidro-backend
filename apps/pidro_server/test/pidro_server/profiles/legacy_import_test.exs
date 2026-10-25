@@ -88,6 +88,15 @@ defmodule PidroServer.Profiles.LegacyImportTest do
       assert p.veteran_xp == 0
       assert p.veteran_level == 1
     end
+
+    # Classic leaves some players below zero after a lost first game.
+    test "negative Classic XP counts as 0 -> level 1" do
+      user = insert_user()
+
+      assert {:ok, p} = Profiles.import_legacy_progression(user.id, %{"xp" => -28})
+      assert p.veteran_xp == 0
+      assert p.veteran_level == 1
+    end
   end
 
   describe "import_legacy_progression/2 — heritage flags" do

@@ -101,7 +101,13 @@ defmodule PidroServer.Profiles.LegacyProgression do
 
         Map.put(acc, key, if(is_nil(value), do: Map.fetch!(defaults, key), else: value))
       end)
+      |> Map.update!(:xp, &non_negative_xp/1)
 
     struct!(__MODULE__, values)
   end
+
+  # Classic can leave a player below zero after a lost first game (seen down
+  # to -28); the Veteran level counts that as 0 XP.
+  defp non_negative_xp(xp) when is_integer(xp) and xp < 0, do: 0
+  defp non_negative_xp(xp), do: xp
 end
