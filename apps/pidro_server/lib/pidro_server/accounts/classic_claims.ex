@@ -142,14 +142,14 @@ defmodule PidroServer.Accounts.ClassicClaims do
   def redeem(token, current_user, params)
       when is_binary(token) and (is_nil(current_user) or is_struct(current_user, User)) and
              is_map(params) do
-    result =
+    redeemed =
       case redeem_once(token, current_user, params) do
         {:error, :claim_state_changed} -> redeem_once(token, current_user, params)
         result -> result
       end
-      |> resolve_social(fetch(params, :friend_slug))
 
-    record_upgrade(current_user, result)
+    result = resolve_social(redeemed, fetch(params, :friend_slug))
+    record_upgrade(redeemed)
     result
   end
 
@@ -180,7 +180,8 @@ defmodule PidroServer.Accounts.ClassicClaims do
                {:ok, user, mode} <- target_user(ticket, current_user, params, locked_user),
                {:ok, user} <- redeem_for_user(ticket, user, mode, now, display_name, params) do
             {user, is_nil(locked_user) or is_nil(locked_user.classic_user_id),
-             is_nil(locked_user) or locked_user.guest}
+             is_nil(locked_user) or locked_user.guest,
+             not is_nil(locked_user) and locked_user.guest and not user.guest}
           else
             nil -> Repo.rollback(:invalid_claim_ticket)
             {:error, reason} -> Repo.rollback(reason)
@@ -191,7 +192,7 @@ defmodule PidroServer.Accounts.ClassicClaims do
 
   # Resolve only a new link, after commit. Retrying a sign-in must not restore
   # friends removed or blocks unblocked since the original claim.
-  defp resolve_social({:ok, {user, new_link?, registered?}}, friend_slug) do
+  defp resolve_social({:ok, {user, new_link?, registered?, _upgraded?}}, friend_slug) do
     if new_link?, do: ClassicSocial.resolve_classic(user)
 
     if registered?,
@@ -202,11 +203,12 @@ defmodule PidroServer.Accounts.ClassicClaims do
   defp resolve_social(error, _friend_slug), do: error
 
   # A guest the claim saved counts as upgraded, as through POST /auth/upgrade.
+  # Decided on the locked row, so two concurrent redemptions count once.
   # After the commit: a failed event write must not undo the claim.
-  defp record_upgrade(%User{guest: true}, {:ok, %User{guest: false, id: id}}),
+  defp record_upgrade({:ok, {%User{id: id}, _new_link?, _registered?, true}}),
     do: Invites.record_upgrade(id)
 
-  defp record_upgrade(_current_user, _result), do: :ok
+  defp record_upgrade(_result), do: :ok
 
   defp find_ticket(token),
     do: Repo.get_by(ClassicClaimTicket, token_hash: hash_token(token))
@@ -490,7 +492,7 @@ defmodule PidroServer.Accounts.ClassicClaims do
   # the account is saved: it may sit with strangers and keep its friends.
   defp save_guest(%{method: method}, %User{guest: true} = guest, _params)
        when method in [:apple, :facebook] do
-    guest |> Changeset.change(guest: false) |> Repo.update()
+    guest |> User.social_save_changeset() |> Repo.update()
   end
 
   defp save_guest(_ticket, user, _params), do: {:ok, user}

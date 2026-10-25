@@ -751,19 +751,30 @@ defmodule PidroServer.Accounts.ClassicClaimsTest do
 
     # Since PID-154 a guest cannot sit with strangers; a veteran who signs in
     # with Apple or Facebook must not be treated as one.
-    test "is saved: no longer a guest, and counted once as an upgrade", %{guest: guest} do
-      invite = invite_redeemed_by!(guest)
-
+    test "is saved: no longer a guest, with a share link", %{guest: guest} do
       for {method, classic_id} <- [apple: 50_020, facebook: 50_021] do
         guest = if method == :apple, do: guest, else: AccountsFixtures.guest_fixture()
+        assert is_nil(guest.share_slug)
         ticket = issue_ticket!(guest, classic_id, method, "#{method}-#{classic_id}", %{xp: 90})
 
         assert {:ok, claimed} = ClassicClaims.redeem(ticket, guest, %{})
         assert claimed.id == guest.id
         refute claimed.guest
-        refute Repo.get!(User, guest.id).guest
-        assert {:ok, _retried} = ClassicClaims.redeem(ticket, claimed, %{})
+        assert is_binary(claimed.share_slug)
+        assert %User{guest: false, share_slug: slug} = Repo.get!(User, guest.id)
+        assert slug == claimed.share_slug
       end
+    end
+
+    # A second request that authenticated before the first committed still
+    # carries the guest struct; the upgrade must count once.
+    test "counts once as an upgrade, even for a stale second request", %{guest: guest} do
+      invite = invite_redeemed_by!(guest)
+      ticket = issue_ticket!(guest, 50_022, :apple, "apple-50022", %{xp: 90})
+
+      assert {:ok, claimed} = ClassicClaims.redeem(ticket, guest, %{})
+      assert {:ok, again} = ClassicClaims.redeem(ticket, guest, %{})
+      assert again.id == claimed.id
 
       assert [%Event{invite_id: invite_id}] = upgrades()
       assert invite_id == invite.id

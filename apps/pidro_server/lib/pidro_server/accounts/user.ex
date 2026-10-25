@@ -322,6 +322,17 @@ defmodule PidroServer.Accounts.User do
   end
 
   @doc """
+  Saves a guest who proved a Classic claim with Apple or Facebook: that
+  identity is now the way back in, so the row becomes a registered account
+  with a share slug. The id, names and progress stay.
+  """
+  def social_save_changeset(user) do
+    user
+    |> change(guest: false)
+    |> put_share_slug()
+  end
+
+  @doc """
   Builds a changeset for admin edits, which may also toggle `guest`.
 
   This is `changeset/2` plus the `guest` flag. It is used by the dev admin
