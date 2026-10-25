@@ -259,7 +259,7 @@ defmodule PidroServer.Accounts.ClassicClaimsTest do
 
     assert {:ok, claimed} = ClassicClaims.redeem(ticket, guest, %{})
     assert claimed.id == guest.id
-    assert claimed.guest
+    refute claimed.guest
     assert claimed.classic_user_id == 10_001
     assert claimed.classic_claim_method == :apple
     assert claimed.classic_matched_on == :email
@@ -736,12 +736,37 @@ defmodule PidroServer.Accounts.ClassicClaimsTest do
       send(holder, :release)
     end
 
-    test "is unchanged for an Apple ticket", %{guest: guest} do
+    test "is not asked for credentials with an Apple ticket", %{guest: guest} do
       ticket = issue_ticket!(guest, 50_004, :apple, "apple-50004", %{xp: 90})
 
       assert {:ok, claimed} = ClassicClaims.redeem(ticket, guest, %{})
-      assert claimed.guest
       assert is_nil(claimed.email)
+    end
+  end
+
+  describe "a guest claiming with Apple or Facebook" do
+    setup do
+      {:ok, guest: AccountsFixtures.guest_fixture()}
+    end
+
+    # Since PID-154 a guest cannot sit with strangers; a veteran who signs in
+    # with Apple or Facebook must not be treated as one.
+    test "is saved: no longer a guest, and counted once as an upgrade", %{guest: guest} do
+      invite = invite_redeemed_by!(guest)
+
+      for {method, classic_id} <- [apple: 50_020, facebook: 50_021] do
+        guest = if method == :apple, do: guest, else: AccountsFixtures.guest_fixture()
+        ticket = issue_ticket!(guest, classic_id, method, "#{method}-#{classic_id}", %{xp: 90})
+
+        assert {:ok, claimed} = ClassicClaims.redeem(ticket, guest, %{})
+        assert claimed.id == guest.id
+        refute claimed.guest
+        refute Repo.get!(User, guest.id).guest
+        assert {:ok, _retried} = ClassicClaims.redeem(ticket, claimed, %{})
+      end
+
+      assert [%Event{invite_id: invite_id}] = upgrades()
+      assert invite_id == invite.id
     end
   end
 

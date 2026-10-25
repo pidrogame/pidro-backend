@@ -55,7 +55,8 @@ defmodule PidroServerWeb.API.ClassicClaimControllerTest do
       id = data["user"]["id"]
       owner_id = owner.id
 
-      if mode in [:new, :upgrade] do
+      # An Apple claim registers the guest too (:guest_result).
+      if mode in [:new, :upgrade, :guest_result] do
         assert %{friends: [], requested: [%{user_id: ^owner_id}]} = PidroServer.Friends.list(id)
 
         assert %{friends: [], added_you: [%{user_id: ^id}]} =

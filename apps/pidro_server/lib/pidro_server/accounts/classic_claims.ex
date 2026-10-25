@@ -486,6 +486,13 @@ defmodule PidroServer.Accounts.ClassicClaims do
     end
   end
 
+  # A guest who claims with Apple or Facebook signs in with it from now on, so
+  # the account is saved: it may sit with strangers and keep its friends.
+  defp save_guest(%{method: method}, %User{guest: true} = guest, _params)
+       when method in [:apple, :facebook] do
+    guest |> Changeset.change(guest: false) |> Repo.update()
+  end
+
   defp save_guest(_ticket, user, _params), do: {:ok, user}
 
   defp require_credentials(account) do
