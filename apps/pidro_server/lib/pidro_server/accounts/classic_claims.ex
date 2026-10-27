@@ -78,8 +78,9 @@ defmodule PidroServer.Accounts.ClassicClaims do
   end
 
   @doc """
-  The username and email a password claim gives a new account, taken from
-  Classic and offered at verify time. Each is nil when the player must choose
+  The username and email a claim gives a new account, taken from
+  Classic and offered at verify time; an Apple or Facebook claim takes only the
+  username. Each is nil when the player must choose
   it: Classic has none, it breaks the account rules, or another Pidro account
   has it. The Classic name reserved to `classic_user_id` counts as free.
   """

@@ -231,6 +231,33 @@ defmodule PidroServerWeb.API.ClassicClaimControllerTest do
     end
   end
 
+  test "a signed-out Facebook claim offered Classic's username needs no account", %{conn: conn} do
+    for {classic_user_id, account} <- [{70_311, nil}, {70_312, %{username: "typed_name"}}] do
+      {:ok, %{ticket: ticket}} =
+        ClassicClaims.issue_ticket(%{
+          classic_user_id: classic_user_id,
+          method: :facebook,
+          provider_id: "facebook-#{classic_user_id}",
+          install_id: "social-offer",
+          new_account: %{username: "mf252", email: nil},
+          legacy_data: %{classic_user_id: classic_user_id, xp: 10}
+        })
+
+      params = %{ticket: ticket, install_id: "social-offer"}
+      params = if account, do: Map.put(params, :account, account), else: params
+
+      user =
+        conn
+        |> post(~p"/api/v1/classic/claim", params)
+        |> json_response(200)
+        |> get_in(["data", "user"])
+
+      assert user["username"] == "mf252"
+      assert Repo.get!(User, user["id"]).classic_user_id == classic_user_id
+      Repo.delete!(Repo.get!(User, user["id"]))
+    end
+  end
+
   describe "verify of a Classic account that is already linked" do
     defp expect_classic_password(classic_id) do
       Req.Test.expect(PidroServer.Accounts.ClassicClient, fn classic_conn ->

@@ -874,7 +874,10 @@ defmodule PidroServerWeb.API.AuthControllerTest do
 
       assert %{
                "classic_found" => true,
-               "classic" => %{"name" => "Bengt"},
+               "classic" => %{
+                 "name" => "Bengt",
+                 "new_account" => %{"username" => "Bengt", "email" => nil}
+               },
                "ticket" => ticket,
                "expires_at" => expires_at
              } = data
@@ -896,6 +899,7 @@ defmodule PidroServerWeb.API.AuthControllerTest do
       claimed = Repo.get_by!(User, apple_sub: "apple-classic-sub")
       assert claimed.id == claimed_id
       assert claimed.classic_user_id == 71_001
+      assert claimed.username == "Bengt"
       assert claimed.classic_claim_method == :apple
       assert claimed.classic_matched_on == :email
       assert claimed.email == "classic@example.com"
@@ -924,7 +928,10 @@ defmodule PidroServerWeb.API.AuthControllerTest do
 
       assert %{
                "classic_found" => true,
-               "classic" => %{"name" => "Birgit"},
+               "classic" => %{
+                 "name" => "Birgit",
+                 "new_account" => %{"username" => "Birgit", "email" => nil}
+               },
                "ticket" => response_ticket
              } = data
 
@@ -943,6 +950,7 @@ defmodule PidroServerWeb.API.AuthControllerTest do
                |> json_response(200)
                |> Map.fetch!("data")
 
+      assert Repo.get!(User, claimed_id).username == "Birgit"
       assert_token_user(conn, claimed_token, claimed_id)
     end
 

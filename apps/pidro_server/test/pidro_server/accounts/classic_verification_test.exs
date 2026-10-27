@@ -1,7 +1,7 @@
 defmodule PidroServer.Accounts.ClassicVerificationTest do
   use PidroServer.DataCase, async: true
 
-  alias PidroServer.Accounts.{ClassicClaimTicket, ClassicVerification}
+  alias PidroServer.Accounts.{ClassicClaims, ClassicClaimTicket, ClassicVerification, User}
   alias PidroServer.AccountsFixtures
   alias PidroServer.Repo
 
@@ -91,7 +91,19 @@ defmodule PidroServer.Accounts.ClassicVerificationTest do
       do: {:ok, Map.put(profile(), "account_deleted", true)}
 
     def lookup(:email, "sparse@example.com"), do: {:ok, %{"id" => 98_765}}
+
+    def lookup(:email, "mf252@example.com"),
+      do: {:ok, mf252(25_201)}
+
+    def lookup(:fbid, "mf252-app-id"),
+      do: {:ok, mf252(25_202)}
+
     def lookup(_field, _value), do: {:error, :not_found}
+
+    # PID-301: Marcel's Classic account, reached by Apple email or Facebook id.
+    defp mf252(id),
+      do:
+        Map.merge(profile(), %{"id" => id, "username" => "mf252", "email" => "mf252@example.com"})
 
     defp profile do
       %{
@@ -147,6 +159,15 @@ defmodule PidroServer.Accounts.ClassicVerificationTest do
            "email_verified" => true
          }}
 
+    def apple("mf252-apple-token"),
+      do:
+        {:ok,
+         %{
+           "sub" => "mf252-apple-subject",
+           "email" => "mf252@example.com",
+           "email_verified" => true
+         }}
+
     def apple(_token), do: {:error, :invalid_credentials}
 
     def facebook("facebook-token") do
@@ -164,6 +185,10 @@ defmodule PidroServer.Accounts.ClassicVerificationTest do
          issuer_app: "facebook-app",
          email: "facebook@example.com"
        }}
+    end
+
+    def facebook("mf252-facebook-token") do
+      {:ok, %{subject: "mf252-app-id", issuer_app: "facebook-app", email: nil}}
     end
 
     def facebook(_token), do: {:error, :invalid_credentials}
@@ -198,6 +223,7 @@ defmodule PidroServer.Accounts.ClassicVerificationTest do
     def facebook_business_ids("facebook-token"), do: {:ok, ["old-app-id"]}
     def facebook_business_ids("direct-facebook-token"), do: {:ok, ["unused-old-app-id"]}
     def facebook_business_ids("email-facebook-token"), do: {:ok, []}
+    def facebook_business_ids("mf252-facebook-token"), do: {:ok, []}
   end
 
   test "a real Classic payload for a no-username veteran previews name and old games" do
@@ -266,6 +292,96 @@ defmodule PidroServer.Accounts.ClassicVerificationTest do
                Repo.get_by!(ClassicClaimTicket, classic_user_id: 50).legacy_data,
                "new_account"
              )
+    end
+  end
+
+  describe "a signed-out Apple or Facebook claim's new account" do
+    defp verify_mf252(method, user \\ nil)
+
+    defp verify_mf252(:apple, user) do
+      ClassicVerification.verify(
+        %{
+          "method" => "apple",
+          "identity_token" => "mf252-apple-token",
+          "install_id" => "mf252-install"
+        },
+        user,
+        classic_client: Classic,
+        provider_identity: Providers
+      )
+    end
+
+    defp verify_mf252(:facebook, user) do
+      ClassicVerification.verify(
+        %{
+          "method" => "facebook",
+          "access_token" => "mf252-facebook-token",
+          "install_id" => "mf252-install"
+        },
+        user,
+        classic_client: Classic,
+        provider_identity: Providers
+      )
+    end
+
+    test "takes Classic's username and no email, and needs no account on redeem" do
+      for method <- [:apple, :facebook] do
+        assert {:ok, result} = verify_mf252(method)
+        assert result.classic.new_account == %{username: "mf252", email: nil}
+
+        assert {:ok, created} =
+                 ClassicClaims.redeem(result.ticket, nil, %{"install_id" => "mf252-install"})
+
+        assert {created.username, created.guest} == {"mf252", false}
+        Repo.delete!(created)
+      end
+    end
+
+    test "keeps Classic's username over what an old client sends" do
+      assert {:ok, result} = verify_mf252(:facebook)
+
+      assert {:ok, created} =
+               ClassicClaims.redeem(result.ticket, nil, %{
+                 install_id: "mf252-install",
+                 account: %{username: "typed_name", email: "typed@example.com"}
+               })
+
+      assert {created.username, created.email, created.facebook_id} ==
+               {"mf252", nil, "mf252-app-id"}
+    end
+
+    test "offers no username another Pidro account has, and still needs one" do
+      AccountsFixtures.user_fixture(username: "mf252")
+
+      assert {:ok, result} = verify_mf252(:apple)
+      assert result.classic.new_account == %{username: nil, email: nil}
+
+      params = %{install_id: "mf252-install"}
+      assert {:error, changeset} = ClassicClaims.redeem(result.ticket, nil, params)
+      assert %{username: ["can't be blank"]} = errors_on(changeset)
+      assert Repo.get_by(User, classic_user_id: 25_201) == nil
+
+      params = Map.put(params, :account, %{username: "mf_252"})
+      assert {:ok, created} = ClassicClaims.redeem(result.ticket, nil, params)
+      assert created.username == "mf_252"
+    end
+
+    test "is absent for a guest, who keeps their username, and a signed-in player" do
+      assert {:ok, result} = verify_mf252(:facebook, AccountsFixtures.user_fixture())
+      refute Map.has_key?(result.classic, :new_account)
+
+      guest = AccountsFixtures.guest_fixture()
+
+      assert {:ok, result} = verify_mf252(:apple, guest)
+      refute Map.has_key?(result.classic, :new_account)
+
+      refute Map.has_key?(
+               Repo.get_by!(ClassicClaimTicket, classic_user_id: 25_201).legacy_data,
+               "new_account"
+             )
+
+      assert {:ok, claimed} = ClassicClaims.redeem(result.ticket, guest, %{})
+      assert {claimed.id, claimed.username} == {guest.id, guest.username}
     end
   end
 
@@ -379,7 +495,7 @@ defmodule PidroServer.Accounts.ClassicVerificationTest do
     assert ticket.provider_issuer_app == "com.oneapps.pidro"
     assert ticket.provider_email == "apple@example.com"
     refute inspect(ticket.legacy_data) =~ "apple@example.com"
-    refute Map.has_key?(result.classic, :new_account)
+    assert result.classic.new_account == %{username: nil, email: nil}
   end
 
   test "Facebook checks every business-scoped id and keeps the current app id" do
@@ -399,7 +515,7 @@ defmodule PidroServer.Accounts.ClassicVerificationTest do
     assert ticket.method == :facebook
     assert ticket.matched_on == :facebook_business_id
     assert ticket.provider_id == "current-app-id"
-    refute Map.has_key?(result.classic, :new_account)
+    assert result.classic.new_account == %{username: nil, email: nil}
   end
 
   test "Facebook records a match on the current app id" do

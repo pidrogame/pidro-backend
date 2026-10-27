@@ -314,13 +314,18 @@ defmodule PidroServer.Accounts.ClassicVerification do
     end
   end
 
-  # Only a password claim by a signed-out player or a guest creates the
-  # account it names; it takes Classic's username and email.
+  # A claim that creates the account it names takes Classic's username: a
+  # password claim by a signed-out player or a guest, which also takes Classic's
+  # email, and an Apple or Facebook claim by a signed-out player, which needs
+  # no email. A guest's social claim keeps the guest's username.
   defp new_account(:password, profile, classic_user_id, nil),
     do: ClassicClaims.new_account(profile, classic_user_id)
 
   defp new_account(:password, profile, classic_user_id, %User{guest: true} = guest),
     do: ClassicClaims.new_account(profile, classic_user_id, guest)
+
+  defp new_account(method, profile, classic_user_id, nil) when method in [:apple, :facebook],
+    do: %{ClassicClaims.new_account(profile, classic_user_id) | email: nil}
 
   defp new_account(_method, _profile, _classic_user_id, _user), do: nil
 
