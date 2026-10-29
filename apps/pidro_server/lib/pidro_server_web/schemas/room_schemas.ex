@@ -1144,6 +1144,14 @@ defmodule PidroServerWeb.Schemas.RoomSchemas do
           description: "Number of cards folded face down on going cold; zero when not eliminated",
           minimum: 0,
           example: 0
+        },
+        discarded_count: %Schema{
+          type: :integer,
+          description:
+            "Cards this seat threw in the second deal, shown to every viewer: a non-dealer's from the first deal; the dealer's from the pool they took up (0 if they took none), null while they pick. Null outside the second deal and play.",
+          minimum: 0,
+          nullable: true,
+          example: 4
         }
       },
       required: [:position, :team, :hand, :tricks_won, :eliminated],
@@ -1293,6 +1301,13 @@ defmodule PidroServerWeb.Schemas.RoomSchemas do
                   description: "Trump suit for this hand",
                   example: :hearts,
                   nullable: true
+                },
+                killed_cards: %Schema{
+                  type: :object,
+                  additionalProperties: %Schema{type: :array, items: Card},
+                  description:
+                    "Trumps killed over six, by seat, face up for every viewer during play; empty otherwise",
+                  example: %{"east" => [%{"rank" => 7, "suit" => "hearts"}]}
                 },
                 tricks: %Schema{
                   type: :array,

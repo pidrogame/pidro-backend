@@ -59,6 +59,7 @@ defmodule PidroServerWeb.Serializers.GameStateSerializer do
       highest_bid: serialize_highest_bid(Map.get(state, :highest_bid)),
       bidding_team: Map.get(state, :bidding_team),
       trump_suit: Map.get(state, :trump_suit),
+      killed_cards: killed_cards(state),
       tricks: serialize_tricks(Map.get(state, :tricks, [])),
       current_trick: serialize_current_trick(Map.get(state, :current_trick)),
       current_trick_details: serialize_current_trick_details(state),
@@ -87,17 +88,36 @@ defmodule PidroServerWeb.Serializers.GameStateSerializer do
   end
 
   # A dealer picking from the pack holds their whole pool: its size would tell
-  # the table how many trumps they kept, the dealer's edge. Only they see it.
+  # the table how many trumps they kept, the dealer's edge. Only they see it
+  # while they choose.
   defp picking(%{phase: :second_deal} = state), do: Map.get(state, :current_dealer)
   defp picking(_state), do: nil
 
   defp hide_pool(player, true), do: %{player | card_count: nil}
   defp hide_pool(player, false), do: player
 
-  # What each seat kept and drew in the second deal: everyone at the table
-  # sees it, so the client can play it out card by card.
-  defp second_deal(%GameState{} = state), do: SeatView.second_deal_counts(state)
+  # What each seat kept, threw and drew in the second deal: everyone at the
+  # table sees it, so the client can play it out card by card.
+  defp second_deal(%GameState{} = state),
+    do: Map.merge(SeatView.second_deal_counts(state), dealer_throw(state))
+
   defp second_deal(_state), do: %{}
+
+  # Once the dealer is down to six, the table counts the backs of what they
+  # threw from the pool they took up; a dealer who took nothing up threw
+  # nothing. Never their kept count, never the faces.
+  defp dealer_throw(%GameState{phase: :playing, current_dealer: dealer, dealer_pool_size: pool}),
+    do: %{dealer => %{kept: nil, discarded: max((pool || 0) - 6, 0), drawn: nil}}
+
+  defp dealer_throw(_state), do: %{}
+
+  # Trumps killed over six are public by the rules: face up for every viewer
+  # until the hand ends.
+  defp killed_cards(%GameState{phase: :playing} = state) do
+    Map.new(SeatView.killed_cards(state), fn {pos, cards} -> {pos, serialize_cards(cards)} end)
+  end
+
+  defp killed_cards(_state), do: %{}
 
   defp serialize_player(player, visible?, second_deal) do
     hand = Map.get(player, :hand, [])
@@ -114,6 +134,7 @@ defmodule PidroServerWeb.Serializers.GameStateSerializer do
       revealed_cards: if(visible?, do: serialize_cards(folded), else: []),
       folded_count: if(eliminated?, do: length(folded), else: 0),
       kept_count: second_deal && second_deal.kept,
+      discarded_count: second_deal && second_deal.discarded,
       drawn_count: second_deal && second_deal.drawn
     }
   end

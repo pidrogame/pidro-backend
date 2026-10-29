@@ -165,11 +165,11 @@ defmodule Pidro.Core.SeatView do
   end
 
   @doc """
-  What each player dealt to kept after the discard and drew in the second
-  deal: public at any table, where everyone sees how many cards each of them
-  throws and is dealt. Never the dealer's: the dealer throws unseen and takes
-  the rest of the pack, and how many trumps they kept is the dealer's edge.
-  Empty before the discard and once the hand is over.
+  What each player dealt to kept and threw after the discard, and drew in the
+  second deal: public at any table, where everyone sees how many cards each
+  of them throws and is dealt. Never the dealer's: the dealer throws unseen
+  and takes the rest of the pack, and how many trumps they kept is the
+  dealer's edge. Empty before the discard and once the hand is over.
 
   ## Examples
 
@@ -177,7 +177,11 @@ defmodule Pidro.Core.SeatView do
       %{}
   """
   @spec second_deal_counts(GameState.t()) :: %{
-          Types.position() => %{kept: non_neg_integer(), drawn: non_neg_integer()}
+          Types.position() => %{
+            kept: non_neg_integer(),
+            discarded: non_neg_integer(),
+            drawn: non_neg_integer()
+          }
         }
   def second_deal_counts(%GameState{phase: phase} = state)
       when phase in [:second_deal, :playing] do
@@ -202,6 +206,7 @@ defmodule Pidro.Core.SeatView do
       {pos,
        %{
          kept: length(cards) - Map.get(thrown, pos, 0),
+         discarded: Map.get(thrown, pos, 0),
          drawn: Map.get(state.cards_requested, pos)
        }}
     end

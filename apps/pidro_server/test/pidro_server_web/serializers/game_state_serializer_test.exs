@@ -31,6 +31,16 @@ defmodule PidroServerWeb.Serializers.GameStateSerializerTest do
     binary_part(encoded, 1, byte_size(encoded) - 1)
   end
 
+  # The dealer-cut cards are public and go back into the pack, so they can
+  # legitimately match a card dealt later.
+  defp refute_cards(payload, cards) do
+    json = payload |> Map.delete(:dealer_selection_cuts) |> Jason.encode!()
+
+    for {rank, suit} <- cards do
+      refute json =~ Jason.encode!(%{rank: rank, suit: suit})
+    end
+  end
+
   describe "serialize/2" do
     test "trick signals are additive and finished points exclude the trump two" do
       for variant <- [:finnish, :louisiana] do
@@ -181,6 +191,7 @@ defmodule PidroServerWeb.Serializers.GameStateSerializerTest do
       for viewer <- [nil, first, dealer] do
         players = GameStateSerializer.serialize(state, viewer).players
         assert players[first].kept_count == 2
+        assert players[first].discarded_count == 7
         assert players[first].drawn_count == 4
         # The dealer's discard is the dealer's edge: never counted.
         assert players[dealer].kept_count == nil
@@ -203,7 +214,78 @@ defmodule PidroServerWeb.Serializers.GameStateSerializerTest do
 
     test "no second-deal counts before the discard" do
       players = GameStateSerializer.serialize(dealt_state()).players
-      assert Enum.all?(players, fn {_pos, p} -> p.kept_count == nil and p.drawn_count == nil end)
+
+      assert Enum.all?(players, fn {_pos, p} ->
+               p.kept_count == nil and p.discarded_count == nil and p.drawn_count == nil
+             end)
+    end
+
+    test "the dealer's throw is counted once they are down to six, never shown" do
+      # Seed 5 gives the dealer a pool of ten to pick six from.
+      opening = Pidro.Test.DeterministicGame.opening(5)
+      opening = put_in(opening.config[:auto_dealer_rob], false)
+
+      picking =
+        Pidro.Test.DeterministicGame.play_until(opening, &(&1.phase == :second_deal))
+
+      dealer = picking.current_dealer
+      pool = picking.players[dealer].hand ++ picking.deck
+      assert length(pool) == 10
+      others = Enum.reject([:north, :east, :south, :west], &(&1 == dealer))
+      thrown = picking.discarded_cards
+
+      for viewer <- [nil, :north, :east, :south, :west] do
+        payload = GameStateSerializer.serialize(picking, viewer)
+        assert payload.players[dealer].discarded_count == nil
+
+        for pos <- others do
+          assert payload.players[pos].discarded_count ==
+                   9 - payload.players[pos].kept_count
+        end
+
+        assert payload.killed_cards == %{}
+        refute_cards(payload, thrown ++ picking.deck)
+      end
+
+      played = Pidro.Test.DeterministicGame.step(picking)
+      assert played.phase == :playing
+      dealer_thrown = pool -- played.players[dealer].hand
+      assert length(dealer_thrown) == 4
+
+      for viewer <- [nil, :north, :east, :south, :west] do
+        payload = GameStateSerializer.serialize(played, viewer)
+        assert payload.players[dealer].discarded_count == 4
+        assert payload.players[dealer].kept_count == nil
+        refute_cards(payload, thrown ++ dealer_thrown)
+      end
+
+      # A dealer already holding six trumps, or facing an empty pack, takes
+      # nothing up and throws nothing.
+      unrobbed = %{played | dealer_pool_size: nil}
+      assert GameStateSerializer.serialize(unrobbed).players[dealer].discarded_count == 0
+
+      scored = %{played | phase: :hand_complete}
+      assert GameStateSerializer.serialize(scored).players[dealer].discarded_count == nil
+    end
+
+    test "killed trumps are face up for every viewer until the hand ends" do
+      state = Pidro.Test.Scenario.playing(me: :north, killed: %{east: [7, 8]})
+
+      for viewer <- [nil, :north, :east, :south, :west] do
+        assert GameStateSerializer.serialize(state, viewer).killed_cards == %{
+                 east: [%{rank: 7, suit: :hearts}, %{rank: 8, suit: :hearts}]
+               }
+      end
+
+      # An own-pace room holds the scored hand on the table before the next deal.
+      own = put_in(state.config[:pace], :own)
+      scored = Pidro.Test.DeterministicGame.play_until(own, &(&1.phase != :playing))
+      assert scored.phase == :hand_complete
+      next = Pidro.Test.DeterministicGame.play_until(state, &(&1.hand_number == 2))
+
+      for finished <- [scored, next], viewer <- [nil, :north, :east, :south, :west] do
+        assert GameStateSerializer.serialize(finished, viewer).killed_cards == %{}
+      end
     end
 
     test "absent and empty current tricks retain their existing shapes" do
