@@ -69,8 +69,10 @@ defmodule PidroServer.Games.Lifecycle do
     # adds deal_transition_delay_ms.
     hand_transition_delay_ms: 6_000,
     # As long as the client plays the second deal out (Classic's pace): each
-    # player's throw, the piles to count, the refill card by card.
-    second_deal_transition_delay_ms: 9_500,
+    # player's throw, the piles to count, the refill card by card, the
+    # dealer's pile held 2 s (~10.96 s for a 12-card refill), plus a breath
+    # so killed trumps show before the first card.
+    second_deal_transition_delay_ms: 11_500,
     # As long as the client deals every hand's nine cards (12 packets 260 ms
     # apart, the 588 ms pause, the 560 ms sort: ~4.3 s), plus a breath.
     deal_transition_delay_ms: 5_000

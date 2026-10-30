@@ -51,7 +51,7 @@ defmodule PidroServer.Games.LifecycleTest do
     own_trick_transition_delay_ms: 2_500,
     sweep_trick_delay_ms: 500,
     hand_transition_delay_ms: 6_000,
-    second_deal_transition_delay_ms: 9_500,
+    second_deal_transition_delay_ms: 11_500,
     deal_transition_delay_ms: 5_000
   }
 
