@@ -1853,13 +1853,17 @@ defmodule PidroServer.Games.RoomManager do
       with {:ok, room} <- fetch_room(state, room_code),
            %Seat{occupant_type: :human, status: :connected, user_id: ^user_id} <-
              Map.get(room.seats, position) do
-        GameAdapter.apply_action(
-          room_code,
-          position,
-          action,
-          @player_action_call_timeout_ms,
-          diagnostics
-        )
+        with {:ok, _game_state} = applied <-
+               GameAdapter.apply_action(
+                 room_code,
+                 position,
+                 action,
+                 @player_action_call_timeout_ms,
+                 diagnostics
+               ) do
+          record_timed_turn(room, user_id, position)
+          applied
+        end
       else
         {:error, reason} -> {:error, reason}
         _ -> {:error, :seat_not_controlled}
@@ -3791,6 +3795,7 @@ defmodule PidroServer.Games.RoomManager do
 
     case seat && Seat.disconnect(seat) do
       {:ok, disconnected_seat} ->
+        Stats.record_seat_event(user_id, room_code, "drop")
         room = extend_active_turn_timer(room, room_code, position)
         hiccup_ms = Lifecycle.config(:hiccup_timeout_ms)
 
@@ -3853,11 +3858,15 @@ defmodule PidroServer.Games.RoomManager do
   defp handle_seat_reconnection(room, room_code, user_id, position, seat, %State{} = state) do
     case seat.status do
       :reconnecting ->
-        # Phase 1: Cancel timer, reclaim seat
+        # Phase 1: Cancel timer, reclaim seat. A held seat (solo, own pace,
+        # waiting room) has no timer and so no grace to return within.
+        in_grace? = Map.has_key?(room.phase_timers, position)
         room = cancel_phase_timer(room, position)
 
         case Seat.reclaim(seat, user_id) do
           {:ok, reclaimed} ->
+            if in_grace?, do: Stats.record_seat_event(user_id, room_code, "return")
+
             reclaimed_room =
               %{
                 room
@@ -3917,6 +3926,8 @@ defmodule PidroServer.Games.RoomManager do
 
           case Seat.reclaim(seat, user_id) do
             {:ok, reclaimed} ->
+              Stats.record_seat_event(user_id, room_code, "return")
+
               reclaimed_room =
                 %{
                   room
@@ -5549,6 +5560,8 @@ defmodule PidroServer.Games.RoomManager do
           duration_ms,
           0
         )
+        # Still the same turn: it opened when it first did.
+        |> put_in([Access.key(:turn_timer), :opened_at_mono], timer.opened_at_mono)
 
       _ ->
         room
@@ -5563,7 +5576,7 @@ defmodule PidroServer.Games.RoomManager do
         scope: scope,
         actor_position: actor_position,
         phase: phase
-      } ->
+      } = timer ->
         cleared_room = %{room | turn_timer: nil}
         cleared_state = %{state | rooms: Map.put(state.rooms, room_code, cleared_room)}
 
@@ -5579,6 +5592,15 @@ defmodule PidroServer.Games.RoomManager do
                GameAdapter.apply_action(room_code, actor_position, resolved_action) do
           {updated_room, incremented?} =
             maybe_increment_timeout_counter(cleared_room, scope, actor_position)
+
+          if incremented? do
+            Stats.record_seat_event(
+              updated_room.seats[actor_position].user_id,
+              room_code,
+              "timeout",
+              TurnTimer.elapsed_ms(timer)
+            )
+          end
 
           broadcast_game_event(
             room_code,
@@ -5618,6 +5640,22 @@ defmodule PidroServer.Games.RoomManager do
         {room, state}
     end
   end
+
+  # Time per turn for the beta report, on the turns the server clocks.
+  defp record_timed_turn(
+         %Room{turn_timer: %{scope: :seat, actor_position: position} = timer} = room,
+         user_id,
+         position
+       ),
+       do:
+         Stats.record_seat_event(
+           user_id,
+           room.code,
+           "turn",
+           TurnTimer.elapsed_ms(timer)
+         )
+
+  defp record_timed_turn(%Room{}, _user_id, _position), do: :ok
 
   defp maybe_increment_timeout_counter(%Room{} = room, :seat, actor_position) do
     case Map.get(room.seats, actor_position) do

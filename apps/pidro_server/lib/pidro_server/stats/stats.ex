@@ -8,7 +8,7 @@ defmodule PidroServer.Stats do
   import Ecto.Query, warn: false
   alias PidroServer.Profiles
   alias PidroServer.Repo
-  alias PidroServer.Stats.{AbandonmentEvent, GameStats}
+  alias PidroServer.Stats.{AbandonmentEvent, GameStats, SeatEvent}
 
   @doc """
   Saves game result after completion.
@@ -367,6 +367,34 @@ defmodule PidroServer.Stats do
     )
 
     Logger.info("Abandonment recorded: user=#{user_id} room=#{room_code} position=#{position}")
+
+    :ok
+  end
+
+  @doc """
+  Records a drop, a return within grace, a timed turn or a turn timeout for
+  the beta report. See `PidroServer.Stats.SeatEvent` for the kinds.
+
+  Best-effort and off the caller, which is the RoomManager on a turn: a slow
+  or failed write must never hold up or crash the tables.
+  """
+  @spec record_seat_event(String.t(), String.t(), String.t(), non_neg_integer() | nil) :: :ok
+  def record_seat_event(user_id, room_code, kind, elapsed_ms \\ nil) do
+    changeset =
+      SeatEvent.changeset(%SeatEvent{}, %{
+        user_id: user_id,
+        room_code: room_code,
+        kind: kind,
+        elapsed_ms: elapsed_ms
+      })
+
+    Task.Supervisor.start_child(PidroServer.TaskSupervisor, fn ->
+      try do
+        Repo.insert(changeset)
+      catch
+        failure, _reason -> Logger.info("Seat event #{kind} not recorded: #{failure}")
+      end
+    end)
 
     :ok
   end

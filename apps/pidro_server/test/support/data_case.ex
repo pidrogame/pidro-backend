@@ -37,7 +37,31 @@ defmodule PidroServer.DataCase do
   """
   def setup_sandbox(tags) do
     pid = Ecto.Adapters.SQL.Sandbox.start_owner!(PidroServer.Repo, shared: not tags[:async])
-    on_exit(fn -> Ecto.Adapters.SQL.Sandbox.stop_owner(pid) end)
+
+    on_exit(fn ->
+      # Writes the app hands to its TaskSupervisor must land before the
+      # sandbox goes, or they die mid-query and log a disconnect.
+      await_tasks()
+      Ecto.Adapters.SQL.Sandbox.stop_owner(pid)
+    end)
+  end
+
+  @doc """
+  Waits for the work running under `PidroServer.TaskSupervisor`, such as the
+  seat events the RoomManager records.
+  """
+  def await_tasks do
+    for pid <- Task.Supervisor.children(PidroServer.TaskSupervisor) do
+      ref = Process.monitor(pid)
+
+      receive do
+        {:DOWN, ^ref, :process, ^pid, _reason} -> :ok
+      after
+        1_000 -> :ok
+      end
+    end
+
+    :ok
   end
 
   @doc """

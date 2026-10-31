@@ -43,8 +43,8 @@ lib/pidro_server/profiles/profiles.ex:354:5:
 lib/pidro_server/profiles/profiles.ex:452:8:
 lib/pidro_server/profiles/profiles.ex:774:30:
 lib/pidro_server/stats/stats.ex:239:62:
-lib/pidro_server/stats/stats.ex:463:88:
-lib/pidro_server/stats/stats.ex:541:8:
+lib/pidro_server/stats/stats.ex:491:88:
+lib/pidro_server/stats/stats.ex:569:8:
 lib/pidro_server_web/channels/game_channel.ex:824:
 lib/pidro_server_web/channels/game_channel.ex:841:
 lib/pidro_server_web/channels/game_channel.ex:846:
@@ -63,4 +63,4 @@ test/support/conn_case.ex:1:
 test/support/conn_case.ex:20:
 test/support/data_case.ex:1:
 test/support/data_case.ex:19:
-test/support/data_case.ex:40:5:
+test/support/data_case.ex:41:5:

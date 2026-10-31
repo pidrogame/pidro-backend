@@ -17,6 +17,7 @@ defmodule PidroServer.Games.TurnTimer do
           duration_ms: non_neg_integer(),
           transition_delay_ms: non_neg_integer(),
           started_at_mono: integer(),
+          opened_at_mono: integer(),
           deadline_mono: integer()
         }
 
@@ -63,6 +64,8 @@ defmodule PidroServer.Games.TurnTimer do
       duration_ms: duration_ms,
       transition_delay_ms: transition_delay_ms,
       started_at_mono: started_at_mono,
+      # When the actor could first act: after the transition delay.
+      opened_at_mono: started_at_mono + transition_delay_ms,
       deadline_mono: deadline_mono
     }
   end
@@ -78,6 +81,12 @@ defmodule PidroServer.Games.TurnTimer do
   @spec remaining_ms(t()) :: non_neg_integer()
   def remaining_ms(%{deadline_mono: deadline_mono}) do
     max(deadline_mono - System.monotonic_time(:millisecond), 0)
+  end
+
+  @doc "Time the actor has had since the turn opened."
+  @spec elapsed_ms(t()) :: non_neg_integer()
+  def elapsed_ms(%{opened_at_mono: opened_at_mono}) do
+    max(System.monotonic_time(:millisecond) - opened_at_mono, 0)
   end
 
   @spec event_seq(key()) :: non_neg_integer()
