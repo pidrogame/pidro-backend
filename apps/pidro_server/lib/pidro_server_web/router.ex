@@ -283,6 +283,7 @@ defmodule PidroServerWeb.Router do
     ]
 
     get "/emails/export.csv", EmailExportController, :index
+    get "/beta/classic.csv", BetaExportController, :index
 
     live_session :ops,
       root_layout: {PidroServerWeb.Layouts, :dev_root},
@@ -300,6 +301,7 @@ defmodule PidroServerWeb.Router do
       live "/users/:id", UserDetailLive
       live "/emails", EmailMigrationLive
       live "/analytics", AnalyticsLive
+      live "/beta", BetaLive
       live "/bots", BotCatalogueLive
     end
   end

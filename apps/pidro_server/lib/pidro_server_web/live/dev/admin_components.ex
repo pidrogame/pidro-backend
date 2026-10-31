@@ -96,6 +96,9 @@ defmodule PidroServerWeb.Dev.AdminComponents do
           <.link navigate={~p"/admin/analytics"} class={nav_item_class(@active == "analytics")}>
             <.icon name="hero-chart-bar-square" class="size-4" /> Analytics
           </.link>
+          <.link navigate={~p"/admin/beta"} class={nav_item_class(@active == "beta")}>
+            <.icon name="hero-chart-pie" class="size-4" /> Beta
+          </.link>
           <.link navigate={~p"/admin/admins"} class={nav_item_class(@active == "admins")}>
             <.icon name="hero-lock-closed" class="size-4" /> Admins
           </.link>
