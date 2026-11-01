@@ -7,7 +7,7 @@ defmodule PidroServerWeb.API.RoomJSON do
   single room responses, room lists, and room creation responses.
   """
 
-  alias PidroServer.Accounts.Auth
+  alias PidroServer.Accounts.{Auth, User}
   alias PidroServer.Games.Room.{Config, Positions, Seat}
   alias PidroServerWeb.Serializers.GameStateSerializer
 
@@ -136,7 +136,11 @@ defmodule PidroServerWeb.API.RoomJSON do
     room(room, users_for_rooms([room]))
   end
 
-  @doc "Adds the same public player names as HTTP rooms to an authoritative readiness snapshot."
+  @doc """
+  Adds the same public player names as HTTP rooms to an authoritative
+  readiness snapshot, and whether each seat reads typed talk. Only the
+  table's own channel sends this, so the lobby never shows who is a minor.
+  """
   def readiness(snapshot) do
     held_ids = for {_pos, %{held_for: %{user_id: id}}} <- snapshot.seats, do: id
 
@@ -149,7 +153,8 @@ defmodule PidroServerWeb.API.RoomJSON do
       snapshot
       | seats:
           Map.new(snapshot.seats, fn {position, seat} ->
-            {position, with_player_names(seat, users)}
+            reads_typed = User.reads_typed?(seat_user(seat, users))
+            {position, seat |> with_player_names(users) |> Map.put(:reads_typed, reads_typed)}
           end)
     }
   end

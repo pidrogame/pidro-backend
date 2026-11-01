@@ -372,6 +372,14 @@ defmodule PidroServer.Accounts.User do
     |> cast(attrs, [:password_reset_token_hash, :password_reset_sent_at])
   end
 
+  @doc """
+  Whether the account may type and read typed table talk (PID-318): an
+  account, not a guest, declared 18 or older. An unknown age counts as no.
+  """
+  @spec reads_typed?(%__MODULE__{} | nil) :: boolean()
+  def reads_typed?(%__MODULE__{guest: false, age_band: "18_plus"}), do: true
+  def reads_typed?(_user), do: false
+
   @doc "The name other players see: the display name, or the username until one is set."
   @spec public_name(%__MODULE__{}) :: String.t() | nil
   def public_name(%__MODULE__{display_name: display_name, username: username}) do

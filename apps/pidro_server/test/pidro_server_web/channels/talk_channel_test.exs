@@ -123,6 +123,73 @@ defmodule PidroServerWeb.TalkChannelTest do
     end
   end
 
+  describe "say" do
+    test "a typed line reaches only seated adults who read typed talk, never a blocked pair",
+         ctx do
+      assert say(ctx, :adult, "  Hyvä peli!  ") == :ok
+
+      assert received(ctx) == %{
+               adult: [text(:north, ctx.people.adult, "Hyvä peli!")],
+               adult2: [text(:north, ctx.people.adult, "Hyvä peli!")]
+             }
+
+      {:ok, _} = Blocks.block(ctx.people.adult2.id, ctx.people.adult.id)
+      assert say(ctx, :adult, "Tack för spelet") == :ok
+      assert received(ctx) == %{adult: [text(:north, ctx.people.adult, "Tack för spelet")]}
+    end
+
+    test "only an adult account may type; a teen, a guest and a spectator may not", ctx do
+      assert say(ctx, :teen, "hello") == {:error, %{error: "not_allowed"}}
+      assert say(ctx, :guest, "hello") == {:error, %{error: "not_allowed"}}
+      assert say(ctx, :watcher, "hello") == {:error, %{error: "not_seated"}}
+      for _ <- 1..5, do: assert(say(ctx, :teen, "hello") == {:error, %{error: "not_allowed"}})
+      assert send_talk(ctx, :teen, %{"item" => "coin_heart"}) == :ok
+      _ = received(ctx)
+      assert received(ctx) == %{}
+    end
+
+    test "trimmed, 1 to 80 characters, and through the filter", ctx do
+      assert say(ctx, :adult, "voi v1ttu") == {:error, %{error: "filtered"}}
+      assert say(ctx, :adult, "   ") == {:error, %{error: "invalid_text"}}
+      assert say(ctx, :adult, String.duplicate("ä", 81)) == {:error, %{error: "invalid_text"}}
+      assert call(ctx, :adult, "say", %{"text" => 5}) == {:error, %{error: "invalid_text"}}
+      assert say(ctx, :adult, "fine\n(coin_heart)") == {:error, %{error: "invalid_text"}}
+      assert say(ctx, :adult, "fu\u200Bck") == {:error, %{error: "invalid_text"}}
+      assert received(ctx) == %{}
+
+      assert say(ctx, :adult, String.duplicate("ä", 80)) == :ok
+      assert %{adult2: [%{text: line}]} = received(ctx)
+      assert String.length(line) == 80
+    end
+
+    test "shares the talk limit", ctx do
+      for _ <- 1..5, do: assert(send_talk(ctx, :adult, %{"item" => "coin_thumb"}) == :ok)
+      assert say(ctx, :adult, "one more") == {:error, %{error: "rate_limited"}}
+    end
+
+    test "a report quotes the typed line the server saw", ctx do
+      assert say(ctx, :adult, "learn to bid") == :ok
+      assert send_talk(ctx, :adult, %{"item" => "coin_ha"}) == :ok
+      report = %{"user_id" => ctx.people.adult.id, "reason" => "rude", "text" => "forged"}
+      assert call(ctx, :teen, "report", report) == :ok
+      assert [%{body: "learn to bid\n(coin_ha)"}] = Feedback.list("reports")
+    end
+
+    test "every seat at the table says whether its player reads typed talk, the lobby never",
+         ctx do
+      seats = Process.get({:reply, :watcher}).readiness.seats
+
+      assert Map.new(seats, fn {seat, s} -> {seat, s.reads_typed} end) ==
+               %{north: true, east: true, south: false, west: false}
+
+      {:ok, room} = RoomManager.get_room(ctx.room.code)
+
+      refute Enum.any?(PidroServerWeb.API.RoomJSON.room(room).seats, fn {_, s} ->
+               Map.has_key?(s, :reads_typed)
+             end)
+    end
+  end
+
   describe "report" do
     test "quotes what the server saw, never what the client sends; a guest may report", ctx do
       assert send_talk(ctx, :adult2, %{"item" => "coin_ha"}) == :ok
@@ -287,12 +354,13 @@ defmodule PidroServerWeb.TalkChannelTest do
         {:ok, socket} =
           connect(UserSocket, %{"token" => create_token(user)}, test_process: test)
 
-        {:ok, _reply, channel} = join(socket, GameChannel, "game:#{code}")
-        send(test, {:joined, name})
+        {:ok, reply, channel} = join(socket, GameChannel, "game:#{code}")
+        send(test, {:joined, name, reply})
         relay(test, name, channel)
       end)
 
-    assert_receive {:joined, ^name}, 2_000
+    assert_receive {:joined, ^name, reply}, 2_000
+    Process.put({:reply, name}, reply)
     pid
   end
 
@@ -316,6 +384,8 @@ defmodule PidroServerWeb.TalkChannelTest do
   end
 
   defp send_talk(ctx, name, payload), do: call(ctx, name, "talk", payload)
+  defp say(ctx, name, text), do: call(ctx, name, "say", %{"text" => text})
+  defp text(seat, user, text), do: %{seat: seat, user_id: user.id, text: text}
 
   defp call(ctx, name, event, payload) do
     send(ctx.clients[name], {:push, event, payload})

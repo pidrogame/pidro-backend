@@ -24,6 +24,11 @@ defmodule PidroServerWeb.GameChannel do
   * `"talk"` - A seated player at a table with another human sends a face or a
     word: `%{"item" => "coin_heart"}`, one of `@talk_items`. Five per ten
     seconds; errors reply `%{error: "not_seated" | "no_table" | "rate_limited" | "invalid_item"}`
+  * `"say"` - A seated player who reads typed talk (an adult account, see
+    `PidroServer.Accounts.User.reads_typed?/1`) types to the table: `%{"text" => "Hyvä peli"}`,
+    trimmed, 1 to 80 characters, through `PidroServer.Moderation`. Shares the
+    talk limit; errors reply `%{error: "not_allowed" | "invalid_text" | "filtered"}`
+    or a talk error. Nothing typed is stored outside a report
   * `"report"` - Report a player at the table: `%{"user_id" => id, "reason" =>
     "rude" | "bothering" | "other"}`. The server quotes what they said at this
     table. Errors reply `%{error: "already_reported" | "invalid_report"}`
@@ -54,7 +59,9 @@ defmodule PidroServerWeb.GameChannel do
   * `"kicked"` - Pushed to the kicked player only, then the channel closes with
     reason `{:shutdown, :kicked}`
   * `"talk"` - `%{seat: :north, user_id: id, item: "coin_heart"}`, to everyone on
-    the channel except a player either side has blocked
+    the channel except a player either side has blocked; a typed line,
+    `%{seat: :north, user_id: id, text: "Hyvä peli"}`, only to seated players
+    who read typed talk
   * `"moment"` - `%{id: "start" | "partner_trick" | "game_end"}`, pushed with the
     game state to the seats `PidroServer.Games.Moments` names, never to spectators
   * `"presence_state"` - Presence information (who's online)
@@ -84,7 +91,8 @@ defmodule PidroServerWeb.GameChannel do
 
   alias Pidro.Game.Engine
   alias PidroServer.{Blocks, Feedback, RateLimit}
-  alias PidroServer.Accounts.Auth
+  alias PidroServer.Accounts.{Auth, User}
+  alias PidroServer.Moderation
   alias PidroServer.Diagnostics
   alias PidroServer.Games.{GameAdapter, Moments, PresenceAggregator, RoomManager}
   alias PidroServer.Games.Room.Seat
@@ -277,6 +285,7 @@ defmodule PidroServerWeb.GameChannel do
         |> assign(:role, role)
         |> assign(:join_type, join_type)
         |> assign(:blocked_ids, blocked_ids(user_id))
+        |> assign(:reads_typed, User.reads_typed?(Auth.get_users_map([user_id])[user_id]))
         |> assign_snapshot_cursor(game_snapshot)
 
       # Track presence after join
@@ -816,6 +825,21 @@ defmodule PidroServerWeb.GameChannel do
   def handle_in("talk", _params, socket),
     do: {:reply, {:error, %{error: "invalid_item"}}, socket}
 
+  def handle_in("say", %{"text" => text}, socket) when is_binary(text) do
+    with {:ok, text} <- typed(String.trim(text), socket.assigns.reads_typed),
+         :ok <- may_talk(socket) do
+      line = %{seat: socket.assigns.position, user_id: socket.assigns.user_id, text: text}
+      broadcast!(socket, "talk", line)
+      RoomManager.note_talk(socket.assigns.room_code, line)
+      {:reply, :ok, socket}
+    else
+      {:error, reason} -> {:reply, {:error, %{error: reason}}, socket}
+    end
+  end
+
+  def handle_in("say", _params, socket),
+    do: {:reply, {:error, %{error: "invalid_text"}}, socket}
+
   # Anyone at the table may report a player there. What they said comes from
   # the room, never from the client.
   def handle_in("report", %{"user_id" => reported_id, "reason" => reason}, socket)
@@ -1137,11 +1161,16 @@ defmodule PidroServerWeb.GameChannel do
   custom broadcast messages like player_ready.
   """
   @impl true
-  # Blocks were loaded at join, so a talk costs no query per message.
+  # Blocks were loaded at join, so a talk costs no query per message. A
+  # typed line reaches only seated players who read typed talk.
   def handle_out("talk", %{user_id: sender} = msg, socket) do
-    unless MapSet.member?(socket.assigns[:blocked_ids] || MapSet.new(), sender),
-      do: push(socket, "talk", msg)
+    blocked? = MapSet.member?(socket.assigns[:blocked_ids] || MapSet.new(), sender)
 
+    reads? =
+      not is_map_key(msg, :text) or
+        (socket.assigns.role == :player and socket.assigns[:reads_typed] == true)
+
+    if reads? and not blocked?, do: push(socket, "talk", msg)
     {:noreply, socket}
   end
 
@@ -1250,6 +1279,19 @@ defmodule PidroServerWeb.GameChannel do
   defp blocked_ids(user_id) do
     :ok = Phoenix.PubSub.subscribe(PidroServer.PubSub, Blocks.topic(user_id))
     Blocks.ids(user_id)
+  end
+
+  defp typed(_text, false), do: {:error, "not_allowed"}
+
+  # No control or format characters: a newline would forge a line in a
+  # report, and a zero-width one would hide a word from the filter.
+  defp typed(text, true) do
+    cond do
+      text == "" or String.length(text) > 80 -> {:error, "invalid_text"}
+      text =~ ~r/[\p{Cc}\p{Cf}]/u -> {:error, "invalid_text"}
+      Moderation.allowed?(text) -> {:ok, text}
+      true -> {:error, "filtered"}
+    end
   end
 
   defp at_table?(room, user_id) do
