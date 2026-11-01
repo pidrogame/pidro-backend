@@ -1,7 +1,8 @@
 defmodule PidroServer.Feedback.Entry do
   @moduledoc """
-  One row of player feedback: a `note` written in the app, or a one-tap
-  `pace` or `old_pidro` answer. The id is the ticket number.
+  One row of player feedback: a `note` written in the app, a one-tap
+  `pace` or `old_pidro` answer, or a `report` about another player. The id
+  is the ticket number.
   """
 
   use Ecto.Schema
@@ -29,6 +30,7 @@ defmodule PidroServer.Feedback.Entry do
     field :details, :map, default: %{}
     field :status, :string, default: "open"
     belongs_to :user, User, type: :binary_id
+    belongs_to :reported_user, User, type: :binary_id
 
     timestamps(type: :utc_datetime_usec)
   end
@@ -44,6 +46,23 @@ defmodule PidroServer.Feedback.Entry do
     |> validate_required([:kind])
     |> validate_inclusion(:kind, ["note" | Map.keys(@answers)])
     |> cast_kind(params, account_email)
+  end
+
+  @doc """
+  A report the server builds: the reason in `answer`, the reported
+  player's lines in `body`, the game in `details`. Never cast from a client.
+  """
+  def report_changeset(entry, reason) do
+    entry
+    |> change(kind: "report", answer: reason)
+    |> validate_inclusion(:answer, ~w(rude bothering other))
+    |> validate_required([:reported_user_id])
+    |> foreign_key_constraint(:user_id)
+    |> foreign_key_constraint(:reported_user_id)
+    |> unique_constraint([:user_id, :reported_user_id],
+      name: :feedback_one_report_per_game,
+      message: "already reported"
+    )
   end
 
   @doc "Marks an entry `open` or `done`."

@@ -181,6 +181,87 @@ defmodule PidroServer.FeedbackTest do
     end
   end
 
+  describe "report/5" do
+    setup %{user: user, other: other} do
+      game = %{key: "inst-1", instance: "inst-1", room_code: "TALK", rule_set: :finnish}
+      %{reporter: user, reported: other, game: game}
+    end
+
+    test "saves the reason and the lines the server quotes, and mails the inbox", ctx do
+      lines = [%{text: "you play like a child"}, %{item: "coin_ha"}]
+
+      assert {:ok, report} = Feedback.report(ctx.reporter, ctx.reported, "rude", ctx.game, lines)
+
+      assert %Entry{kind: "report", answer: "rude", status: "open", rule_set: "finnish"} = report
+      assert {report.user_id, report.reported_user_id} == {ctx.reporter.id, ctx.reported.id}
+      assert report.body == "you play like a child\n(coin_ha)"
+
+      assert report.details == %{
+               "game" => "inst-1",
+               "game_instance_id" => "inst-1",
+               "room_code" => "TALK"
+             }
+
+      reporter = ctx.reporter.display_name || ctx.reporter.username
+      reported = ctx.reported.display_name || ctx.reported.username
+
+      # Sent in the background, so the channel never waits on the mail server.
+      assert_receive {:email, email}, 1_000
+      assert email.to == [{"", "marcel@pidro.online"}]
+      assert email.subject == "Report: #{reporter} about #{reported}"
+      assert email.text_body =~ "Reason: rude"
+      assert email.text_body =~ "Game: inst-1 (room TALK, finnish)"
+      assert email.text_body =~ "you play like a child\n(coin_ha)"
+      assert email.text_body =~ "Report ##{report.id}"
+    end
+
+    test "one report per reporter, reported player and game", ctx do
+      assert {:ok, _} = Feedback.report(ctx.reporter, ctx.reported, "rude", ctx.game, [])
+
+      assert {:error, changeset} =
+               Feedback.report(ctx.reporter, ctx.reported, "other", ctx.game, [])
+
+      assert %{user_id: ["already reported"]} = errors_on(changeset)
+
+      assert {:ok, _} =
+               Feedback.report(
+                 ctx.reporter,
+                 ctx.reported,
+                 "rude",
+                 %{ctx.game | key: "inst-2"},
+                 []
+               )
+
+      assert {:ok, _} = Feedback.report(ctx.reported, ctx.reporter, "rude", ctx.game, [])
+    end
+
+    test "only the three reasons", ctx do
+      assert {:error, changeset} =
+               Feedback.report(ctx.reporter, ctx.reported, "cheating", ctx.game, [])
+
+      assert %{answer: ["is invalid"]} = errors_on(changeset)
+    end
+
+    test "a report counts in no answers, stays out of the notes and lists under reports", ctx do
+      {:ok, note} = Feedback.create(note(), ctx.reporter)
+      {:ok, report} = Feedback.report(ctx.reporter, ctx.reported, "bothering", ctx.game, [])
+
+      assert Feedback.counts() == %{pace: %{}, old_pidro: %{}}
+      assert Enum.map(Feedback.list("all"), & &1.id) == [note.id]
+      assert [%{id: id, reported_user: %{id: reported_id}}] = Feedback.list("reports")
+      assert {id, reported_id} == {report.id, ctx.reported.id}
+
+      assert {:ok, %{status: "done"}} = Feedback.set_status(report.id, "done")
+    end
+
+    test "the app cannot file a report through notes", %{user: user, other: other} do
+      assert {:error, changeset} =
+               Feedback.create(%{"kind" => "report", "reported_user_id" => other.id}, user)
+
+      assert %{kind: ["is invalid"]} = errors_on(changeset)
+    end
+  end
+
   defp note(attrs \\ %{}), do: Map.merge(%{"kind" => "note", "body" => "Nice game"}, attrs)
 
   defp answer(kind, value, game_id),

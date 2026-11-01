@@ -82,6 +82,7 @@ defmodule PidroServer.Games.RoomManager do
     - `:config` - The `Room.Config` set at creation: name, requested bot difficulty and whether the table is solo. Never changes for the life of the room
     - `:phase_timers` - Map of position to timer reference for the disconnect cascade (%{position => reference()})
     - `:post_game_summaries` - The last game's `%{user_id => summary}`, kept while `:finished` so a rejoin sees it
+    - `:talk` - The last 20 faces, words and typed lines at the table, newest first, so a report quotes what the server saw. Gone with the room
 
     ## Derived Data
 
@@ -121,7 +122,8 @@ defmodule PidroServer.Games.RoomManager do
             seat_lifecycle_revision: non_neg_integer(),
             game_number: non_neg_integer(),
             game_started_at: DateTime.t() | nil,
-            post_game_summaries: %{optional(String.t()) => map()}
+            post_game_summaries: %{optional(String.t()) => map()},
+            talk: [map()]
           }
 
     defstruct [
@@ -155,7 +157,8 @@ defmodule PidroServer.Games.RoomManager do
       # Games started in this room. A rematch starts game 2, 3, ... in place.
       game_number: 0,
       game_started_at: nil,
-      post_game_summaries: %{}
+      post_game_summaries: %{},
+      talk: []
     ]
 
     @doc "Public game progress, omitted outside a playing room."
@@ -1322,6 +1325,10 @@ defmodule PidroServer.Games.RoomManager do
   def set_pace(room_code, user_id, pace) when pace in [:quick, :own],
     do: GenServer.call(__MODULE__, {:set_pace, room_code, user_id, pace})
 
+  @doc "Keeps a talk line (`%{user_id, seat, item}` or `%{user_id, seat, text}`) in the room's last 20."
+  @spec note_talk(String.t(), map()) :: :ok
+  def note_talk(room_code, line), do: GenServer.cast(__MODULE__, {:note_talk, room_code, line})
+
   @doc "Releases an own-pace hand for its human; otherwise a no-op."
   @spec continue_hand(String.t(), String.t()) :: :ok | {:error, atom()}
   def continue_hand(room_code, user_id),
@@ -2356,6 +2363,17 @@ defmodule PidroServer.Games.RoomManager do
   def handle_call(:reset_for_test, _from, %State{} = state) do
     Logger.info("RoomManager state reset for testing")
     {:reply, :ok, teardown_state(state)}
+  end
+
+  @impl true
+  def handle_cast({:note_talk, code, line}, %State{} = state) do
+    case fetch_room(state, code) do
+      {:ok, room} ->
+        {:noreply, put_room(state, %{room | talk: Enum.take([line | room.talk], 20)})}
+
+      {:error, _} ->
+        {:noreply, state}
+    end
   end
 
   @impl true

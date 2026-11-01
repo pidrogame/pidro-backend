@@ -1,7 +1,8 @@
 defmodule PidroServerWeb.Dev.FeedbackLive do
   @moduledoc """
   Player feedback (PID-316): the pace and old-Pidro answers, and the notes
-  players wrote in the app, to work through and mark done. Data from
+  players wrote in the app, to work through and mark done. Reports about
+  players (PID-329) sit behind their own filter. Data from
   `PidroServer.Feedback`.
   """
 
@@ -14,7 +15,7 @@ defmodule PidroServerWeb.Dev.FeedbackLive do
   @rule_sets [{"finnish", "Finnish"}, {"louisiana", "Louisiana"}]
   @pace [{"too_slow", "Too slow"}, {"right", "Right"}, {"too_fast", "Too fast"}]
   @old_pidro [{"worse", "Worse"}, {"same", "Same"}, {"better", "Better"}]
-  @filters [{"open", "Open"}, {"done", "Done"}, {"all", "All"}]
+  @filters [{"open", "Open"}, {"done", "Done"}, {"all", "All"}, {"reports", "Reports"}]
 
   @impl true
   def mount(_params, _session, socket) do
@@ -30,7 +31,7 @@ defmodule PidroServerWeb.Dev.FeedbackLive do
 
   @impl true
   def handle_params(params, _uri, socket) do
-    status = if params["status"] in ~w(done all), do: params["status"], else: "open"
+    status = if params["status"] in ~w(done all reports), do: params["status"], else: "open"
     {:noreply, socket |> assign(status: status) |> load()}
   end
 
@@ -116,7 +117,9 @@ defmodule PidroServerWeb.Dev.FeedbackLive do
 
       <section id="feedback-notes" class="overflow-hidden rounded-lg border border-stone-200 bg-white">
         <div class="flex items-center justify-between border-b border-stone-200 px-4 py-3">
-          <h2 class="text-sm font-semibold text-stone-950">Notes</h2>
+          <h2 class="text-sm font-semibold text-stone-950">
+            {if @status == "reports", do: "Reports", else: "Notes"}
+          </h2>
           <nav class="flex gap-1 text-sm" aria-label="Note status">
             <.link
               :for={{status, label} <- @filters}
@@ -133,9 +136,49 @@ defmodule PidroServerWeb.Dev.FeedbackLive do
             </.link>
           </nav>
         </div>
-        <p :if={@notes == []} class="px-4 py-6 text-sm text-stone-500">No notes here.</p>
+        <p :if={@notes == []} class="px-4 py-6 text-sm text-stone-500">
+          {if @status == "reports", do: "No reports.", else: "No notes here."}
+        </p>
+        <article
+          :for={report <- @notes}
+          :if={@status == "reports"}
+          id={"report-#{report.id}"}
+          class="flex flex-col gap-3 border-b border-stone-100 px-4 py-4 last:border-b-0 lg:flex-row"
+        >
+          <div class="w-56 shrink-0 space-y-1 text-xs text-stone-500">
+            <p class="font-mono text-sm font-semibold text-stone-950">#{report.id}</p>
+            <p>{Calendar.strftime(report.inserted_at, "%Y-%m-%d %H:%M")} UTC</p>
+            <p>From <.who user={report.user} /></p>
+            <p>About <.who user={report.reported_user} /></p>
+            <p>
+              <span class="rounded bg-rose-50 px-1.5 py-0.5 font-medium text-rose-800">
+                {report.answer}
+              </span>
+            </p>
+            <p>
+              <.link
+                :if={report.details["game_instance_id"]}
+                navigate={~p"/admin/history/#{report.details["game_instance_id"]}"}
+                class="underline"
+              >
+                Game · room {report.details["room_code"]}
+              </.link>
+              <span :if={!report.details["game_instance_id"]}>
+                Room {report.details["room_code"]}, before the game
+              </span>
+            </p>
+          </div>
+          <p
+            phx-no-format
+            class="min-w-0 flex-1 whitespace-pre-wrap break-words font-mono text-sm leading-6 text-stone-900"
+          >{report.body || "Nothing said at this table."}</p>
+          <div class="shrink-0">
+            <.status_button entry={report} />
+          </div>
+        </article>
         <article
           :for={note <- @notes}
+          :if={@status != "reports"}
           id={"note-#{note.id}"}
           class="flex flex-col gap-3 border-b border-stone-100 px-4 py-4 last:border-b-0 lg:flex-row"
         >
@@ -165,25 +208,43 @@ defmodule PidroServerWeb.Dev.FeedbackLive do
             class="min-w-0 flex-1 whitespace-pre-wrap break-words text-sm leading-6 text-stone-900"
           >{note.body}</p>
           <div class="shrink-0">
-            <button
-              type="button"
-              phx-click="set_status"
-              phx-value-id={note.id}
-              phx-value-status={if note.status == "open", do: "done", else: "open"}
-              class={[
-                "rounded-md px-3 py-1.5 text-sm font-semibold",
-                if(note.status == "open",
-                  do: "bg-stone-950 text-white hover:bg-stone-800",
-                  else: "border border-stone-300 bg-white text-stone-700 hover:text-stone-950"
-                )
-              ]}
-            >
-              {if note.status == "open", do: "Done", else: "Reopen"}
-            </button>
+            <.status_button entry={note} />
           </div>
         </article>
       </section>
     </.admin_shell>
+    """
+  end
+
+  defp status_button(assigns) do
+    ~H"""
+    <button
+      type="button"
+      phx-click="set_status"
+      phx-value-id={@entry.id}
+      phx-value-status={if @entry.status == "open", do: "done", else: "open"}
+      class={[
+        "rounded-md px-3 py-1.5 text-sm font-semibold",
+        if(@entry.status == "open",
+          do: "bg-stone-950 text-white hover:bg-stone-800",
+          else: "border border-stone-300 bg-white text-stone-700 hover:text-stone-950"
+        )
+      ]}
+    >
+      {if @entry.status == "open", do: "Done", else: "Reopen"}
+    </button>
+    """
+  end
+
+  defp who(%{user: nil} = assigns),
+    do: ~H|<span class="font-medium text-stone-900">a deleted player</span>|
+
+  defp who(assigns) do
+    ~H"""
+    <.link navigate={~p"/admin/users/#{@user.id}"} class="font-medium text-stone-900 underline">
+      {@user.display_name || @user.username}
+    </.link>
+    <span :if={@user.guest}>(guest)</span>
     """
   end
 

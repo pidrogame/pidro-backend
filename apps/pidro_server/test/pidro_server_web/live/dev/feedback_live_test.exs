@@ -67,6 +67,37 @@ defmodule PidroServerWeb.Dev.FeedbackLiveTest do
     assert Repo.get!(Feedback.Entry, note.id).status == "open"
   end
 
+  test "lists reports under their own filter with the game and the quoted lines", %{conn: conn} do
+    reporter = AccountsFixtures.guest_fixture(%{display_name: "Vieras"})
+    reported = AccountsFixtures.user_fixture(%{display_name: "Rude Ruben"})
+    game = %{key: "g-1", instance: "g-1", room_code: "RPRT", rule_set: :finnish}
+
+    {:ok, report} =
+      Feedback.report(reporter, reported, "rude", game, [%{text: "you are useless"}])
+
+    {:ok, note} = Feedback.create(%{"kind" => "note", "body" => "Nice app"}, reporter)
+
+    {:ok, view, _html} = live(conn, ~p"/admin/feedback")
+    assert has_element?(view, "#note-#{note.id}")
+    refute has_element?(view, "#report-#{report.id}")
+
+    view |> element("nav a", "Reports") |> render_click()
+    assert_patch(view, ~p"/admin/feedback?status=reports")
+    refute has_element?(view, "#note-#{note.id}")
+
+    row = view |> element("#report-#{report.id}") |> render()
+    assert row =~ "Vieras"
+    assert row =~ "(guest)"
+    assert row =~ "Rude Ruben"
+    assert row =~ "rude"
+    assert row =~ "you are useless"
+    assert has_element?(view, "#report-#{report.id} a[href='/admin/history/g-1']")
+
+    view |> element("#report-#{report.id} button", "Done") |> render_click()
+    assert Repo.get!(Feedback.Entry, report.id).status == "done"
+    assert view |> element("#report-#{report.id} button") |> render() =~ "Reopen"
+  end
+
   defp cells(view, selector) do
     view
     |> element(selector)

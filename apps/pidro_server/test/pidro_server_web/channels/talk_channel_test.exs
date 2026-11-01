@@ -7,14 +7,22 @@ defmodule PidroServerWeb.TalkChannelTest do
 
   use PidroServerWeb.ChannelCase, async: false
 
+  import ExUnit.CaptureLog
+
   alias PidroServer.AccountsFixtures
   alias PidroServer.Blocks
+  alias PidroServer.Feedback
   alias PidroServer.Games.Bots.BotManager
   alias PidroServer.Games.{GameAdapter, RoomManager}
   alias PidroServer.Repo
   alias PidroServerWeb.{GameChannel, UserSocket}
 
   @moduletag :channel
+
+  defmodule ErrorMailer do
+    use Swoosh.Adapter
+    def deliver(_email, _config), do: {:error, :provider_down}
+  end
 
   setup do
     Process.flag(:trap_exit, true)
@@ -112,6 +120,77 @@ defmodule PidroServerWeb.TalkChannelTest do
 
       assert ctx |> received() |> Map.fetch!(:adult) |> length() == 5
       assert send_talk(ctx, :adult, %{"item" => "coin_thumb"}) == :ok
+    end
+  end
+
+  describe "report" do
+    test "quotes what the server saw, never what the client sends; a guest may report", ctx do
+      assert send_talk(ctx, :adult2, %{"item" => "coin_ha"}) == :ok
+      assert send_talk(ctx, :teen, %{"item" => "word_sorry"}) == :ok
+
+      forged = %{
+        "user_id" => ctx.people.adult2.id,
+        "reason" => "rude",
+        "text" => "I will find you",
+        "body" => "I will find you",
+        "lines" => ["I will find you"]
+      }
+
+      assert call(ctx, :guest, "report", forged) == :ok
+
+      assert [report] = Feedback.list("reports")
+
+      assert {report.user_id, report.reported_user_id} ==
+               {ctx.people.guest.id, ctx.people.adult2.id}
+
+      assert {report.answer, report.body} == {"rude", "(coin_ha)"}
+      assert report.details["room_code"] == ctx.room.code
+      assert is_binary(report.details["game_instance_id"])
+    end
+
+    test "once per game; a spectator may report; nonsense is refused", ctx do
+      report = %{"user_id" => ctx.people.adult.id, "reason" => "bothering"}
+      assert call(ctx, :teen, "report", report) == :ok
+      assert call(ctx, :teen, "report", report) == {:error, %{error: "already_reported"}}
+      assert call(ctx, :watcher, "report", report) == :ok
+      assert [%{body: nil}, %{body: nil}] = Feedback.list("reports")
+
+      for bad <- [
+            %{"user_id" => ctx.people.teen.id, "reason" => "rude"},
+            %{"user_id" => ctx.people.watcher.id, "reason" => "rude"},
+            %{"user_id" => Ecto.UUID.generate(), "reason" => "rude"},
+            %{"user_id" => "bot_1", "reason" => "rude"},
+            %{"user_id" => ctx.people.adult.id, "reason" => "cheating"},
+            %{"reason" => "rude"}
+          ] do
+        assert call(ctx, :teen, "report", bad) == {:error, %{error: "invalid_report"}}
+      end
+
+      assert length(Feedback.list("reports")) == 2
+    end
+
+    test "a failed mail is logged and the report saved", ctx do
+      mailer_env = Application.get_env(:pidro_server, PidroServer.Mailer)
+      Application.put_env(:pidro_server, PidroServer.Mailer, adapter: ErrorMailer)
+      on_exit(fn -> Application.put_env(:pidro_server, PidroServer.Mailer, mailer_env) end)
+
+      log =
+        capture_log(fn ->
+          report = %{"user_id" => ctx.people.guest.id, "reason" => "other"}
+          assert call(ctx, :adult, "report", report) == :ok
+          Process.sleep(100)
+        end)
+
+      assert log =~ "Report email delivery failed"
+      assert [%{answer: "other"}] = Feedback.list("reports")
+    end
+
+    test "the room keeps the last 20 lines", ctx do
+      for n <- 1..25,
+          do: RoomManager.note_talk(ctx.room.code, %{user_id: "u", seat: :north, item: "#{n}"})
+
+      {:ok, room} = RoomManager.get_room(ctx.room.code)
+      assert Enum.map(room.talk, & &1.item) == Enum.map(25..6//-1, &"#{&1}")
     end
   end
 

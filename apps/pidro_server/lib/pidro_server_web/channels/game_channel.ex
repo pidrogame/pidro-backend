@@ -24,6 +24,9 @@ defmodule PidroServerWeb.GameChannel do
   * `"talk"` - A seated player at a table with another human sends a face or a
     word: `%{"item" => "coin_heart"}`, one of `@talk_items`. Five per ten
     seconds; errors reply `%{error: "not_seated" | "no_table" | "rate_limited" | "invalid_item"}`
+  * `"report"` - Report a player at the table: `%{"user_id" => id, "reason" =>
+    "rude" | "bothering" | "other"}`. The server quotes what they said at this
+    table. Errors reply `%{error: "already_reported" | "invalid_report"}`
 
   ## Outgoing Events (to clients)
 
@@ -80,7 +83,8 @@ defmodule PidroServerWeb.GameChannel do
   require Logger
 
   alias Pidro.Game.Engine
-  alias PidroServer.{Blocks, RateLimit}
+  alias PidroServer.{Blocks, Feedback, RateLimit}
+  alias PidroServer.Accounts.Auth
   alias PidroServer.Diagnostics
   alias PidroServer.Games.{GameAdapter, Moments, PresenceAggregator, RoomManager}
   alias PidroServer.Games.Room.Seat
@@ -799,12 +803,9 @@ defmodule PidroServerWeb.GameChannel do
   def handle_in("talk", %{"item" => item}, socket) when item in @talk_items do
     case may_talk(socket) do
       :ok ->
-        broadcast!(socket, "talk", %{
-          seat: socket.assigns.position,
-          user_id: socket.assigns.user_id,
-          item: item
-        })
-
+        line = %{seat: socket.assigns.position, user_id: socket.assigns.user_id, item: item}
+        broadcast!(socket, "talk", line)
+        RoomManager.note_talk(socket.assigns.room_code, line)
         {:reply, :ok, socket}
 
       {:error, reason} ->
@@ -814,6 +815,37 @@ defmodule PidroServerWeb.GameChannel do
 
   def handle_in("talk", _params, socket),
     do: {:reply, {:error, %{error: "invalid_item"}}, socket}
+
+  # Anyone at the table may report a player there. What they said comes from
+  # the room, never from the client.
+  def handle_in("report", %{"user_id" => reported_id, "reason" => reason}, socket)
+      when is_binary(reported_id) and reason in ~w(rude bothering other) do
+    reporter_id = socket.assigns.user_id
+
+    with {:ok, room} <- RoomManager.get_room(socket.assigns.room_code),
+         true <- reported_id != reporter_id and at_table?(room, reported_id),
+         %{^reporter_id => reporter, ^reported_id => reported} <-
+           Auth.get_users_map([reporter_id, reported_id]),
+         {:ok, _report} <-
+           Feedback.report(
+             reporter,
+             reported,
+             reason,
+             game(room, socket),
+             said(room, reported_id)
+           ) do
+      {:reply, :ok, socket}
+    else
+      {:error, %Ecto.Changeset{errors: [{:user_id, {"already reported", _}} | _]}} ->
+        {:reply, {:error, %{error: "already_reported"}}, socket}
+
+      _ ->
+        {:reply, {:error, %{error: "invalid_report"}}, socket}
+    end
+  end
+
+  def handle_in("report", _params, socket),
+    do: {:reply, {:error, %{error: "invalid_report"}}, socket}
 
   def handle_in("get_seat_lifecycle", _params, socket) do
     case RoomManager.get_seat_lifecycle(socket.assigns.room_code) do
@@ -1219,6 +1251,24 @@ defmodule PidroServerWeb.GameChannel do
     :ok = Phoenix.PubSub.subscribe(PidroServer.PubSub, Blocks.topic(user_id))
     Blocks.ids(user_id)
   end
+
+  defp at_table?(room, user_id) do
+    Enum.any?(room.seats, fn {_position, seat} -> seat.user_id == user_id end) or
+      Enum.any?(room.talk, &(&1.user_id == user_id))
+  end
+
+  # The game a report is about: the one being played, else the room.
+  defp game(room, socket) do
+    %{
+      key: socket.assigns[:game_instance_id] || room.id,
+      instance: socket.assigns[:game_instance_id],
+      room_code: room.code,
+      rule_set: room.config.rule_set
+    }
+  end
+
+  defp said(room, user_id),
+    do: room.talk |> Enum.filter(&(&1.user_id == user_id)) |> Enum.reverse()
 
   defp talk_table?(room),
     do: Enum.count(room.seats, fn {_position, seat} -> seat.occupant_type == :human end) >= 2
