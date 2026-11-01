@@ -29,14 +29,17 @@ defmodule PidroServerWeb.Dev.AnalyticsLive do
     {:ok,
      socket
      |> assign(:page_title, "Analytics Dashboard")
-     |> assign(:uptime_start, DateTime.utc_now())
+     |> assign(:uptime_seconds, node_uptime_seconds())
      |> assign(:current_time, DateTime.utc_now())
      |> load_stats()}
   end
 
   @impl true
   def handle_info(:tick, socket) do
-    {:noreply, assign(socket, :current_time, DateTime.utc_now())}
+    {:noreply,
+     socket
+     |> assign(:uptime_seconds, node_uptime_seconds())
+     |> assign(:current_time, DateTime.utc_now())}
   end
 
   @impl true
@@ -87,7 +90,7 @@ defmodule PidroServerWeb.Dev.AnalyticsLive do
                 Uptime
               </dt>
               <dd class="mt-1 text-sm font-bold text-stone-900">
-                {format_uptime(@uptime_start, @current_time)}
+                {format_uptime(@uptime_seconds)}
               </dd>
             </div>
             <div>
@@ -225,9 +228,14 @@ defmodule PidroServerWeb.Dev.AnalyticsLive do
     assign(socket, :stats, stats)
   end
 
-  defp format_uptime(start_time, current_time) do
-    diff = DateTime.diff(current_time, start_time, :second)
+  # Wall-clock time since the Erlang node started, i.e. since the last
+  # deploy or restart. Not since this LiveView mounted.
+  defp node_uptime_seconds do
+    {uptime_ms, _since_last_call} = :erlang.statistics(:wall_clock)
+    div(uptime_ms, 1000)
+  end
 
+  defp format_uptime(diff) when is_integer(diff) do
     hours = div(diff, 3600)
     minutes = div(rem(diff, 3600), 60)
     seconds = rem(diff, 60)
