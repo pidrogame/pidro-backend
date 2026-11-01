@@ -21,6 +21,9 @@ defmodule PidroServerWeb.GameChannel do
   * `"rematch"` - Ask for another game in a finished room, same payload and replies as
     `"ready"`. Game over clears readiness and bumps `ready_epoch`; when every human has
     asked, a new game starts in the same room with the same seats.
+  * `"talk"` - A seated player at a table with another human sends a face or a
+    word: `%{"item" => "coin_heart"}`, one of `@talk_items`. Five per ten
+    seconds; errors reply `%{error: "not_seated" | "no_table" | "rate_limited" | "invalid_item"}`
 
   ## Outgoing Events (to clients)
 
@@ -47,6 +50,8 @@ defmodule PidroServerWeb.GameChannel do
     reason: "not_now" | "sat_elsewhere"}`
   * `"kicked"` - Pushed to the kicked player only, then the channel closes with
     reason `{:shutdown, :kicked}`
+  * `"talk"` - `%{seat: :north, user_id: id, item: "coin_heart"}`, to everyone on
+    the channel except a player either side has blocked
   * `"presence_state"` - Presence information (who's online)
   * `"presence_diff"` - Presence changes
 
@@ -73,6 +78,7 @@ defmodule PidroServerWeb.GameChannel do
   require Logger
 
   alias Pidro.Game.Engine
+  alias PidroServer.{Blocks, RateLimit}
   alias PidroServer.Diagnostics
   alias PidroServer.Games.{GameAdapter, PresenceAggregator, RoomManager}
   alias PidroServer.Games.Room.Seat
@@ -88,8 +94,12 @@ defmodule PidroServerWeb.GameChannel do
     "spades" => :spades
   }
 
+  @talk_items ~w(word_nice word_well word_bid word_sorry word_oops word_thanks word_luck
+                 word_game word_hello word_noworries coin_thumb coin_heart coin_ha coin_oops
+                 coin_wow)
+
   # Intercept presence_diff, player_ready, and player_reconnected broadcasts to handle them explicitly
-  intercept ["presence_diff", "player_ready", "player_reconnected", "player_disconnected"]
+  intercept ["presence_diff", "player_ready", "player_reconnected", "player_disconnected", "talk"]
 
   @doc """
   Authorizes and joins a player or spectator to the game channel.
@@ -260,6 +270,7 @@ defmodule PidroServerWeb.GameChannel do
         |> assign(:position, position)
         |> assign(:role, role)
         |> assign(:join_type, join_type)
+        |> assign(:blocked_ids, blocked_ids(user_id))
         |> assign_snapshot_cursor(game_snapshot)
 
       # Track presence after join
@@ -782,6 +793,26 @@ defmodule PidroServerWeb.GameChannel do
     end
   end
 
+  # The seat and sender come from the socket, never the payload.
+  def handle_in("talk", %{"item" => item}, socket) when item in @talk_items do
+    case may_talk(socket) do
+      :ok ->
+        broadcast!(socket, "talk", %{
+          seat: socket.assigns.position,
+          user_id: socket.assigns.user_id,
+          item: item
+        })
+
+        {:reply, :ok, socket}
+
+      {:error, reason} ->
+        {:reply, {:error, %{error: reason}}, socket}
+    end
+  end
+
+  def handle_in("talk", _params, socket),
+    do: {:reply, {:error, %{error: "invalid_item"}}, socket}
+
   def handle_in("get_seat_lifecycle", _params, socket) do
     case RoomManager.get_seat_lifecycle(socket.assigns.room_code) do
       {:ok, snapshot} ->
@@ -1033,6 +1064,9 @@ defmodule PidroServerWeb.GameChannel do
     {:noreply, socket}
   end
 
+  def handle_info(:blocks_changed, socket),
+    do: {:noreply, assign(socket, :blocked_ids, Blocks.ids(socket.assigns.user_id))}
+
   def handle_info(message, socket) do
     PidroServer.Games.UnexpectedMessage.report(__MODULE__, message)
     {:noreply, socket}
@@ -1069,6 +1103,14 @@ defmodule PidroServerWeb.GameChannel do
   custom broadcast messages like player_ready.
   """
   @impl true
+  # Blocks were loaded at join, so a talk costs no query per message.
+  def handle_out("talk", %{user_id: sender} = msg, socket) do
+    unless MapSet.member?(socket.assigns[:blocked_ids] || MapSet.new(), sender),
+      do: push(socket, "talk", msg)
+
+    {:noreply, socket}
+  end
+
   # The early plain PubSub subscription also delivers non-intercepted events.
   def handle_out(event, msg, socket) do
     push(socket, event, msg)
@@ -1150,6 +1192,34 @@ defmodule PidroServerWeb.GameChannel do
   end
 
   ## Private Helpers
+
+  # A talk table has at least two seated humans, and the sender is one of them.
+  defp may_talk(%{assigns: %{role: :player, position: position} = assigns})
+       when not is_nil(position) do
+    user_id = assigns.user_id
+
+    with {:ok, %{seats: %{^position => %{occupant_type: :human, user_id: ^user_id}}} = room} <-
+           RoomManager.get_room(assigns.room_code),
+         true <- talk_table?(room),
+         {:allow, _} <- RateLimit.hit({:talk, user_id}, 10_000, 5) do
+      :ok
+    else
+      {:ok, _room} -> {:error, "not_seated"}
+      {:deny, _} -> {:error, "rate_limited"}
+      _ -> {:error, "no_table"}
+    end
+  end
+
+  defp may_talk(_socket), do: {:error, "not_seated"}
+
+  # Followed before the load, so a block made meanwhile is not missed.
+  defp blocked_ids(user_id) do
+    :ok = Phoenix.PubSub.subscribe(PidroServer.PubSub, Blocks.topic(user_id))
+    Blocks.ids(user_id)
+  end
+
+  defp talk_table?(room),
+    do: Enum.count(room.seats, fn {_position, seat} -> seat.occupant_type == :human end) >= 2
 
   @spec apply_game_action(Phoenix.Socket.t(), term()) ::
           {:reply, :ok | {:error, map()}, Phoenix.Socket.t()}

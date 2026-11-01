@@ -45,6 +45,7 @@ defmodule PidroServer.Blocks do
         )
       end
 
+      changed(user_id, id)
       {:ok, list(user_id)}
     end
   end
@@ -54,6 +55,7 @@ defmodule PidroServer.Blocks do
   def unblock(user_id, blocked_id) do
     with {:ok, id} <- target(user_id, blocked_id) do
       Repo.delete_all(from b in Block, where: b.user_id == ^user_id and b.blocked_id == ^id)
+      changed(user_id, id)
       {:ok, list(user_id)}
     end
   end
@@ -93,6 +95,22 @@ defmodule PidroServer.Blocks do
     end
   end
 
+  @doc "The ids of everyone blocked by or blocking `user_id`. Non-account occupants have none."
+  @spec ids(term()) :: MapSet.t(String.t())
+  def ids(user_id) do
+    case Ecto.UUID.cast(user_id) do
+      {:ok, user_id} ->
+        MapSet.new(Repo.all(from(b in subquery(blocked_ids(user_id)), select: b.id)))
+
+      :error ->
+        MapSet.new()
+    end
+  end
+
+  @doc "The topic a game channel follows so a block made at the table takes effect at once."
+  @spec topic(String.t()) :: String.t()
+  def topic(user_id), do: "blocks:#{user_id}"
+
   @doc "Excludes either-direction blocked pairs from a users query, in SQL."
   @spec excluding(Ecto.Queryable.t(), String.t()) :: Ecto.Query.t()
   def excluding(query, user_id) do
@@ -118,6 +136,11 @@ defmodule PidroServer.Blocks do
       [%User{guest: false}, %User{guest: false}] -> :ok
       _ -> Repo.rollback(:user_not_found)
     end
+  end
+
+  defp changed(user_id, other_id) do
+    for id <- [user_id, other_id],
+        do: Phoenix.PubSub.broadcast(PidroServer.PubSub, topic(id), :blocks_changed)
   end
 
   defp blocked_ids(user_id) do
