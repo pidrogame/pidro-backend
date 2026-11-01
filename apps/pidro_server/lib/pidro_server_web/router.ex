@@ -306,6 +306,7 @@ defmodule PidroServerWeb.Router do
       live "/emails", EmailMigrationLive
       live "/analytics", AnalyticsLive
       live "/beta", BetaLive
+      live "/feedback", FeedbackLive
       live "/bots", BotCatalogueLive
     end
   end
