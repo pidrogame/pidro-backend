@@ -10,7 +10,7 @@ defmodule PidroServerWeb.TalkChannelTest do
   alias PidroServer.AccountsFixtures
   alias PidroServer.Blocks
   alias PidroServer.Games.Bots.BotManager
-  alias PidroServer.Games.RoomManager
+  alias PidroServer.Games.{GameAdapter, RoomManager}
   alias PidroServer.Repo
   alias PidroServerWeb.{GameChannel, UserSocket}
 
@@ -115,6 +115,78 @@ defmodule PidroServerWeb.TalkChannelTest do
     end
   end
 
+  describe "moment" do
+    test "start reaches the four seats, not the spectator, and bidding brings none", ctx do
+      {:ok, _} = GameAdapter.apply_action(ctx.room.code, :north, :select_dealer)
+
+      assert received(ctx, "moment") ==
+               for(
+                 name <- [:adult, :adult2, :teen, :guest],
+                 into: %{},
+                 do: {name, [%{id: "start"}]}
+               )
+
+      bid_out(ctx.room.code)
+      assert received(ctx, "moment") == %{}
+    end
+
+    test "partner_trick reaches the partner of the winner; game_end everyone seated", ctx do
+      {:ok, _} = GameAdapter.apply_action(ctx.room.code, :north, :select_dealer)
+      _ = received(ctx, "moment")
+
+      sent = broadcast_events(ctx.room.code, [{:trick_won, :east, 5}, {:trick_won, :north, 0}])
+      assert received(ctx, "moment") == %{guest: [%{id: "partner_trick"}]}
+
+      sent = broadcast_events(ctx.room.code, [{:trick_won, :south, 1}], sent)
+      assert received(ctx, "moment") == %{adult: [%{id: "partner_trick"}]}
+
+      broadcast_events(ctx.room.code, [{:game_won, :north_south, 62}], sent)
+
+      assert received(ctx, "moment") ==
+               for(
+                 name <- [:adult, :adult2, :teen, :guest],
+                 into: %{},
+                 do: {name, [%{id: "game_end"}]}
+               )
+    end
+
+    test "a seated player who joins again is not told what happened before", ctx do
+      {:ok, _} = GameAdapter.apply_action(ctx.room.code, :north, :select_dealer)
+      _ = received(ctx, "moment")
+
+      ctx =
+        put_in(ctx.clients[:adult_again], client(:adult_again, ctx.people.adult, ctx.room.code))
+
+      assert received(ctx, "moment") == %{}
+
+      broadcast_events(ctx.room.code, [{:trick_won, :south, 1}])
+
+      assert received(ctx, "moment") ==
+               %{adult: [%{id: "partner_trick"}], adult_again: [%{id: "partner_trick"}]}
+    end
+  end
+
+  test "a bot partner gets nothing; a human partner of a bot does" do
+    [north, east] = [adult(), adult()]
+    {:ok, room} = RoomManager.create_room(north.id, %{name: "Two and two"})
+    {:ok, _, _} = RoomManager.join_room(room.code, east.id)
+    for pos <- [:south, :west], do: BotManager.start_bot(room.code, pos, :basic, 5_000)
+    PidroServer.RoomFixtures.ready_room(room.code)
+
+    ctx = %{
+      clients: %{north: client(:north, north, room.code), east: client(:east, east, room.code)}
+    }
+
+    {:ok, _} = GameAdapter.apply_action(room.code, :north, :select_dealer)
+    assert received(ctx, "moment") == %{north: [%{id: "start"}], east: [%{id: "start"}]}
+
+    sent = broadcast_events(room.code, [{:trick_won, :north, 5}])
+    assert received(ctx, "moment") == %{}
+
+    broadcast_events(room.code, [{:trick_won, :west, 5}], sent)
+    assert received(ctx, "moment") == %{east: [%{id: "partner_trick"}]}
+  end
+
   test "a table with one human and bots cannot talk" do
     player = adult()
     {:ok, room} = RoomManager.create_room(player.id, %{solo: true})
@@ -176,14 +248,48 @@ defmodule PidroServerWeb.TalkChannelTest do
     end
   end
 
-  # Everything talk-shaped each client received, waiting briefly for stragglers.
-  defp received(_ctx, acc \\ %{}) do
+  # Every `event` push each client received, waiting briefly for stragglers.
+  defp received(ctx, event \\ "talk", acc \\ %{}) do
     receive do
-      {:got, name, event, payload} when event == "talk" ->
-        received(nil, Map.update(acc, name, [payload], &(&1 ++ [payload])))
+      {:got, name, ^event, payload} when is_map_key(ctx.clients, name) ->
+        received(ctx, event, Map.update(acc, name, [payload], &(&1 ++ [payload])))
     after
       150 -> acc
     end
+  end
+
+  # The live game, or the last snapshot sent, with `events` appended, as the
+  # game would broadcast it. Returns the snapshot so a test can send the next.
+  defp broadcast_events(code, events, snapshot \\ nil) do
+    snapshot = snapshot || elem(GameAdapter.get_snapshot(code), 1)
+    state = %{snapshot.state | events: snapshot.state.events ++ events}
+    revision = snapshot.state_revision + 1
+
+    snapshot =
+      Map.merge(snapshot, %{state: state, state_revision: revision, transition_delay_ms: 0})
+
+    Phoenix.PubSub.broadcast(PidroServer.PubSub, "game:#{code}", {:state_update, code, snapshot})
+    snapshot
+  end
+
+  defp wait_for_phase(code, phase, tries \\ 100) do
+    {:ok, state} = GameAdapter.get_state(code)
+
+    cond do
+      state.phase == phase -> state
+      tries == 0 -> flunk("game stayed in #{state.phase}")
+      true -> Process.sleep(50) && wait_for_phase(code, phase, tries - 1)
+    end
+  end
+
+  # Everyone passes or makes the lowest bid until bidding is over.
+  defp bid_out(code) do
+    state = wait_for_phase(code, :bidding)
+    seat = state.current_turn
+    actions = Pidro.Game.Engine.legal_actions(state, seat)
+    action = if :pass in actions, do: :pass, else: Enum.min(actions)
+    {:ok, next} = GameAdapter.apply_action(code, seat, action)
+    if next.phase == :bidding, do: bid_out(code)
   end
 
   defp talk(seat, user, item), do: %{seat: seat, user_id: user.id, item: item}

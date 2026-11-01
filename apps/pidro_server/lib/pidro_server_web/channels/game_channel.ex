@@ -52,6 +52,8 @@ defmodule PidroServerWeb.GameChannel do
     reason `{:shutdown, :kicked}`
   * `"talk"` - `%{seat: :north, user_id: id, item: "coin_heart"}`, to everyone on
     the channel except a player either side has blocked
+  * `"moment"` - `%{id: "start" | "partner_trick" | "game_end"}`, pushed with the
+    game state to the seats `PidroServer.Games.Moments` names, never to spectators
   * `"presence_state"` - Presence information (who's online)
   * `"presence_diff"` - Presence changes
 
@@ -80,7 +82,7 @@ defmodule PidroServerWeb.GameChannel do
   alias Pidro.Game.Engine
   alias PidroServer.{Blocks, RateLimit}
   alias PidroServer.Diagnostics
-  alias PidroServer.Games.{GameAdapter, PresenceAggregator, RoomManager}
+  alias PidroServer.Games.{GameAdapter, Moments, PresenceAggregator, RoomManager}
   alias PidroServer.Games.Room.Seat
   alias PidroServerWeb.API.RoomJSON
   alias PidroServerWeb.ErrorContract
@@ -1450,6 +1452,7 @@ defmodule PidroServerWeb.GameChannel do
 
   defp push_game_state(socket, snapshot) do
     push(socket, "game_state", client_snapshot_payload(snapshot, socket.assigns[:position]))
+    socket = push_moments(socket, snapshot)
 
     Diagnostics.emit(
       :state_pushed,
@@ -1458,6 +1461,23 @@ defmodule PidroServerWeb.GameChannel do
 
     assign_snapshot_cursor(socket, snapshot)
   end
+
+  # Only the events this socket has not seen; a new game starts from none.
+  # A count is enough because a game only appends events.
+  defp push_moments(%{assigns: assigns} = socket, %{state: %{events: events}} = snapshot) do
+    seen =
+      if snapshot[:game_instance_id] in [nil, assigns[:game_instance_id]],
+        do: assigns[:events_seen] || 0,
+        else: 0
+
+    for {id, seats} <- events |> Enum.drop(seen) |> Moments.moments(),
+        assigns.position in seats,
+        do: push(socket, "moment", %{id: id})
+
+    assign(socket, :events_seen, length(events))
+  end
+
+  defp push_moments(socket, _snapshot), do: socket
 
   defp client_build(params) when is_map(params) do
     %{
@@ -1502,6 +1522,7 @@ defmodule PidroServerWeb.GameChannel do
         socket
         |> assign(:game_instance_id, instance_id)
         |> assign(:state_revision, revision)
+        |> assign(:events_seen, length(Map.get(snapshot.state, :events, [])))
 
       _ ->
         socket
