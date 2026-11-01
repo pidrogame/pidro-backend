@@ -62,7 +62,15 @@ defmodule PidroServer.Moderation do
 
   def allowed?(_text), do: false
 
-  defp swap(text, swaps), do: text |> String.graphemes() |> Enum.map_join(&Map.get(swaps, &1, &1))
+  # Only within a token that has a letter: "5h1t" is an evasion, the number
+  # in "erik_7175" is a number.
+  defp swap(text, swaps) do
+    Regex.replace(~r/[^\s_.,\-]+/u, text, fn token ->
+      if token =~ ~r/\p{L}/u,
+        do: token |> String.graphemes() |> Enum.map_join(&Map.get(swaps, &1, &1)),
+        else: token
+    end)
+  end
 
   defp listed?(text) do
     words = String.split(text, ~r/[^\p{L}]+/u, trim: true)

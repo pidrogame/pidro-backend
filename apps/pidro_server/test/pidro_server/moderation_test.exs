@@ -88,6 +88,11 @@ defmodule PidroServer.ModerationTest do
     "I passed the assessment",
     "Paskahousu is a card game",
     "mikko_83",
+    # Numbers stay numbers
+    "erik_7175",
+    "perf_user_4_455",
+    "Mike 4552",
+    "Pass 455 times",
     "anna 1 2 3",
     # Words a doubled letter or a split away from a listed one
     "horror",
