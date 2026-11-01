@@ -151,6 +151,9 @@ config :pidro_server, PidroServerWeb.Plugs.RateLimit,
   provider_auth: %{limit: 1_000_000, scale_ms: 60_000, key: :ip},
   classic_claim: %{limit: 1_000_000, scale_ms: 600_000, key: :ip},
   classic_help: %{limit: 1_000_000, scale_ms: 3_600_000, key: :ip},
+  feedback_note: %{limit: 1_000_000, scale_ms: 3_600_000, key: :ip},
+  feedback_note_user: %{limit: 1_000_000, scale_ms: 86_400_000, key: :user},
+  feedback_answer: %{limit: 1_000_000, scale_ms: 3_600_000, key: :ip},
   avatar_upload: %{limit: 1_000_000, scale_ms: 600_000, key: :user},
   avatar_read: %{limit: 1_000_000, scale_ms: 60_000, key: :ip}
 

@@ -101,6 +101,9 @@ config :pidro_server, dev_routes: true
 #   auth_upgrade               10 per 600_000 ms         100 per 600_000 ms
 #   auth_age                   10 per 600_000 ms         100 per 600_000 ms
 #   classic_help               5 per 3_600_000 ms        50 per 3_600_000 ms
+#   feedback_note              10 per 3_600_000 ms       100 per 3_600_000 ms
+#   feedback_note_user         20 per 86_400_000 ms      200 per 86_400_000 ms
+#   feedback_answer            60 per 3_600_000 ms       600 per 3_600_000 ms
 config :pidro_server, PidroServerWeb.Plugs.RateLimit,
   user_search: %{limit: 300, scale_ms: 60_000, key: :user},
   friend_add: %{limit: 300, scale_ms: 3_600_000, key: :user},
@@ -133,6 +136,9 @@ config :pidro_server, PidroServerWeb.Plugs.RateLimit,
   provider_auth: %{limit: 100, scale_ms: 60_000, key: :ip},
   classic_claim: %{limit: 100, scale_ms: 600_000, key: :ip},
   classic_help: %{limit: 50, scale_ms: 3_600_000, key: :ip},
+  feedback_note: %{limit: 100, scale_ms: 3_600_000, key: :ip},
+  feedback_note_user: %{limit: 200, scale_ms: 86_400_000, key: :user},
+  feedback_answer: %{limit: 600, scale_ms: 3_600_000, key: :ip},
   avatar_upload: %{limit: 100, scale_ms: 600_000, key: :user},
   avatar_read: %{limit: 3_000, scale_ms: 60_000, key: :ip}
 
