@@ -15,6 +15,8 @@ defmodule PidroServer.ModerationTest do
     "shit hand",
     "go away, retard",
     "nigger",
+    "kike",
+    "you poof",
     # Swedish
     "din fitta",
     "Kuk",
