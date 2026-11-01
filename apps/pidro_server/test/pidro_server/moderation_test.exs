@@ -93,6 +93,10 @@ defmodule PidroServer.ModerationTest do
     "perf_user_4_455",
     "Mike 4552",
     "Pass 455 times",
+    "perf_user_10_506455",
+    "Kalle_455",
+    "455",
+    "7175",
     "anna 1 2 3",
     # Words a doubled letter or a split away from a listed one
     "horror",
