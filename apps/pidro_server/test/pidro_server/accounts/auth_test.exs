@@ -547,6 +547,31 @@ defmodule PidroServer.Accounts.AuthTest do
 
       assert {ignorer_id, ignored_id} == {other.id, friend.id}
     end
+
+    test "keeps the player's feedback as guest notes without their reply address" do
+      user = AccountsFixtures.user_fixture()
+      other = AccountsFixtures.user_fixture()
+
+      {:ok, note} =
+        PidroServer.Feedback.create(
+          %{"kind" => "note", "body" => "Hi", "reply_email" => "me@example.com"},
+          user
+        )
+
+      # No address typed in: the account's email was filled in.
+      {:ok, filled} = PidroServer.Feedback.create(%{"kind" => "note", "body" => "Hey"}, user)
+      assert filled.reply_email == user.email
+
+      {:ok, kept} = PidroServer.Feedback.create(%{"kind" => "note", "body" => "Hello"}, other)
+
+      assert {:ok, _} = Auth.delete_user(user)
+      assert Repo.get!(PidroServer.Feedback.Entry, filled.id).reply_email == nil
+
+      assert %{user_id: nil, reply_email: nil, body: "Hi"} =
+               Repo.get!(PidroServer.Feedback.Entry, note.id)
+
+      assert Repo.get!(PidroServer.Feedback.Entry, kept.id).reply_email == other.email
+    end
   end
 
   describe "touch_last_seen/1" do

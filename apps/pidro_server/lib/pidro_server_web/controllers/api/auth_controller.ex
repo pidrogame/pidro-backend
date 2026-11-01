@@ -438,7 +438,8 @@ defmodule PidroServerWeb.API.AuthController do
     Leaves the caller's room, revokes the invites they host, deletes their
     profile, achievement and invite rows together with the account, and
     disconnects their sockets. Game records keep the bare user id, which then
-    resolves to nobody (KD9).
+    resolves to nobody (KD9). Feedback they sent stays, without a reply
+    address.
     """,
     security: [%{"bearer_auth" => []}],
     responses: [
