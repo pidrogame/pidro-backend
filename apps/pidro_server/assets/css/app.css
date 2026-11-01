@@ -278,15 +278,23 @@
   font-weight: 700;
 }
 
-.invite-fallback {
+.invite-fallback,
+.invite-install-note {
   margin: 1rem 0 0;
   color: #b9cce3;
   font-size: 0.9rem;
 }
 
-.invite-fallback a {
+.invite-fallback a,
+.invite-store-links a.invite-store-text {
   color: #87e8f5;
   font-weight: 700;
+}
+
+.invite-install-note strong {
+  color: #f7fbff;
+  letter-spacing: 0.08em;
+  white-space: nowrap;
 }
 
 .invite-qr {

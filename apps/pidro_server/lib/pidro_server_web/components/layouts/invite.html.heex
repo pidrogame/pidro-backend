@@ -25,12 +25,6 @@
     <meta name="twitter:description" content={@page.description} />
     <meta name="twitter:image" content={static_url(@conn, ~p"/images/invite/social-card.png")} />
 
-    <meta
-      :if={@page.canonical_url}
-      name="apple-itunes-app"
-      content={"app-id=1137091987, app-argument=#{@page.canonical_url}"}
-    />
-
     <link rel="stylesheet" href={static_url(@conn, ~p"/assets/css/app.css")} />
     <script
       :if={!@crawler? and (Map.get(@page, :code) || Map.get(@page, :deferred_capture_url))}

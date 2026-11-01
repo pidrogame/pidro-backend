@@ -24,10 +24,10 @@ defmodule PidroServerWeb.PlayPageControllerTest do
       assert attribute(document, "meta[property='og:url']", "content") == canonical
       assert attribute(document, "meta[property='og:image']", "content") =~ "/images/invite/"
       assert attribute(document, "link[rel=canonical]", "href") == canonical
-      assert attribute(document, "meta[name=apple-itunes-app]", "content") =~ canonical
+      assert LazyHTML.query(document, "meta[name=apple-itunes-app]") |> Enum.empty?()
 
       assert attribute(document, "[data-primary-action]", "href") ==
-               "pidro-mobile://play/bengt-aberg"
+               "pidro-mobile-beta://play/bengt-aberg"
 
       assert text(document, "[data-player-avatar]") == "B"
       assert store_links(document) == ["apple", "google"]
@@ -36,7 +36,12 @@ defmodule PidroServerWeb.PlayPageControllerTest do
                "http://localhost:4002/play/bengt-aberg/deferred"
 
       assert attribute(document, "[data-store=apple]", "data-deferred-platform") == "ios"
-      assert attribute(document, "[data-store=google]", "href") =~ "referrer=friend%3Dbengt-aberg"
+      assert attribute(document, "[data-store=apple]", "href") == "https://www.pidro.online/beta"
+
+      assert attribute(document, "[data-store=google]", "href") ==
+               "https://play.google.com/store/apps/details?id=com.oneapps.pidro.beta&referrer=friend%3Dbengt-aberg"
+
+      assert text(document, "[data-install-note]") == "Installed it? Tap this link again."
       assert attribute(document, "script", "src") =~ "/assets/js/invite.js"
       assert text(document, ".invite-privacy-note") =~ "30 minutes"
 
@@ -93,6 +98,7 @@ defmodule PidroServerWeb.PlayPageControllerTest do
 
       assert LazyHTML.query(document, "[data-primary-action]") |> Enum.empty?()
       assert LazyHTML.query(document, "link[rel=canonical]") |> Enum.empty?()
+      assert LazyHTML.query(document, "[data-install-note]") |> Enum.empty?()
       assert store_links(document) == ["apple", "google"]
     end
   end

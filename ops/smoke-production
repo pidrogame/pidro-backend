@@ -112,7 +112,7 @@ if test -n "${PIDRO_INVITE_CODE:-}"; then
   probe_invite crawler 'Slackbot-LinkExpanding 1.0' "$invite_url"
   grep -Fq "<link rel=\"canonical\" href=\"$invite_url\"" "$tmp_dir/invite-crawler.body"
   grep -Fq 'property="og:title"' "$tmp_dir/invite-crawler.body"
-  if grep -Eiq 'data-open-ios|data-open-android|pidro-mobile://|<script([[:space:]>])' \
+  if grep -Eiq 'data-open-ios|data-open-android|pidro-mobile|<script([[:space:]>])' \
     "$tmp_dir/invite-crawler.body"; then
     echo "Crawler response contains an actionable element" >&2
     exit 1
@@ -120,11 +120,11 @@ if test -n "${PIDRO_INVITE_CODE:-}"; then
 
   probe_invite ios 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)' "$invite_url"
   grep -Fq 'data-open-ios' "$tmp_dir/invite-ios.body"
-  grep -Fq 'pidro-mobile://j/' "$tmp_dir/invite-ios.body"
+  grep -Fq 'pidro-mobile-beta://j/' "$tmp_dir/invite-ios.body"
 
   probe_invite android 'Mozilla/5.0 (Linux; Android 15; Pixel 9)' "$invite_url"
   grep -Fq 'data-open-android' "$tmp_dir/invite-android.body"
-  grep -Fq 'package=com.oneapps.pidro' "$tmp_dir/invite-android.body"
+  grep -Fq 'package=com.oneapps.pidro.beta;' "$tmp_dir/invite-android.body"
 
   probe_invite desktop 'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_6)' "$invite_url"
   grep -Fq 'data-invite-qr' "$tmp_dir/invite-desktop.body"

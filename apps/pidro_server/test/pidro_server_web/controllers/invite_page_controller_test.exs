@@ -36,7 +36,7 @@ defmodule PidroServerWeb.InvitePageControllerTest do
       assert attribute(document, "meta[property='og:title']", "content") =~ host.username
       assert attribute(document, "meta[property='og:url']", "content") == canonical(invite.code)
       assert attribute(document, "meta[property='og:image']", "content") =~ "/images/invite/"
-      assert attribute(document, "meta[name=apple-itunes-app]", "content") =~ "app-id=1137091987"
+      assert attribute(document, "meta[name=apple-itunes-app]", "content") == nil
       assert attribute(document, "meta[name=robots]", "content") == "noindex, nofollow"
       refute html_response(conn, 200) =~ room.code
       assert Repo.aggregate(Event, :count, :id) == event_count
@@ -78,8 +78,8 @@ defmodule PidroServerWeb.InvitePageControllerTest do
         |> html_response(200)
         |> LazyHTML.from_document()
 
-      assert attribute(ios, "[data-open-ios]", "href") == "pidro-mobile://j/#{invite.code}"
-      assert attribute(ios, "[data-ios-fallback] a", "href") =~ "apps.apple.com"
+      assert attribute(ios, "[data-open-ios]", "href") == "pidro-mobile-beta://j/#{invite.code}"
+      assert attribute(ios, "[data-ios-fallback] a", "href") == "https://www.pidro.online/beta"
 
       assert attribute(ios, "[data-ios-fallback] a", "data-deferred-capture") ==
                "http://localhost:4002/j/#{invite.code}/deferred"
@@ -100,7 +100,7 @@ defmodule PidroServerWeb.InvitePageControllerTest do
 
       intent = attribute(android, "[data-open-android]", "href")
       assert intent =~ "/j/#{invite.code}#Intent"
-      assert intent =~ "package=com.oneapps.pidro"
+      assert intent =~ "package=com.oneapps.pidro.beta;"
       assert intent =~ "browser_fallback_url="
       assert attribute(android, "script[src]", "src") =~ "/assets/js/invite.js"
 
@@ -125,8 +125,11 @@ defmodule PidroServerWeb.InvitePageControllerTest do
         |> html_response(200)
         |> LazyHTML.from_document()
 
-      assert attribute(document, "[data-store=apple]", "href") =~ "apps.apple.com"
-      assert attribute(document, "[data-store=google]", "href") =~ "play.google.com"
+      assert attribute(document, "[data-store=apple]", "href") == "https://www.pidro.online/beta"
+
+      assert attribute(document, "[data-store=google]", "href") =~
+               "play.google.com/store/apps/details?id=com.oneapps.pidro.beta&referrer="
+
       assert attribute(document, "[data-invite-qr]", "src") =~ "data:image/svg+xml;base64,"
       assert attribute(document, "[data-invite-qr]", "data-payload") == canonical(invite.code)
       refute LazyHTML.text(document) =~ "Play in browser"
@@ -150,6 +153,87 @@ defmodule PidroServerWeb.InvitePageControllerTest do
       assert get_resp_header(conn, "location") == []
     end
 
+    test "an open invite tells a fresh install how to get back to the table", %{conn: conn} do
+      {host, room} = host_and_room()
+      invite = mint!(room, host)
+
+      document =
+        conn |> get(~p"/j/#{invite.code}") |> html_response(200) |> LazyHTML.from_document()
+
+      assert text(document, "[data-install-note]") ==
+               "Installed it? Tap your invite link again, or type this code in Pidro: " <>
+                 PidroServer.Invites.Codes.dashed(invite.code)
+    end
+
+    test "full, started and locked tables have no install note", %{conn: conn} do
+      tables = [
+        full: &fill_with_held_seat!/2,
+        started: fn room, _host -> :ok = RoomManager.update_room_status(room.code, :playing) end,
+        locked: fn room, host ->
+          {:ok, _room} = RoomManager.set_locked(room.code, host.id, true)
+        end
+      ]
+
+      for {state, make} <- tables do
+        {host, room} = host_and_room()
+        invite = mint!(room, host)
+        make.(room, host)
+
+        document =
+          conn
+          |> recycle()
+          |> get(~p"/j/#{invite.code}")
+          |> html_response(200)
+          |> LazyHTML.from_document()
+
+        assert attribute(document, "[data-state]", "data-state") == Atom.to_string(state)
+        assert LazyHTML.query(document, "[data-install-note]") |> Enum.empty?()
+        refute LazyHTML.text(document) =~ "Installed it?"
+      end
+    end
+
+    test "no invite or player page links to the Classic app" do
+      {host, old_room} = host_and_room()
+      old = mint!(old_room, host)
+      :ok = RoomManager.leave_room(host.id)
+      {:ok, new_room} = RoomManager.create_room(host.id, %{name: "Again"})
+      open = mint!(new_room, host)
+      {:ok, moved} = Invites.supersede(old, open)
+      player = AccountsFixtures.user_fixture()
+
+      pages = [
+        open: {~p"/j/#{open.code}", 200},
+        moved: {~p"/j/#{moved.code}", 200},
+        not_found: {~p"/j/ZZZZZZZZ", 404},
+        player: {~p"/play/#{player.share_slug}", 200},
+        unknown_player: {~p"/play/nobody-here", 404}
+      ]
+
+      agents = [
+        ios: "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0)",
+        android: "Mozilla/5.0 (Linux; Android 15)",
+        desktop: "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_6)"
+      ]
+
+      for {page, {path, status}} <- pages, {device, agent} <- agents do
+        html =
+          build_conn()
+          |> put_req_header("user-agent", agent)
+          |> get(path)
+          |> html_response(status)
+
+        refute html =~ "id1137091987", "#{page} on #{device} links Classic on the App Store"
+
+        refute html =~ ~r/id(=|%3D)com\.oneapps\.pidro(?!\.beta)/,
+               "#{page} on #{device} links Classic on Google Play"
+
+        refute html =~ "package=com.oneapps.pidro;", "#{page} on #{device} opens Classic"
+        refute html =~ "pidro-mobile://", "#{page} on #{device} opens Classic"
+
+        assert html =~ "https://www.pidro.online/beta", "#{page} on #{device} lost the beta link"
+      end
+    end
+
     test "inactive states never offer a join action", %{conn: conn} do
       {host, room} = host_and_room()
       {:ok, invite} = room |> mint!(host) |> Invites.revoke()
@@ -166,7 +250,7 @@ defmodule PidroServerWeb.InvitePageControllerTest do
       assert LazyHTML.query(document, "[data-open-ios], [data-open-android]")
              |> LazyHTML.to_tree() == []
 
-      assert attribute(document, "[data-store=apple]", "href") =~ "apps.apple.com"
+      assert attribute(document, "[data-store=apple]", "href") == "https://www.pidro.online/beta"
       assert attribute(document, "[data-store=apple]", "data-deferred-capture") == nil
       assert LazyHTML.query(document, "[data-invite-privacy]") |> LazyHTML.to_tree() == []
     end
@@ -178,7 +262,7 @@ defmodule PidroServerWeb.InvitePageControllerTest do
       assert LazyHTML.text(LazyHTML.query(document, "h1")) =~ "invite"
       assert attribute(document, "meta[property='og:title']", "content") == "Come play Pidro"
       refute html_response(conn, 404) =~ "ZZZZZZZZ"
-      assert attribute(document, "[data-store=apple]", "href") =~ "apps.apple.com"
+      assert attribute(document, "[data-store=apple]", "href") == "https://www.pidro.online/beta"
     end
 
     test "limits each invite independently from the API preview and other invite codes", %{
@@ -200,6 +284,16 @@ defmodule PidroServerWeb.InvitePageControllerTest do
     end
   end
 
+  # Four positions taken while one seat is held keeps the room `:waiting`, so
+  # the invite reads `full` rather than `started`.
+  defp fill_with_held_seat!(room, _host) do
+    [a, b, c] = for _ <- 1..3, do: AccountsFixtures.user_fixture()
+    {:ok, _room, _position} = RoomManager.join_room(room.code, a.id)
+    {:ok, _room, _position} = RoomManager.join_room(room.code, b.id)
+    :ok = RoomManager.handle_player_disconnect(room.code, a.id)
+    {:ok, _room, _position} = RoomManager.join_room(room.code, c.id)
+  end
+
   defp host_and_room(host_attrs \\ %{}) do
     host = AccountsFixtures.user_fixture(host_attrs)
     {:ok, room} = RoomManager.create_room(host.id, %{name: "Invited"})
@@ -218,6 +312,10 @@ defmodule PidroServerWeb.InvitePageControllerTest do
   end
 
   defp canonical(code), do: "http://localhost:4002/j/#{code}"
+
+  defp text(document, selector),
+    do:
+      document |> LazyHTML.query(selector) |> LazyHTML.text() |> String.split() |> Enum.join(" ")
 
   defp attribute(document, selector, name) do
     case document |> LazyHTML.query(selector) |> LazyHTML.attribute(name) do

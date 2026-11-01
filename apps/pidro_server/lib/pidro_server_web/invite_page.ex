@@ -10,9 +10,10 @@ defmodule PidroServerWeb.InvitePage do
   alias PidroServer.Invites
   alias PidroServer.Invites.Invite
 
-  @app_store_url "https://apps.apple.com/app/pidro/id1137091987?ct=invite"
-  @play_store_base "https://play.google.com/store/apps/details?id=com.oneapps.pidro"
-  @android_package "com.oneapps.pidro"
+  @iphone_install_url "https://www.pidro.online/beta"
+  @play_store_base "https://play.google.com/store/apps/details?id=com.oneapps.pidro.beta"
+  @android_package "com.oneapps.pidro.beta"
+  @ios_scheme "pidro-mobile-beta"
   @seats_total 4
 
   @type device :: :ios | :android | :desktop | :crawler
@@ -37,9 +38,9 @@ defmodule PidroServerWeb.InvitePage do
       seats_taken: preview.seats_taken,
       seats_total: @seats_total,
       seat_copy: "#{preview.seats_taken} of #{@seats_total} seats taken",
-      app_store_url: @app_store_url,
+      iphone_install_url: @iphone_install_url,
       play_store_url: play_store_url(target.code),
-      ios_url: "pidro-mobile://j/#{target.code}",
+      ios_url: "#{@ios_scheme}://j/#{target.code}",
       android_url: android_intent(target_url, play_store_url(target.code)),
       device: device,
       show_qr: show_qr
@@ -60,7 +61,7 @@ defmodule PidroServerWeb.InvitePage do
       body:
         "The link may be incomplete or no longer available. You can still open Pidro and find a table.",
       table_action: :none,
-      app_store_url: @app_store_url,
+      iphone_install_url: @iphone_install_url,
       play_store_url: @play_store_base,
       device: device
     }
@@ -84,9 +85,9 @@ defmodule PidroServerWeb.InvitePage do
       name: name,
       initial: String.first(name),
       avatar_url: avatar_url,
-      app_store_url: @app_store_url,
+      iphone_install_url: @iphone_install_url,
       play_store_url: friend_play_store_url(slug),
-      ios_url: "pidro-mobile://play/#{slug}",
+      ios_url: "#{@ios_scheme}://play/#{slug}",
       android_url: android_intent(url, friend_play_store_url(slug)),
       deferred_capture_url:
         PidroServerWeb.DeferredInviteCaptureController.friend_capture_url(slug),
@@ -102,7 +103,7 @@ defmodule PidroServerWeb.InvitePage do
       description: "Pidro is the Finnish card game for four. Get the app and play.",
       heading: "Play Pidro",
       deferred_capture_url: nil,
-      app_store_url: @app_store_url,
+      iphone_install_url: @iphone_install_url,
       play_store_url: @play_store_base,
       device: device
     }
