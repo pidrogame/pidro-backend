@@ -65,7 +65,9 @@ defmodule PidroServerWeb.API.ClassicSignInCodeControllerTest do
     assert email.text_body =~ "It works for 15 minutes"
 
     assert email.text_body =~
-             "Didn't ask for a code? Then ignore this mail. Nobody can get in without it."
+             ~s(on the screen that says "Check your email". It is not a new password)
+
+    assert email.text_body =~ ~s(på sidan där det står "Kolla din e-post". Det är inte ett nytt)
 
     assert email.html_body =~ "Pidro, the card game from Ostrobothnia"
     assert email.html_body =~ code

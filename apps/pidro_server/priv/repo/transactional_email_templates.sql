@@ -22,15 +22,13 @@ VALUES
   (gen_random_uuid(), 'transactional', 'classic_sign_in_code', 'Classic sign-in code',
    'Your Pidro sign-in code',
    'Your code is {{code}}. It works for 15 minutes.',
-   '<h1 class="h1" style="margin:0 0 14px;font-family:''Bree Serif'',Georgia,serif;font-weight:normal;font-size:30px;line-height:1.2;color:#07264c;">Your sign-in code</h1>
-<p style="margin:0 0 22px;">Type this code in the Pidro app to get your old account back.</p>
-
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 22px;">
+   '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 22px;">
 <tr><td class="codebox" align="center" style="padding:22px 12px;background-color:#eef4fa;border:1px solid #cfdcea;border-radius:14px;font-family:''Bree Serif'',Georgia,serif;font-size:48px;line-height:1.1;letter-spacing:10px;color:#07264c;">{{code}}</td></tr>
 </table>
 
-<p class="muted" style="margin:0 0 6px;font-size:15px;color:#5c6b7d;">It works for 15 minutes.</p>
-<p class="muted" style="margin:0;font-size:15px;color:#5c6b7d;">Didn''t ask for a code? Then ignore this mail. Nobody can get in without it.</p>',
+<p style="margin:0 0 22px;">Type this code in Pidro Beta, on the screen that says "Check your email". It is not a new password, so it won''t work in the password box.<br>It works for 15 minutes.<br>If you did not ask for this, ignore this mail.</p>
+
+<p style="margin:0;">Skriv den här koden i Pidro Beta, på sidan där det står "Kolla din e-post". Det är inte ett nytt lösenord, så den fungerar inte i lösenordsrutan.<br>Den gäller i 15 minuter.<br>Om du inte har bett om den kan du strunta i det här mejlet.</p>',
    ARRAY['{{code}}'], now(), now()),
   (gen_random_uuid(), 'transactional', 'classic_help', 'Classic account help',
    'Help finding a Classic account: {{name}}', NULL,

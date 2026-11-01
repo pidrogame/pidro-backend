@@ -7,6 +7,18 @@ defmodule PidroServer.EmailMigrationTest do
   alias PidroServer.AccountsFixtures
   alias PidroServer.Emails
 
+  @code_mail """
+  012345
+
+  Type this code in Pidro Beta, on the screen that says "Check your email". It is not a new password, so it won't work in the password box.
+  It works for 15 minutes.
+  If you did not ask for this, ignore this mail.
+
+  Skriv den här koden i Pidro Beta, på sidan där det står "Kolla din e-post". Det är inte ett nytt lösenord, så den fungerar inte i lösenordsrutan.
+  Den gäller i 15 minuter.
+  Om du inte har bett om den kan du strunta i det här mejlet.
+  """
+
   setup :set_swoosh_global
 
   setup do
@@ -138,6 +150,7 @@ defmodule PidroServer.EmailMigrationTest do
              ~s(<div style="display:none;max-height:0;overflow:hidden;opacity:0;">Your code is 012345. It works for 15 minutes.</div>)
 
     refute rendered.text_body =~ "Your code is"
+    assert rendered.text_body == String.trim_trailing(@code_mail)
 
     template = %{template | preview_text: "For {{username}}: <private>"}
 
@@ -202,7 +215,7 @@ defmodule PidroServer.EmailMigrationTest do
            username: "Aino",
            reset_url: "https://play.pidro.online/reset-password?token=abc&from=mail"
          }, "The link works for 1 hour."},
-        {:classic_sign_in_code, %{code: "012345"}, "012345\n\nIt works for 15 minutes."},
+        {:classic_sign_in_code, %{code: "012345"}, String.trim_trailing(@code_mail)},
         {:classic_help, %{name: "Aino", email: "aino@example.com", details: nil, user_line: ""},
          "Name: Aino\n\nEmail: aino@example.com\n\nDetails:"}
       ] do
@@ -279,8 +292,7 @@ defmodule PidroServer.EmailMigrationTest do
         email =
           Emails.transactional_email(:classic_sign_in_code, "aino@example.com", %{code: "012345"})
 
-        assert email.text_body ==
-                 "012345\n\nIt works for 15 minutes\n\nIf you did not ask for this, ignore this mail\n"
+        assert email.text_body == @code_mail
 
         assert email.html_body == nil
       end)

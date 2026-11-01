@@ -285,9 +285,13 @@ defmodule PidroServer.Emails do
     |> text_body("""
     #{code}
 
-    It works for 15 minutes
+    Type this code in Pidro Beta, on the screen that says "Check your email". It is not a new password, so it won't work in the password box.
+    It works for 15 minutes.
+    If you did not ask for this, ignore this mail.
 
-    If you did not ask for this, ignore this mail
+    Skriv den här koden i Pidro Beta, på sidan där det står "Kolla din e-post". Det är inte ett nytt lösenord, så den fungerar inte i lösenordsrutan.
+    Den gäller i 15 minuter.
+    Om du inte har bett om den kan du strunta i det här mejlet.
     """)
   end
 
