@@ -86,6 +86,11 @@ defmodule PidroServer.Accounts.ClassicNameReservations do
     Repo.exists?(from r in ClassicNameReservation, where: r.name_key == ^key)
   end
 
+  @doc "Returns whether a name is reserved for the Classic account `classic_user_id`."
+  @spec reserved_for?(String.t(), integer() | nil) :: boolean()
+  def reserved_for?(_name, nil), do: false
+  def reserved_for?(name, classic_user_id), do: classic_user_id in owner_ids(name_key(name))
+
   @doc "Adds reservation errors for changed usernames and display names."
   def validate_changes(%Changeset{} = changeset, classic_user_id \\ nil) do
     Enum.reduce([:username, :display_name], changeset, fn field, acc ->

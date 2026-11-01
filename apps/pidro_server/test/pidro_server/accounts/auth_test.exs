@@ -76,6 +76,26 @@ defmodule PidroServer.Accounts.AuthTest do
       assert %{display_name: ["should be at most 20 character(s)"]} = errors_on(changeset)
     end
 
+    test "a new username passes the word list, evasions included; a clean name containing a word passes" do
+      for name <- ["v1ttu", "paska_peli", "kuksugare", "f_u_c_k"] do
+        assert {:error, changeset} =
+                 Auth.register_user(%{
+                   username: name,
+                   email: "#{name}@example.com",
+                   password: "password123"
+                 })
+
+        assert %{username: ["is not allowed as a public name"]} = errors_on(changeset)
+      end
+
+      assert {:ok, %{username: "Kukkonen"}} =
+               Auth.register_user(%{
+                 username: "Kukkonen",
+                 email: "kukkonen@example.com",
+                 password: "password123"
+               })
+    end
+
     test "rejects blocked usernames and display names" do
       assert {:error, username_error} =
                Auth.register_user(%{
@@ -296,6 +316,15 @@ defmodule PidroServer.Accounts.AuthTest do
 
       assert %{username: ["is not allowed as a public name"]} = errors_on(changeset)
       assert Repo.get!(User, guest.id).guest
+
+      assert {:error, changeset} =
+               Auth.upgrade_guest(guest, %{
+                 email: "listed-upgrade@example.com",
+                 password: "password123",
+                 username: "Huora"
+               })
+
+      assert %{username: ["is not allowed as a public name"]} = errors_on(changeset)
     end
 
     test "accepts string-keyed attributes" do

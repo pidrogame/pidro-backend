@@ -78,6 +78,7 @@ defmodule PidroServer.Accounts.Auth do
   alias PidroServer.Games.RoomManager.Room
   alias PidroServer.Invites
   alias PidroServer.Invites.{Codes, Event, Invite, Redemption}
+  alias PidroServer.Moderation
   alias PidroServer.Profiles
   alias PidroServer.Profiles.{Achievement, GameXp, PlayerProfile}
   alias PidroServer.Progression
@@ -117,6 +118,7 @@ defmodule PidroServer.Accounts.Auth do
   def register_user(attrs) do
     %User{}
     |> User.registration_changeset(attrs)
+    |> moderate_username()
     |> Accounts.validate_public_name_changes([:username, :display_name])
     |> ClassicNameReservations.validate_changes()
     |> Repo.insert()
@@ -430,6 +432,7 @@ defmodule PidroServer.Accounts.Auth do
         result =
           guest
           |> User.upgrade_changeset(attrs)
+          |> moderate_username(guest.classic_user_id)
           |> Accounts.validate_public_name_changes([:username])
           |> ClassicNameReservations.validate_changes(guest.classic_user_id)
           |> update_and_bump_version()
@@ -1191,4 +1194,17 @@ defmodule PidroServer.Accounts.Auth do
 
   defp ceil_div(0, _denominator), do: 0
   defp ceil_div(numerator, denominator), do: div(numerator + denominator - 1, denominator)
+
+  # A new username passes the word list (PID-84). A Classic player's own
+  # name and existing users are not checked again.
+  defp moderate_username(changeset, classic_user_id \\ nil) do
+    with {:ok, name} <- Changeset.fetch_change(changeset, :username),
+         nil <- changeset.errors[:username],
+         false <- ClassicNameReservations.reserved_for?(name, classic_user_id),
+         false <- Moderation.allowed?(name) do
+      Changeset.add_error(changeset, :username, "is not allowed as a public name")
+    else
+      _ -> changeset
+    end
+  end
 end

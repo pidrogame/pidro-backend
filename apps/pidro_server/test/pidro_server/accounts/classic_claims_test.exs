@@ -701,6 +701,15 @@ defmodule PidroServer.Accounts.ClassicClaimsTest do
       assert claimed.username == "Own Name"
     end
 
+    test "keeps its own Classic name even when the word list would refuse it", %{guest: guest} do
+      assert {:ok, _result} = ClassicNameReservations.import([%{id: 50_010, username: "Huora"}])
+      ticket = issue_ticket!(guest, 50_010, :password, nil, %{xp: 90})
+      account = %{email: "huora@example.com", password: "secret123", username: "Huora"}
+
+      assert {:ok, %{username: "Huora"}} =
+               ClassicClaims.redeem(ticket, guest, %{account: account})
+    end
+
     test "waits for the name lock on a new username", %{guest: guest} do
       assert {:ok, _result} =
                ClassicNameReservations.import([
