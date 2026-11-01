@@ -1,120 +1,556 @@
-# Words a typed line or a new username may not hold (PID-84). One word per
-# line, lowercase, matched as a whole word after letter swaps are undone.
-# Mild swearing (perkele, saatana, jävla, helvete, damn, hell) is left out,
-# and so are words that are also ordinary names or words (dick, cock, homo,
-# bog, fan).
+# Words a typed line or a new username may not hold (PID-84). One entry per
+# line, lowercase; an entry with spaces is a phrase. Matched as whole words
+# after PidroServer.Moderation undoes letter swaps.
+#
+# Based on the List of Dirty, Naughty, Obscene and Otherwise Bad Words by
+# LDNOOBW, https://github.com/LDNOOBW/List-of-Dirty-Naughty-Obscene-and-Otherwise-Bad-Words
+# (commit 5faf2ba), licensed CC-BY-4.0: https://creativecommons.org/licenses/by/4.0/
+# Changed for Pidro: entries that block card talk, ordinary English, Swedish
+# or Finnish words, names or mild swearing are removed, entries that are not
+# letters are left out, and the words under "Added for Pidro" are ours.
 
-# English
+# English, from LDNOOBW en
+acrotomophilia
+alabama hot pocket
+alaskan pipeline
+anal
+anilingus
+anus
+apeshit
+arsehole
+ass
 asshole
-assholes
+assmunch
+auto erotic
+autoerotic
+babeland
+baby batter
+baby juice
+ball gag
+ball gravy
+ball kicking
+ball licking
+ball sack
+ball sucking
+bangbros
+bangbus
+barely legal
+barenaked
 bastard
-bastards
+bastardo
+bbw
+bdsm
+beaner
+beaners
+beaver cleaver
+beaver lips
+beastiality
+bestiality
+big breasts
+big knockers
+big tits
+bimbos
+birdlock
 bitch
 bitches
+black cock
+blonde action
+blonde on blonde action
+blowjob
+blow job
+blow your load
+blue waffle
+blumpkin
+bollocks
+bondage
+boner
+boob
+boobs
+booty call
+brown showers
+brunette action
+bukkake
+bulldyke
+bullet vibe
 bullshit
+bung hole
+bunghole
+busty
+butt
+buttcheeks
+butthole
+camel toe
+camgirl
+camslut
+camwhore
+carpet muncher
+carpetmuncher
+chocolate rosebuds
+cialis
+circlejerk
+cleveland steamer
+clit
+clitoris
+clover clamps
+clusterfuck
+coprolagnia
+coprophilia
+cornhole
+coon
+coons
+creampie
+cum
+cumming
+cumshot
+cumshots
+cunnilingus
+cunt
+darkie
+date rape
+daterape
+deep throat
+deepthroat
+dendrophilia
+dildo
+dingleberry
+dingleberries
+dirty pillows
+dirty sanchez
+doggie style
+doggiestyle
+doggy style
+doggystyle
+dog style
+dolcett
+dominatrix
+dommes
+donkey punch
+double dong
+double penetration
+dp action
+dry hump
+dvda
+eat my ass
+ecchi
+ejaculation
+erotic
+erotism
+fag
+faggot
+fecal
+felch
+fellatio
+feltch
+female squirting
+femdom
+figging
+fingerbang
+fingering
+fisting
+foot fetish
+footjob
+frotting
+fuck
+fuck buttons
+fuckin
+fucking
+fucktards
+fudge packer
+fudgepacker
+futanari
+gangbang
+gang bang
+gay sex
+genitals
+giant cock
+girl on top
+girls gone wild
+goatcx
+goatse
+gokkun
+golden shower
+goodpoop
+goo girl
+goregasm
+grope
+group sex
+guro
+hand job
+handjob
+hentai
+homoerotic
+honkey
+horny
+hot carl
+humping
+incest
+intercourse
+jack off
+jail bait
+jailbait
+jerk off
+jigaboo
+jiggaboo
+jiggerboo
+jizz
+juggs
+kinbaku
+kinkster
+kinky
+knobbing
+leather restraint
+leather straight jacket
+lemon party
+livesex
+lovemaking
+male squirting
+masturbate
+masturbating
+masturbation
+menage a trois
+milf
+missionary position
+mong
+motherfucker
+mound of venus
+mr hands
+muff diver
+muffdiving
+nambla
+nawashi
+negro
+neonazi
+nigga
+nigger
+nig nog
+nimphomania
+nipple
+nipples
+nsfw
+nsfw images
+nude
+nudity
+nutten
+nympho
+nymphomania
+octopussy
+omorashi
+one cup two girls
+one guy one jar
+orgasm
+orgy
+paedophile
+paki
+panties
+panty
+pedobear
+pedophile
+pegging
+penis
+phone sex
+piece of shit
+pikey
+pissing
+piss pig
+pisspig
+pleasure chest
+pole smoker
+ponyplay
+poon
+poontang
+punany
+poop chute
+poopchute
+porn
+porno
+pornography
+prince albert piercing
+pthc
+pubes
+pussy
+queaf
+queef
+quim
+raghead
+raging boner
+rape
+raping
+rapist
+rectum
+reverse cowgirl
+rimjob
+rimming
+rosy palm
+rusty trombone
+sadism
+schlong
+scissoring
+semen
+sexcam
+sexo
+sexy
+shaved beaver
+shaved pussy
+shemale
+shibari
+shit
+shitblimp
+shitty
+shota
+shrimping
+skeet
+slanteye
+smut
+sodomize
+sodomy
+spastic
+spic
+splooge
+splooge moose
+spooge
+spread legs
+strap on
+strapon
+strappado
+strip club
+style doggy
+suicide girls
+swastika
+tea bagging
+threesome
+throating
+thumbzilla
+tits
+titties
+titty
+topless
+tosser
+towelhead
+tranny
+tribadism
+tub girl
+tubgirl
+tushy
+twat
+twink
+two girls one cup
+upskirt
+urethra play
+urophilia
+vagina
+venus mound
+viagra
+vibrator
+violet wand
+vorarephilia
+voyeur
+voyeurweb
+voyuer
+vulva
+wank
+wetback
+wet dream
+white power
+whore
+worldsex
+wrinkled starfish
+yaoi
+yellow showers
+yiffy
+zoophilia
+
+# Swedish, from LDNOOBW sv
+arsle
+discofitta
+fitta
+fittig
+knulla
+kuk
+kuksås
+kötthuvud
+köttnacke
+moona
+moonade
+moonar
+moonat
+nigger
+neger
+prutt
+pök
+runka
+röv
+rövhål
+rövknulla
+skita
+skit ner dig
+skäggbiff
+snedfitta
+snefitta
+subba
+
+# Finnish, from LDNOOBW fi
+alfred nussi
+bylsiä
+haista paska
+haista vittu
+hevonpaska
+hevonperse
+hevonvittu
+hevonvitunperse
+huorata
+hässiä
+jutku
+jutsku
+kananpaska
+koiranpaska
+kuin esterin perseestä
+kulli
+kullinluikaus
+kuppainen
+kusaista
+kuseksia
+kusettaa
+kusi
+kusipää
+kusta
+kyrpiintynyt
+kyrpiintyä
+kyrpiä
+kyrpä
+kyrpänaama
+kyrvitys
+lahtari
+lutka
+molo
+molopää
+mulkero
+mulkku
+mulkvisti
+munapää
+munaton
+mutakuono
+mutiainen
+nainti
+narttu
+neekeri
+nekru
+nuolla persettä
+nussia
+nussija
+nussinta
+paneskella
+panettaa
+pantava
+paska
+paskainen
+paskamainen
+paskanmarjat
+paskantaa
+paskapuhe
+paskapää
+paskattaa
+paskiainen
+paskoa
+perse
+perseennuolija
+persereikä
+perseääliö
+persläpi
+perspano
+persvako
+pilkunnussija
+pillu
+pillut
+pyllyvako
+ripsipiirakka
+runkata
+runkkari
+runkkaus
+runkku
+ryssä
+rättipää
+suklaaosasto
+tumputtaa
+turpasauna
+tussu
+tussukka
+tussut
+vakipano
+vittu
+vittuilla
+vittuilu
+vittumainen
+vittuuntua
+vittuuntunut
+vitun
+vitusti
+vituttaa
+vitutus
+äpärä
+
+# Added for Pidro
+assholes
+bastards
+bög
+bögar
+böghora
 chink
 cocksucker
-cunt
 cunts
 dickhead
 dumbass
-fag
-faggot
 faggots
-fuck
+fittan
+fittor
 fucked
 fucker
 fuckers
 fuckface
-fuckin
-fucking
 fucks
-idiot
-idiots
-jackass
-kys
-moron
-morons
-motherfucker
-nigga
-nigger
-niggers
-piss
-porn
-pussy
-rape
-rapist
-retard
-retarded
-shit
-shithead
-shits
-shitty
-sluts
-spic
-stfu
-tranny
-twat
-wanker
-whore
-whores
-
-# Swedish
-bög
-bögar
-böghora
-fitta
-fittan
-fittor
 hora
 horor
 horunge
-idiot
-knull
-knulla
-knullar
-kuk
-kuken
-kukar
-kuksugare
-luder
-mongo
-neger
-negrer
-rövhål
-slyna
-subba
-svartskalle
-våldta
-våldtäkt
-
-# Finnish
 huora
 huoran
 huorat
 idiootti
-kusipää
-kyrpä
+idiot
+idiots
+jackass
+knull
+knullar
+kukar
+kuken
+kuksugare
 kyrpää
-mulkero
-mulkku
+kys
+luder
+mongo
+moron
+morons
 mulkut
-neekeri
 neekerit
-nussia
+negrer
+niggers
 nussii
-paska
 paskaa
 paskan
-pillu
 pillua
-runkkari
-runkku
-ryssä
+piss
+retard
+retarded
 ryssät
-vittu
+shithead
+shits
+sluts
+slyna
+stfu
+svartskalle
 vittua
-vitun
-vittuun
 vittupää
+vittuun
+våldta
+våldtäkt
+wanker
+whores
 ääliö

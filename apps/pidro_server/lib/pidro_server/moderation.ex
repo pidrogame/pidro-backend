@@ -2,24 +2,28 @@ defmodule PidroServer.Moderation do
   @moduledoc """
   Whether a typed text or a new username may be shown to other players
   (PID-84), against the one word list in `priv/moderation/words.txt`
-  (English, Swedish, Finnish).
+  (English, Swedish, Finnish), based on the LDNOOBW lists (CC-BY-4.0).
 
   The text is NFKC-normalized and lowercased, simple letter swaps are undone
   (`sh1t`, `$hit`), a letter held down is let go (`fuuuck`) and letters
   spaced apart are joined (`f u c k`, `f.u.c.k`). Then only whole words
   count, so a clean name that contains a listed word, like Kukkonen or
-  Scunthorpe, passes. Text that is not valid UTF-8 or longer than 1,000
+  Scunthorpe, passes; an entry with spaces matches as a run of whole words. Text that is not valid UTF-8 or longer than 1,000
   bytes is not allowed.
   """
 
   @external_resource words_path = Path.expand("../../priv/moderation/words.txt", __DIR__)
 
-  @words words_path
-         |> File.read!()
-         |> String.split("\n", trim: true)
-         |> Enum.map(&String.trim/1)
-         |> Enum.reject(&(&1 == "" or String.starts_with?(&1, "#")))
-         |> MapSet.new()
+  {phrases, words} =
+    words_path
+    |> File.read!()
+    |> String.split("\n", trim: true)
+    |> Enum.map(&String.trim/1)
+    |> Enum.reject(&(&1 == "" or String.starts_with?(&1, "#")))
+    |> Enum.split_with(&String.contains?(&1, " "))
+
+  @words MapSet.new(words)
+  @phrases Enum.map(phrases, &" #{&1} ")
 
   # A digit or sign standing in for a letter; "1" and "|" may be an i or an l.
   @swaps %{
@@ -63,9 +67,11 @@ defmodule PidroServer.Moderation do
   defp listed?(text) do
     words = String.split(text, ~r/[^\p{L}]+/u, trim: true)
 
+    joined = " #{Enum.join(words, " ")} "
+
     Enum.any?(words ++ spaced(words), fn word ->
       Enum.any?([word | held(word)], &(&1 in @words))
-    end)
+    end) or Enum.any?(@phrases, &String.contains?(joined, &1))
   end
 
   # Runs of single letters, joined: "f u c k" -> "fuck".
