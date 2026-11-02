@@ -328,9 +328,20 @@ defmodule PidroServerWeb.Dev.HistoryInspector do
 
     Repo.all(
       from u in User,
+        left_join: avatar in PidroServer.Accounts.UserAvatar,
+        on: avatar.user_id == u.id,
         where: u.id in ^ids,
-        select: {u.id, %{username: u.username, display_name: u.display_name}}
+        select:
+          {u.id,
+           %{username: u.username, display_name: u.display_name, avatar_version: avatar.version}}
     )
-    |> Map.new()
+    |> Map.new(fn {id, profile} ->
+      {id,
+       %{
+         username: profile.username,
+         display_name: profile.display_name,
+         avatar_url: PidroServer.Accounts.Avatars.url(profile.avatar_version, id)
+       }}
+    end)
   end
 end

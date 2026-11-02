@@ -47,10 +47,26 @@ defmodule PidroServerWeb.Dev.ArchivePresentation do
       {position,
        %{
          name: participant_name(seat, names),
+         kind: participant_kind(seat),
+         avatar_url: participant_avatar(seat, names),
          detail: if(seat["occupant_type"] == "bot", do: "Bot", else: "")
        }}
     end)
   end
+
+  defp participant_kind(%{"occupant_type" => "bot"}), do: :bot
+  defp participant_kind(%{"occupant_type" => "vacant"}), do: :vacant
+  defp participant_kind(_), do: :human
+
+  defp participant_avatar(%{"occupant_type" => "bot"} = seat, _names) do
+    case PidroServer.BotCatalogue.profile(seat["bot_persona"]) do
+      nil -> nil
+      profile -> PidroServer.BotCatalogue.avatar_url(profile)
+    end
+  end
+
+  defp participant_avatar(%{"occupant_type" => "vacant"}, _names), do: nil
+  defp participant_avatar(seat, names), do: get_in(names, [seat["user_id"], :avatar_url])
 
   def participant_name(%{"occupant_type" => "bot"} = seat, _names),
     do: PidroServer.Games.Room.Seat.bot_display_name(seat["bot_persona"])
@@ -77,7 +93,7 @@ defmodule PidroServerWeb.Dev.ArchivePresentation do
          username: name,
          display_name: name,
          bot_profile: if(profile, do: PidroServer.BotCatalogue.public(profile)),
-         avatar_url: nil
+         avatar_url: participant_avatar(seat, names)
        }}
     end)
   end

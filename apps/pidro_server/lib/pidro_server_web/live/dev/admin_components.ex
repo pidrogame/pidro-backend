@@ -7,26 +7,79 @@ defmodule PidroServerWeb.Dev.AdminComponents do
 
   def participant_teams(assigns) do
     ~H"""
-    <div class="grid min-w-0 grid-cols-2 gap-4 sm:gap-6">
+    <div class="match-teams">
       <section
         :for={
           {team, positions} <- [{"North / South", [:north, :south]}, {"East / West", [:east, :west]}]
         }
-        class="min-w-0"
+        class="match-team"
       >
-        <h3 class="text-xs font-semibold text-stone-500">{team}</h3>
-        <ul class="mt-2 space-y-3">
-          <li :for={position <- positions} class="min-w-0">
+        <h3 class="match-team-label">{team}</h3>
+        <ul>
+          <li :for={position <- positions} class="match-person">
             <% seat = @seats[position] %>
-            <p class="break-words text-sm font-semibold leading-5 text-stone-950">{seat.name}</p>
-            <p class="mt-0.5 text-xs leading-5 text-stone-500">
-              {position |> to_string() |> String.capitalize()}{if seat.detail != "",
-                do: " · #{seat.detail}"}
-            </p>
+            <span class={["match-avatar", "match-avatar-#{seat.kind}"]} aria-hidden="true">
+              <.icon :if={seat.kind == :bot} name="hero-cpu-chip" class="size-4" />
+              <.icon :if={seat.kind == :vacant} name="hero-user-plus" class="size-4" />
+              <span :if={seat.kind == :human}>{String.first(seat.name)}</span>
+              <img
+                :if={seat.avatar_url}
+                src={seat.avatar_url}
+                alt=""
+                loading="lazy"
+                onerror="this.hidden=true"
+              />
+            </span>
+            <div class="min-w-0">
+              <p class="match-person-name">{seat.name}</p>
+              <p class="match-person-detail">
+                {position |> to_string() |> String.capitalize()}{if seat.detail != "",
+                  do: " · #{seat.detail}"}
+              </p>
+            </div>
           </li>
         </ul>
       </section>
     </div>
+    """
+  end
+
+  attr :status, :any, required: true
+
+  def match_status(assigns) do
+    {label, icon, tone} =
+      case to_string(assigns.status) do
+        "playing" ->
+          {"In progress", "hero-play-circle", "live"}
+
+        "active" ->
+          {"Live / unclosed", "hero-play-circle", "live"}
+
+        status when status in ["complete", "finished"] ->
+          {"Completed", "hero-check-circle", "complete"}
+
+        "interrupted" ->
+          {"Interrupted", "hero-exclamation-triangle", "warning"}
+
+        "closed" ->
+          {"Abandoned / closed", "hero-stop-circle", "neutral"}
+
+        "ready" ->
+          {"Ready", "hero-check", "live"}
+
+        "waiting" ->
+          {"Waiting", "hero-clock", "neutral"}
+
+        status ->
+          {status, "hero-information-circle", "neutral"}
+      end
+
+    assigns = assign(assigns, label: label, icon: icon, tone: tone)
+
+    ~H"""
+    <span class={["match-status", "match-status-#{@tone}"]}>
+      <.icon name={@icon} class="size-4 shrink-0" />{@label}
+    </span>
     """
   end
 

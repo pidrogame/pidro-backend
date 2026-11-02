@@ -223,7 +223,10 @@ defmodule PidroServerWeb.Dev.GameListLive do
         <span class="text-xs text-stone-500">Showing {length(@rooms)} of {map_size(@all_rooms)} games · sampled every 750ms</span>
       </div>
 
-      <div id="game-rows" class="space-y-3">
+      <div id="game-rows" class="match-list">
+        <div :if={@rooms != []} class="match-columns" aria-hidden="true">
+          <span>Table / room</span><span>Players · teams</span><span>Game state</span><span>Activity · UTC</span><span>Actions</span>
+        </div>
         <p :if={@rooms == []} class="rounded border border-dashed p-8 text-center text-stone-500">
           No active rooms at the moment
         </p>
@@ -231,93 +234,86 @@ defmodule PidroServerWeb.Dev.GameListLive do
           :for={room <- @rooms}
           id={"room-#{room.code}"}
           class={[
-            "rounded-lg border border-stone-200 bg-white p-4",
+            "match-row",
             MapSet.member?(@changed, room.code) && "admin-row-changed"
           ]}
         >
           <% summary = @summaries[room.code] %>
-          <div class="flex flex-wrap items-center justify-between gap-2">
-            <div class="min-w-0">
-              <.link
-                navigate={~p"/admin/games/#{room.code}"}
-                class="font-semibold text-stone-950 break-words"
-              >{room.config.name || "Game #{room.code}"}</.link>
-              <button
-                id={"copy-#{room.code}"}
-                phx-hook="Clipboard"
-                data-clipboard-text={room.code}
-                title="Copy room ID"
-                class="ml-2 font-mono text-xs text-stone-500"
-              >{room.code}</button>
-            </div>
-            <div class="flex items-center gap-3 text-sm">
-              <span class="rounded bg-stone-100 px-2 py-1">{room.status}</span>
-              <.link
-                navigate={~p"/admin/games/#{room.code}"}
-                class="font-medium text-indigo-700 underline"
-              >Watch</.link>
-              <button
-                phx-click="request_delete"
-                phx-value-code={room.code}
-                class="text-xs text-stone-500"
-              >Delete</button>
-            </div>
+          <div class="match-room">
+            <.link
+              navigate={~p"/admin/games/#{room.code}"}
+              class="match-title"
+            >{room.config.name || "Game #{room.code}"}</.link>
+            <button
+              id={"copy-#{room.code}"}
+              phx-hook="Clipboard"
+              data-clipboard-text={room.code}
+              title="Copy room ID"
+              class="match-code"
+            ><.icon name="hero-square-2-stack" class="size-3.5" />{room.code}</button>
+            <details class="match-identifiers">
+              <summary>Seat identifiers</summary>
+              <ul>
+                <li :for={{position, seat} <- room.seats} class="break-all">
+                  {position} · {seat.user_id || "No player ID"}
+                  <button
+                    :if={seat.user_id}
+                    id={"player-id-#{room.code}-#{position}"}
+                    phx-hook="Clipboard"
+                    data-clipboard-text={seat.user_id}
+                    class="px-3 underline"
+                    title={"Copy player ID: #{seat.user_id}"}
+                  >Copy</button>
+                </li>
+              </ul>
+            </details>
           </div>
-          <div class="mt-4 grid gap-5 lg:grid-cols-[2fr_1fr_1fr]">
-            <.participant_teams seats={team_seats(room, @profiles)} />
-            <div class="text-sm">
-              <p class="font-semibold">{phase_label(summary, room)}</p>
-              <p class="mt-1 font-mono">
-                N/S {score(summary, :north_south)} · E/W {score(summary, :east_west)}
-              </p>
-              <p :if={summary && summary.current_turn} class="mt-1 text-xs text-stone-600">
-                Turn: {seat_name(
-                  room.seats[summary.current_turn],
-                  @profiles[room.seats[summary.current_turn].user_id]
-                )} ({summary.current_turn})
-              </p>
-              <p class="mt-1 text-xs text-stone-500">
-                Pace: {if summary, do: summary.pace, else: room.pace}
-              </p>
-            </div>
-            <div class="text-xs text-stone-500">
-              <%= if summary do %>
-                <p>{humanize(summary.last_event)}</p>
-                <time
-                  datetime={DateTime.to_iso8601(summary.updated_at)}
-                  title={DateTime.to_iso8601(summary.updated_at)}
-                >{elapsed(summary.updated_at, @now)} ago</time>
-              <% else %>
-                <p>
-                  {if room.status == :playing,
-                    do: "Game process unavailable",
-                    else: "Waiting for players"}
-                </p>
-              <% end %>
-              <p class="mt-1">{Positions.count(room)} / 4 seated</p>
-              <p :if={is_nil(room.host_id)} class="mt-1">No owner</p>
-              <p :if={issue?(room, summary)} class="mt-1 text-amber-700">
-                Connection / process issue
-              </p>
-              <p class="mt-2">Created {Calendar.strftime(room.created_at, "%d %b %H:%M UTC")}</p>
-            </div>
+          <.participant_teams seats={team_seats(room, @profiles)} />
+          <div class="match-state">
+            <.match_status status={room.status} />
+            <p class="mt-2 text-sm font-semibold">{phase_label(summary, room)}</p>
+            <p class="match-score">
+              N/S {score(summary, :north_south)} · E/W {score(summary, :east_west)}
+            </p>
+            <p :if={summary && summary.current_turn} class="mt-1 text-xs text-stone-600">
+              Turn: {seat_name(
+                room.seats[summary.current_turn],
+                @profiles[room.seats[summary.current_turn].user_id]
+              )} ({summary.current_turn})
+            </p>
+            <p class="mt-1 text-xs text-stone-500">
+              Pace: {if summary, do: summary.pace, else: room.pace}
+            </p>
           </div>
-          <details class="mt-3 border-t border-stone-100 pt-2 text-xs text-stone-500">
-            <summary class="cursor-pointer py-3">Seat identifiers</summary>
-            <ul class="space-y-1">
-              <li :for={{position, seat} <- room.seats} class="break-all">
-                {position} · {seat.user_id || "No player ID"}
-                <button
-                  :if={seat.user_id}
-                  id={"player-id-#{room.code}-#{position}"}
-                  phx-hook="Clipboard"
-                  data-clipboard-text={seat.user_id}
-                  class="min-h-11 min-w-11 px-3 underline"
-                  title={"Copy player ID: #{seat.user_id}"}
-                >Copy</button>
-              </li>
-            </ul>
-          </details>
+          <div class="match-time">
+            <%= if summary do %>
+              <p>{humanize(summary.last_event)}</p>
+              <time
+                datetime={DateTime.to_iso8601(summary.updated_at)}
+                title={DateTime.to_iso8601(summary.updated_at)}
+              >{elapsed(summary.updated_at, @now)} ago</time>
+            <% else %>
+              <p>
+                {if room.status == :playing,
+                  do: "Game process unavailable",
+                  else: "Waiting for players"}
+              </p>
+            <% end %>
+            <p class="mt-1">{Positions.count(room)} / 4 seated</p>
+            <p :if={is_nil(room.host_id)} class="mt-1">No owner</p>
+            <p :if={issue?(room, summary)} class="mt-1 text-amber-700">
+              Connection / process issue
+            </p>
+            <p class="mt-2">Created {Calendar.strftime(room.created_at, "%d %b %H:%M UTC")}</p>
+          </div>
+          <div class="match-actions">
+            <.link navigate={~p"/admin/games/#{room.code}"} class="match-primary">
+              <.icon name="hero-eye" class="size-4" />Watch
+            </.link>
+            <button phx-click="request_delete" phx-value-code={room.code} class="match-delete">
+              <.icon name="hero-trash" class="size-4" />Delete
+            </button>
+          </div>
         </article>
       </div>
 
@@ -488,7 +484,22 @@ defmodule PidroServerWeb.Dev.GameListLive do
 
   defp team_seats(room, profiles) do
     Map.new(room.seats, fn {position, seat} ->
-      {position, %{name: seat_name(seat, profiles[seat.user_id]), detail: connection(seat)}}
+      bot = if seat.occupant_type == :bot, do: PidroServer.BotCatalogue.profile(seat.bot_persona)
+
+      avatar =
+        cond do
+          bot -> PidroServer.BotCatalogue.avatar_url(bot)
+          seat.occupant_type == :human -> get_in(profiles, [seat.user_id, :avatar_url])
+          true -> nil
+        end
+
+      {position,
+       %{
+         name: seat_name(seat, profiles[seat.user_id]),
+         detail: connection(seat),
+         kind: seat.occupant_type,
+         avatar_url: avatar
+       }}
     end)
   end
 

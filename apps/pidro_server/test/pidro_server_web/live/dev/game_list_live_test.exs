@@ -110,11 +110,22 @@ defmodule PidroServerWeb.Dev.GameListLiveTest do
     |> Ecto.Changeset.change(inserted_at: ~U[2020-01-01 00:00:00.000000Z])
     |> PidroServer.Repo.update!()
 
+    PidroServer.Repo.insert!(%PidroServer.Accounts.UserAvatar{
+      user_id: host.id,
+      version: "live-avatar",
+      image: "private-image-bytes"
+    })
+
+    avatar_url = PidroServer.Accounts.Avatars.url("live-avatar", host.id)
+
     for _ <- 1..21, do: PidroServer.AccountsFixtures.user_fixture()
     refute Enum.any?(PidroServer.Accounts.Auth.list_recent_users(20), &(&1.id == host.id))
     {:ok, room} = RoomManager.create_room(host.id)
-    {:ok, view, _} = live(conn, ~p"/admin/games")
+    {:ok, view, html} = live(conn, ~p"/admin/games")
     assert has_element?(view, "#room-#{room.code}", "Longtime player")
+    assert has_element?(view, "#room-#{room.code} img[src='#{avatar_url}']")
+    refute html =~ host.email
+    refute html =~ "private-image-bytes"
 
     friend = PidroServer.AccountsFixtures.user_fixture(%{display_name: "New seated friend"})
     {:ok, _, _} = RoomManager.join_room(room.code, friend.id)
@@ -161,7 +172,7 @@ defmodule PidroServerWeb.Dev.GameListLiveTest do
     send(RoomManager, {:game_over, one.code, :north_south, %{north_south: 62, east_west: 19}})
     {:ok, finished} = RoomManager.get_room(one.code)
     assert finished.status == :finished
-    eventually(fn -> assert has_element?(view, "#room-#{one.code}", "finished") end)
+    eventually(fn -> assert has_element?(view, "#room-#{one.code}", "Completed") end)
     {:ok, readiness} = RoomManager.readiness(one.code)
 
     for id <- ids,

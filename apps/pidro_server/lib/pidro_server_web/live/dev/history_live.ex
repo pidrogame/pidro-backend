@@ -260,6 +260,16 @@ defmodule PidroServerWeb.Dev.HistoryLive do
           </select>
         </label>
       </div>
+      <div class="history-search-actions mt-3 flex flex-wrap items-center gap-4">
+        <button class="min-h-11 rounded-md bg-stone-950 px-4 py-2 text-sm font-semibold text-white"><.icon
+          name="hero-magnifying-glass"
+          class="size-4"
+        />Search</button>
+        <.link
+          navigate={list_path(@action)}
+          class="inline-flex min-h-11 items-center text-sm underline"
+        >Clear filters</.link>
+      </div>
       <details
         class="mt-3"
         open={
@@ -314,13 +324,6 @@ defmodule PidroServerWeb.Dev.HistoryLive do
             do: "Time filters use game start."} 25 results per page.
         </p>
       </details>
-      <div class="mt-3 flex flex-wrap items-center gap-4">
-        <button class="min-h-11 rounded-md bg-stone-950 px-4 py-2 text-sm font-semibold text-white">Search</button>
-        <.link
-          navigate={list_path(@action)}
-          class="inline-flex min-h-11 items-center text-sm underline"
-        >Clear filters</.link>
-      </div>
     </form>
     """
   end
@@ -348,46 +351,87 @@ defmodule PidroServerWeb.Dev.HistoryLive do
       title="No matching evidence"
       body="No records match these filters. Older, expired or never-saved games may have no archive; absence is not proof a game never happened."
     />
-    <div class="space-y-3" id="history-results">
-      <article :for={row <- @data.rows} class="rounded-lg border border-stone-200 bg-white p-4">
-        <div class="flex flex-wrap items-center justify-between gap-2">
-          <.link
-            navigate={detail_path(@action, row)}
-            class="inline-flex min-h-11 items-center font-semibold text-stone-950"
-          >Room {row.room_code}</.link>
-          <div class="flex items-center gap-3 text-sm">
-            <span class="rounded bg-stone-100 px-2 py-1">{row_label(@action, row)}</span>
-            <.link
-              navigate={detail_path(@action, row)}
-              class="inline-flex min-h-11 items-center font-medium text-indigo-700 underline"
-            >Inspect</.link>
-          </div>
-        </div>
-        <div :if={@action == :archives} class="mt-4 grid gap-5 lg:grid-cols-[2fr_1fr_1fr]">
-          <.participant_teams seats={Presentation.teams(row.participants, @data.names)} />
-          <div class="text-sm">
-            <p class="font-semibold">{evidence(row.evidence_status)}</p>
-            <p class="mt-1 text-xs text-stone-500">Initial roster · current names</p>
-            <p :if={row.participants == %{}} class="mt-1 text-xs text-stone-500">
-              No initial seat evidence
-            </p>
-          </div>
-          <div class="space-y-1 text-xs text-stone-500">
-            <p>{row_time(@action, row)}</p>
-            <p>Last saved {utc(row.saved_at)}</p>
-            <p :if={row.ended_at}>Ended {utc(row.ended_at)}</p>
-          </div>
-        </div>
-        <p :if={@action != :archives} class="mt-2 text-sm">{row_time(@action, row)}</p>
-        <details class="mt-3 border-t border-stone-100 pt-2 text-xs text-stone-500">
-          <summary class="min-h-11 cursor-pointer py-3">Instance and evidence</summary>
-          <p class="break-all">{row.game_instance_id || "No recorded instance"}</p>
-          <p :if={@action == :archives}>Last saved revision {row.last_revision}</p>
-        </details>
-        <p :if={@action == :reports} class="mt-1 break-all text-sm">
-          Report {row.id} · User {row.user_id} · Build {row.build}
-        </p>
-      </article>
+    <div>
+      <div :if={@action == :archives && @data.rows != []} class="match-columns" aria-hidden="true">
+        <span>Table / room</span><span>Initial roster · current profiles</span><span>Outcome / evidence</span><span>Recorded · UTC</span><span>Action</span>
+      </div>
+      <div class={if @action == :archives, do: "match-list", else: "space-y-3"} id="history-results">
+        <article
+          :for={row <- @data.rows}
+          class={
+            if @action == :archives,
+              do: "match-row",
+              else: "rounded-lg border border-stone-200 bg-white p-4"
+          }
+        >
+          <%= if @action == :archives do %>
+            <div class="match-room">
+              <.link
+                navigate={detail_path(@action, row)}
+                class="match-title"
+              ><.icon name="hero-rectangle-stack" class="size-4 shrink-0" />Room {row.room_code}</.link>
+              <details class="match-identifiers">
+                <summary>Instance and evidence</summary>
+                <p class="break-all">{row.game_instance_id || "No recorded instance"}</p>
+                <p :if={@action == :archives}>Last saved revision {row.last_revision}</p>
+              </details>
+            </div>
+            <.participant_teams seats={Presentation.teams(row.participants, @data.names)} />
+            <div class="match-state">
+              <.match_status status={row.status} />
+              <p class={[
+                "mt-2 flex items-center gap-1 text-xs",
+                if(row.evidence_status == "continuous", do: "text-stone-600", else: "text-amber-800")
+              ]}>
+                <.icon
+                  name={
+                    if row.evidence_status == "continuous",
+                      do: "hero-document-check",
+                      else: "hero-exclamation-triangle"
+                  }
+                  class="size-4 shrink-0"
+                />
+                {evidence(row.evidence_status)}
+              </p>
+              <p :if={row.participants == %{}} class="mt-1 text-xs text-stone-500">
+                No initial seat evidence
+              </p>
+            </div>
+            <div class="match-time">
+              <p>{row_time(@action, row)}</p>
+              <p>Last saved {utc(row.saved_at)}</p>
+              <p :if={row.ended_at}>Ended {utc(row.ended_at)}</p>
+            </div>
+            <div class="match-actions">
+              <.link navigate={detail_path(@action, row)} class="match-primary">
+                <.icon name="hero-magnifying-glass" class="size-4" />Inspect
+              </.link>
+            </div>
+          <% else %>
+            <div class="flex flex-wrap items-center justify-between gap-2">
+              <.link
+                navigate={detail_path(@action, row)}
+                class="inline-flex min-h-11 items-center font-semibold text-stone-950"
+              >Room {row.room_code}</.link>
+              <div class="flex items-center gap-3 text-sm">
+                <span class="rounded bg-stone-100 px-2 py-1">{row_label(@action, row)}</span>
+                <.link
+                  navigate={detail_path(@action, row)}
+                  class="inline-flex min-h-11 items-center font-medium text-indigo-700 underline"
+                >Inspect</.link>
+              </div>
+            </div>
+            <p class="mt-2 text-sm">{row_time(@action, row)}</p>
+            <details class="mt-3 border-t border-stone-100 pt-2 text-xs text-stone-500">
+              <summary class="min-h-11 cursor-pointer py-3">Instance and evidence</summary>
+              <p class="break-all">{row.game_instance_id || "No recorded instance"}</p>
+            </details>
+          <% end %>
+          <p :if={@action == :reports} class="mt-1 break-all text-sm">
+            Report {row.id} · User {row.user_id} · Build {row.build}
+          </p>
+        </article>
+      </div>
     </div>
     <.link
       :if={@data.next}
@@ -400,23 +444,18 @@ defmodule PidroServerWeb.Dev.HistoryLive do
   defp archive(assigns) do
     ~H"""
     <%= if @data.archive do %>
-      <section class="rounded-lg border border-stone-200 bg-white p-4">
-        <div class="mb-4 flex flex-wrap items-center justify-between gap-2">
-          <h2 class="text-lg font-semibold">Room {@data.archive.room_code}</h2>
-          <span class="rounded bg-stone-100 px-2 py-1 text-sm">{outcome(@data.archive.status)}</span>
-        </div>
-        <div class="grid gap-4 lg:grid-cols-[2fr_1fr_1fr]">
-          <.participant_teams seats={Presentation.teams(@data.archive.participants, @data.names)} />
-          <p class="text-xs leading-5 text-stone-500">
-            Initial participants · current account and bot names.<br />Seat and connection facts are from game start, not this checkpoint.
-          </p>
-          <p class="text-xs leading-5 text-stone-500">
-            Started {utc(@data.archive.started_at)}<br />Last saved {utc(@data.archive.saved_at)}
-          </p>
-        </div>
+      <section class="playback-heading">
+        <h2 class="flex items-center gap-2 text-lg font-semibold">
+          <.icon name="hero-rectangle-stack" class="size-5" />Room {@data.archive.room_code}
+        </h2>
+        <.match_status status={@data.archive.status} />
+        <p class="text-xs text-stone-600">Started {utc(@data.archive.started_at)}</p>
+        <p class="playback-roster-note">
+          Initial participants · current account names and avatars. Seat and connection facts are from game start, not this checkpoint.
+        </p>
       </section>
       <.saved_table data={@data} params={@params} playing={@playing} speed={@speed} notice={@notice} />
-      <details id="archive-evidence" class="rounded-lg border border-stone-200 bg-white p-4">
+      <details id="archive-evidence" class="playback-evidence">
         <summary class="min-h-11 cursor-pointer py-3 font-semibold">
           Archive evidence and initial seat IDs
         </summary>
@@ -452,8 +491,9 @@ defmodule PidroServerWeb.Dev.HistoryLive do
         </div>
         <h2 class="mt-4 font-semibold">Initial participants</h2>
         <p class="text-xs text-stone-500">
-          Names are current account labels; seat facts are from game start, not a complete replacement or connection history.
+          Names and avatars are current account labels; seat facts are from game start, not a complete replacement or connection history.
         </p>
+        <.participant_teams seats={Presentation.teams(@data.archive.participants, @data.names)} />
         <p :if={@data.archive.participants == %{}} class="mt-2 text-sm">
           No initial seat evidence was captured.
         </p>
@@ -478,7 +518,7 @@ defmodule PidroServerWeb.Dev.HistoryLive do
       <details
         id="timeline-details"
         open={@params["after_revision"] not in [nil, ""]}
-        class="rounded-lg border bg-white p-4"
+        class="playback-evidence"
       >
         <summary class="min-h-11 cursor-pointer py-3 font-semibold">
           Authoritative saved timeline
@@ -526,7 +566,7 @@ defmodule PidroServerWeb.Dev.HistoryLive do
           class="mt-4 inline-block underline"
         >Next saved events →</.link>
       </details>
-      <details class="rounded-lg border bg-white p-4">
+      <details class="playback-evidence">
         <summary class="min-h-11 cursor-pointer py-3 font-semibold">
           Linked client incident reports ({length(@data.reports)}{if length(@data.reports) == 25,
             do: "+"})
@@ -556,8 +596,35 @@ defmodule PidroServerWeb.Dev.HistoryLive do
     assigns = assign(assigns, :playable, playable?(assigns.data))
 
     ~H"""
-    <section id="saved-playback" class="space-y-3">
-      <div class="rounded-lg border border-stone-200 bg-white p-4">
+    <section id="saved-playback" class="playback-workspace">
+      <p
+        :if={
+          @data.archive.evidence_status != "continuous" || @data.archive.missing_revision_count > 0 ||
+            @data.archive.failed_checkpoints > 0
+        }
+        id="archive-gap-warning"
+        class="playback-warning"
+      >
+        <.icon name="hero-exclamation-triangle" class="size-5 shrink-0" />
+        <span>{evidence(@data.archive.evidence_status)} · Missing checkpoints: {@data.archive.missing_revision_count} · Failed writes: {@data.archive.failed_checkpoints}. Missing state is never reconstructed.</span>
+      </p>
+      <%= cond do %>
+        <% is_nil(@data.snapshot) -> %>
+          <p class="playback-warning">
+            No saved snapshot at this revision. A gap is not reconstructed.
+          </p>
+        <% @data.archive.format_version != 1 -> %>
+          <p class="playback-warning">
+            Unsupported archive format. Table cannot be safely rendered; saved data remains below.
+          </p>
+        <% true -> %>
+          <CardComponents.watch_table
+            game_state={Presentation.state(@data.snapshot)}
+            seats={Presentation.seats(@data.archive.participants, @data.names)}
+            perspective={:all}
+          />
+      <% end %>
+      <div class="playback-controls">
         <div class="flex flex-wrap items-baseline justify-between gap-2">
           <h2 id="checkpoint-label" class="font-semibold">
             Saved table · {if @data.snapshot,
@@ -571,32 +638,77 @@ defmodule PidroServerWeb.Dev.HistoryLive do
             true -> "Paused"
           end}</span>
         </div>
-        <div class="mt-3 flex flex-wrap items-center gap-2">
-          <button
-            :for={{direction, label} <- [{"first", "First"}, {"previous", "Previous"}]}
-            phx-click="step"
-            phx-value-direction={direction}
-            disabled={!@playable || @data.revision <= @data.checkpoints.first}
-            class="min-h-11 rounded-md border border-stone-300 px-3 text-sm disabled:opacity-40"
-          >{label}</button>
-          <button
-            id="play-toggle"
-            phx-click="toggle_playback"
-            disabled={!@playable || @data.checkpoints.count < 2}
-            class="min-h-11 min-w-24 rounded-md bg-stone-950 px-4 text-sm font-semibold text-white disabled:opacity-40"
-          >{cond do
-            @playing -> "Pause"
-            @data.revision == @data.checkpoints.last -> "Restart"
-            true -> "Play"
-          end}</button>
-          <button
-            :for={{direction, label} <- [{"next", "Next"}, {"last", "Last"}]}
-            phx-click="step"
-            phx-value-direction={direction}
-            disabled={!@playable || @data.revision >= @data.checkpoints.last}
-            class="min-h-11 rounded-md border border-stone-300 px-3 text-sm disabled:opacity-40"
-          >{label}</button>
-          <form id="playback-speed" phx-change="speed" class="flex items-center gap-2 sm:ml-auto">
+        <div class="playback-transport">
+          <div class="playback-buttons">
+            <button
+              :for={
+                {direction, label, icon} <- [
+                  {"first", "First", "hero-backward"},
+                  {"previous", "Previous", "hero-chevron-left"}
+                ]
+              }
+              phx-click="step"
+              phx-value-direction={direction}
+              aria-label={label}
+              title={label <> " saved checkpoint"}
+              disabled={!@playable || @data.revision <= @data.checkpoints.first}
+              class="playback-step"
+            ><.icon name={icon} class="size-5" /></button>
+            <button
+              id="play-toggle"
+              phx-click="toggle_playback"
+              disabled={!@playable || @data.checkpoints.count < 2}
+              class="playback-toggle"
+            ><.icon
+              name={
+                cond do
+                  @playing -> "hero-pause-solid"
+                  @data.revision == @data.checkpoints.last -> "hero-arrow-path"
+                  true -> "hero-play-solid"
+                end
+              }
+              class="size-4"
+            />{cond do
+              @playing -> "Pause"
+              @data.revision == @data.checkpoints.last -> "Restart"
+              true -> "Play"
+            end}</button>
+            <button
+              :for={
+                {direction, label, icon} <- [
+                  {"next", "Next", "hero-chevron-right"},
+                  {"last", "Last", "hero-forward"}
+                ]
+              }
+              phx-click="step"
+              phx-value-direction={direction}
+              aria-label={label}
+              title={label <> " saved checkpoint"}
+              disabled={!@playable || @data.revision >= @data.checkpoints.last}
+              class="playback-step"
+            ><.icon name={icon} class="size-5" /></button>
+          </div>
+          <form id="checkpoint-seek" phx-change="seek">
+            <label for="checkpoint-range" class="text-xs text-stone-600">Saved checkpoint · {@data.checkpoints.count} available</label>
+            <input
+              id="checkpoint-range"
+              type="range"
+              name="checkpoint"
+              min="0"
+              max={max(@data.checkpoints.count - 1, 0)}
+              step="1"
+              value={min(@data.checkpoint_index, max(@data.checkpoints.count - 1, 0))}
+              phx-patch-focused
+              aria-valuetext={
+                if @data.snapshot,
+                  do: "Saved revision #{@data.revision}",
+                  else: "Snapshot unavailable"
+              }
+              disabled={!@playable || @data.checkpoints.count < 2}
+              class="block min-h-11 w-full"
+            />
+          </form>
+          <form id="playback-speed" phx-change="speed" class="playback-speed">
             <label for="checkpoint-speed" class="text-sm">Speed</label>
             <select
               id="checkpoint-speed"
@@ -610,24 +722,6 @@ defmodule PidroServerWeb.Dev.HistoryLive do
             </select>
           </form>
         </div>
-        <form id="checkpoint-seek" phx-change="seek" class="mt-3">
-          <label for="checkpoint-range" class="text-xs text-stone-600">Saved checkpoint · {@data.checkpoints.count} available</label>
-          <input
-            id="checkpoint-range"
-            type="range"
-            name="checkpoint"
-            min="0"
-            max={max(@data.checkpoints.count - 1, 0)}
-            step="1"
-            value={min(@data.checkpoint_index, max(@data.checkpoints.count - 1, 0))}
-            phx-patch-focused
-            aria-valuetext={
-              if @data.snapshot, do: "Saved revision #{@data.revision}", else: "Snapshot unavailable"
-            }
-            disabled={!@playable || @data.checkpoints.count < 2}
-            class="block min-h-11 w-full accent-stone-900"
-          />
-        </form>
         <p class="text-xs leading-5 text-stone-500">
           Checkpoint cadence: 1× = one saved checkpoint per second, not original elapsed time. Each scrubber position selects a saved checkpoint; missing revisions are skipped. Read-only; no engine rules are rerun.
         </p>
@@ -640,16 +734,6 @@ defmodule PidroServerWeb.Dev.HistoryLive do
         </p>
       </div>
       <p
-        :if={
-          @data.archive.evidence_status != "continuous" || @data.archive.missing_revision_count > 0 ||
-            @data.archive.failed_checkpoints > 0
-        }
-        id="archive-gap-warning"
-        class="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900"
-      >
-        {evidence(@data.archive.evidence_status)} · Missing checkpoints: {@data.archive.missing_revision_count} · Failed writes: {@data.archive.failed_checkpoints}. Missing state is never reconstructed.
-      </p>
-      <p
         :if={@notice}
         id="playback-notice"
         role="status"
@@ -657,22 +741,6 @@ defmodule PidroServerWeb.Dev.HistoryLive do
       >
         {@notice}
       </p>
-      <%= cond do %>
-        <% is_nil(@data.snapshot) -> %>
-          <p class="rounded border border-amber-200 bg-amber-50 p-4">
-            No saved snapshot at this revision. A gap is not reconstructed.
-          </p>
-        <% @data.archive.format_version != 1 -> %>
-          <p class="rounded border border-amber-200 bg-amber-50 p-4">
-            Unsupported archive format. Table cannot be safely rendered; saved data remains below.
-          </p>
-        <% true -> %>
-          <CardComponents.watch_table
-            game_state={Presentation.state(@data.snapshot)}
-            seats={Presentation.seats(@data.archive.participants, @data.names)}
-            perspective={:all}
-          />
-      <% end %>
       <details class="rounded-lg border border-stone-200 bg-white p-4">
         <summary class="min-h-11 cursor-pointer py-3 font-medium">
           Exact revision and saved JSON evidence (private admin data)
@@ -826,7 +894,6 @@ defmodule PidroServerWeb.Dev.HistoryLive do
       path <>
         "?" <> URI.encode_query(Map.reject(params, fn {_key, value} -> value in [nil, ""] end))
 
-  defp row_label(:archives, row), do: outcome(row.status)
   defp row_label(:reports, _), do: "Client-reported"
   defp row_label(:summaries, _), do: "Completed · Summary-only"
   defp row_time(:archives, row), do: "Started " <> utc(row.started_at)
@@ -857,7 +924,7 @@ defmodule PidroServerWeb.Dev.HistoryLive do
 
   defp list_notice(:archives),
     do:
-      "Each rematch is a separate instance. Archives start at deployment; older games are not backfilled."
+      "Initial roster · current names and avatars, not historical snapshots. Each rematch is a separate instance. Archives start at deployment; older games are not backfilled."
 
   defp list_notice(:reports),
     do:

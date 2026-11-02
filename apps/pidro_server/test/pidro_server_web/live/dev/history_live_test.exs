@@ -353,11 +353,19 @@ defmodule PidroServerWeb.Dev.HistoryLiveTest do
              live(log_in_admin(build_conn(), temporary), "/admin/history")
   end
 
-  test "archive rows batch current names and distinguish initial bots, unknown and empty seats",
+  test "archive rows batch current profiles and distinguish initial bots, unknown and empty seats",
        %{conn: conn} do
     user = AccountsFixtures.user_fixture(%{display_name: "Original name"})
     for n <- 1..25, do: checkpoint("roster-#{n}", user.id)
     user |> Ecto.Changeset.change(display_name: "Current name") |> Repo.update!()
+
+    Repo.insert!(%PidroServer.Accounts.UserAvatar{
+      user_id: user.id,
+      version: "current-avatar",
+      image: "private-image-bytes"
+    })
+
+    avatar_url = PidroServer.Accounts.Avatars.url("current-avatar", user.id)
 
     participants = %{
       "north" => %{"user_id" => user.id, "occupant_type" => "human", "status" => "connected"},
@@ -391,10 +399,29 @@ defmodule PidroServerWeb.Dev.HistoryLiveTest do
     assert html =~ "Open seat"
     refute html =~ "Connected"
     refute html =~ "Original name"
+    assert has_element?(view, "img[src='#{avatar_url}']")
+    assert has_element?(view, "img[src$='/images/bots/antti.svg']")
+    refute html =~ user.email
+    refute html =~ "private-image-bytes"
     # One batch in each of the disconnected and connected mounts, not per row/seat.
     assert_received :user_query
     assert_received :user_query
     refute_received :user_query
+
+    {:ok, detail, _} = live(conn, "/admin/history/roster-1")
+    assert has_element?(detail, ".watch-avatar img[src='#{avatar_url}']")
+    assert has_element?(detail, ".playback-roster-note", "current account names and avatars")
+
+    Repo.delete_all(from a in PidroServer.Accounts.UserAvatar, where: a.user_id == ^user.id)
+    {:ok, missing_avatar, _} = live(conn, "/admin/history/roster-1")
+    refute has_element?(missing_avatar, "img[src='#{avatar_url}']")
+    assert has_element?(missing_avatar, ".watch-name", "Current name")
+
+    Repo.delete!(Repo.get!(PidroServer.Accounts.User, user.id))
+    {:ok, deleted, html} = live(conn, "/admin/history/roster-1")
+    assert has_element?(deleted, ".watch-name", "Unknown player")
+    refute html =~ "Current name"
+    assert GameArchive.get("roster-1").participants == participants
   end
 
   test "playback uses only saved checkpoints, shows gaps and never mutates evidence", %{
