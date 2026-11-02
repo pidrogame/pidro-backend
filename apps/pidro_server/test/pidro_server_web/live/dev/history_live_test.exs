@@ -353,12 +353,251 @@ defmodule PidroServerWeb.Dev.HistoryLiveTest do
              live(log_in_admin(build_conn(), temporary), "/admin/history")
   end
 
-  defp checkpoint(id, user_id) do
-    state = Pidro.Core.GameState.new(seed: 7)
+  test "archive rows batch current names and distinguish initial bots, unknown and empty seats",
+       %{conn: conn} do
+    user = AccountsFixtures.user_fixture(%{display_name: "Original name"})
+    for n <- 1..25, do: checkpoint("roster-#{n}", user.id)
+    user |> Ecto.Changeset.change(display_name: "Current name") |> Repo.update!()
+
+    participants = %{
+      "north" => %{"user_id" => user.id, "occupant_type" => "human", "status" => "connected"},
+      "south" => %{"occupant_type" => "bot", "bot_persona" => "antti"},
+      "east" => %{"user_id" => Ecto.UUID.generate(), "occupant_type" => "human"},
+      "west" => %{"occupant_type" => "vacant"}
+    }
+
+    Repo.update_all(from(a in Archive, where: ^user.id in a.user_ids),
+      set: [participants: participants]
+    )
+
+    handler = {__MODULE__, make_ref()}
+
+    :telemetry.attach(
+      handler,
+      [:pidro_server, :repo, :query],
+      fn _, _, meta, owner ->
+        if meta.source == "users", do: send(owner, :user_query)
+      end,
+      self()
+    )
+
+    on_exit(fn -> :telemetry.detach(handler) end)
+
+    {:ok, view, html} = live(conn, "/admin/history?room_code=SAME")
+    assert has_element?(view, "#history-results article:nth-child(25)", "Current name")
+    assert html =~ "Initial roster · current names"
+    assert html =~ "Antti"
+    assert html =~ "Unknown player"
+    assert html =~ "Open seat"
+    refute html =~ "Connected"
+    refute html =~ "Original name"
+    # One batch in each of the disconnected and connected mounts, not per row/seat.
+    assert_received :user_query
+    assert_received :user_query
+    refute_received :user_query
+  end
+
+  test "playback uses only saved checkpoints, shows gaps and never mutates evidence", %{
+    conn: conn
+  } do
+    user = AccountsFixtures.user_fixture()
+
+    for {revision, score} <- [{0, 0}, {2, -8}, {5, 13}, {6, 26}],
+        do: checkpoint("playback", user.id, revision, score)
+
+    before = GameArchive.events("playback")
+    {:ok, view, _} = live(conn, "/admin/history/playback?revision=0")
+    assert has_element?(view, "#checkpoint-range[min='0'][max='3'][value='0']")
+    assert has_element?(view, "button[phx-value-direction=previous][disabled]")
+    assert has_element?(view, "#archive-gap-warning", "Missing checkpoints: 3")
+    refute has_element?(view, "#timeline-details[open]")
+    view |> element("button[phx-value-direction=next]") |> render_click()
+    assert has_element?(view, "#checkpoint-label", "revision 2")
+    assert has_element?(view, ".watch-team-ns strong", "-8")
+    assert has_element?(view, "#playback-notice", "Missing revisions skipped")
+    view |> form("#checkpoint-seek", checkpoint: "2") |> render_change()
+    assert has_element?(view, "#checkpoint-label", "revision 5")
+    assert has_element?(view, "#checkpoint-range[value='2'][aria-valuetext='Saved revision 5']")
+    # Queued input events select absolute checkpoint positions, regardless of prior responses.
+    render_hook(view, "seek", %{"checkpoint" => "2"})
+    assert has_element?(view, "#checkpoint-label", "revision 5")
+    render_hook(view, "seek", %{"checkpoint" => "3"})
+    assert has_element?(view, "#checkpoint-label", "revision 6")
+    view |> form("#checkpoint-seek", checkpoint: "1") |> render_change()
+    assert has_element?(view, "#checkpoint-label", "revision 2")
+    view |> element("button[phx-value-direction=next]") |> render_click()
+    assert has_element?(view, ".watch-team-ns strong", "13")
+    view |> element("button[phx-value-direction=last]") |> render_click()
+    assert has_element?(view, "button[phx-value-direction=next][disabled]")
+    assert has_element?(view, ".watch-team-ns strong", "26")
+    view |> element("button[phx-value-direction=previous]") |> render_click()
+    assert has_element?(view, "#checkpoint-label", "revision 5")
+    render_patch(view, "/admin/history/playback?revision=4")
+    assert render(view) =~ "No saved snapshot at this revision"
+    refute has_element?(view, "#watch-table")
+    view |> element("button[phx-value-direction=next]") |> render_click()
+    assert has_element?(view, "#checkpoint-label", "revision 5")
+    assert GameArchive.events("playback") == before
+    refute has_element?(view, "[phx-click=play_card], [phx-click=execute_action]")
+  end
+
+  test "real timers honor speed changes, pause, seek while playing, end, restart and URL navigation",
+       %{conn: conn} do
+    user = AccountsFixtures.user_fixture()
+    for revision <- [0, 2, 5, 6], do: checkpoint("timed", user.id, revision)
+    {:ok, view, _} = live(conn, "/admin/history/timed?revision=0")
+    view |> form("#playback-speed", speed: "0.5") |> render_change()
+    view |> element("#play-toggle") |> render_click()
+    assert has_element?(view, "#playback-state", "Playing")
+    Process.sleep(300)
+    assert has_element?(view, "#checkpoint-label", "revision 0")
+    view |> form("#playback-speed", speed: "4") |> render_change()
+    wait(fn -> has_element?(view, "#checkpoint-label", "revision 2") end)
+    view |> element("#play-toggle") |> render_click()
+    Process.sleep(350)
+    assert has_element?(view, "#checkpoint-label", "revision 2")
+    assert has_element?(view, "#playback-state", "Paused")
+    view |> form("#playback-speed", speed: "0.5") |> render_change()
+    view |> element("#play-toggle") |> render_click()
+    view |> form("#checkpoint-seek", checkpoint: "2") |> render_change()
+    assert has_element?(view, "#checkpoint-label", "revision 5")
+    assert has_element?(view, "#playback-state", "Playing")
+    view |> form("#playback-speed", speed: "4") |> render_change()
+    wait(fn -> has_element?(view, "#playback-state", "End of saved checkpoints") end)
+    assert has_element?(view, "#checkpoint-label", "revision 6")
+    view |> element("#play-toggle") |> render_click()
+    assert has_element?(view, "#checkpoint-label", "revision 0")
+    assert has_element?(view, "#playback-state", "Playing")
+    render_patch(view, "/admin/history/timed?revision=5")
+    Process.sleep(350)
+    assert has_element?(view, "#checkpoint-label", "revision 5")
+    assert has_element?(view, "#playback-state", "Paused")
+  end
+
+  test "empty, single and unsupported histories disable playback; malformed events are harmless",
+       %{conn: conn} do
+    user = AccountsFixtures.user_fixture()
+    for id <- ["empty-playback", "single", "future"], do: checkpoint(id, user.id)
+
+    Repo.delete_all(
+      from e in PidroServer.GameArchive.Event, where: e.game_instance_id == "empty-playback"
+    )
+
+    Repo.update_all(from(a in Archive, where: a.game_instance_id == "future"),
+      set: [format_version: 99]
+    )
+
+    for id <- ["empty-playback", "single", "future"] do
+      {:ok, view, _} = live(conn, "/admin/history/#{id}")
+      assert has_element?(view, "#play-toggle[disabled]")
+      assert has_element?(view, "#checkpoint-range[disabled]")
+
+      for {event, params} <- [
+            {"toggle_playback", %{}},
+            {"seek", %{"checkpoint" => []}},
+            {"seek", %{"checkpoint" => "-2"}},
+            {"seek", %{"checkpoint" => "2oops"}},
+            {"speed", %{"speed" => "0"}},
+            {"step", %{"direction" => "sideways"}}
+          ],
+          do: render_hook(view, event, params)
+
+      refute has_element?(view, "#playback-state", "Playing")
+    end
+  end
+
+  for invalidation <- [:revoked, :expired, :temporary_password] do
+    test "#{invalidation} sessions stop on the next playback tick without another user event", %{
+      conn: conn,
+      admin: admin
+    } do
+      user = AccountsFixtures.user_fixture()
+      for revision <- [0, 1, 2], do: checkpoint("revoke-playback", user.id, revision)
+      {:ok, view, _} = live(conn, "/admin/history/revoke-playback?revision=0")
+      view |> form("#playback-speed", speed: "4") |> render_change()
+      view |> element("#play-toggle") |> render_click()
+      tokens = from t in PidroServer.Admins.AdminToken, where: t.admin_id == ^admin.id
+
+      case unquote(invalidation) do
+        :revoked ->
+          Repo.delete_all(tokens)
+
+        :expired ->
+          Repo.update_all(tokens, set: [last_used_at: ~U[2000-01-01 00:00:00.000000Z]])
+
+        :temporary_password ->
+          admin |> Ecto.Changeset.change(force_password_change: true) |> Repo.update!()
+      end
+
+      assert_redirect(
+        view,
+        if(unquote(invalidation) == :temporary_password,
+          do: "/admin/admins",
+          else: "/admin/login"
+        ),
+        2_000
+      )
+    end
+  end
+
+  test "new checkpoints arriving during lookup cannot relabel the displayed snapshot", %{
+    conn: conn
+  } do
+    user = AccountsFixtures.user_fixture()
+    checkpoint("concurrent-save", user.id)
+    handler = {__MODULE__, make_ref()}
+    Process.put(:save_during_read, true)
+
+    :telemetry.attach(
+      handler,
+      [:pidro_server, :repo, :query],
+      fn _, _, meta, _ ->
+        if meta.source == "game_archives" and Process.delete(:save_during_read) do
+          checkpoint("concurrent-save", user.id, 1, 14)
+        end
+      end,
+      nil
+    )
+
+    on_exit(fn -> :telemetry.detach(handler) end)
+    # The disconnected mount reads revision 0 metadata before the revision 1 save.
+    html = conn |> get("/admin/history/concurrent-save") |> html_response(200)
+    assert html =~ "Saved table · revision 0"
+    assert html =~ ~s(max="0")
+    assert html =~ ~s(&quot;state_revision&quot;: 0)
+    refute html =~ ~s(&quot;state_revision&quot;: 1)
+    assert GameArchive.get("concurrent-save").last_revision == 1
+  end
+
+  test "slower cadences advance, and navigation stops the old playback", %{conn: conn} do
+    user = AccountsFixtures.user_fixture()
+    for revision <- [0, 1, 2, 3], do: checkpoint("cadence", user.id, revision)
+
+    for speed <- ["0.5", "1", "2"] do
+      {:ok, view, _} = live(conn, "/admin/history/cadence?revision=0")
+      view |> form("#playback-speed", speed: speed) |> render_change()
+      view |> element("#play-toggle") |> render_click()
+      Process.sleep(if speed == "0.5", do: 1_100, else: 200)
+      assert has_element?(view, "#checkpoint-label", "revision 0")
+      wait(fn -> has_element?(view, "#checkpoint-label", "revision 1") end, 150)
+      ref = Process.monitor(view.pid)
+
+      assert {:ok, _, _} =
+               view |> element("a", "Archives") |> render_click() |> follow_redirect(conn)
+
+      assert_receive {:DOWN, ^ref, :process, _, _}, 1_000
+    end
+  end
+
+  defp checkpoint(id, user_id, revision \\ 0, score \\ 0) do
+    state = %{
+      Pidro.Core.GameState.new(seed: 7)
+      | cumulative_scores: %{north_south: score, east_west: 3}
+    }
 
     snapshot = %{
       game_instance_id: id,
-      state_revision: 0,
+      state_revision: revision,
       state: state,
       presentation: %{},
       server_time_ms: System.system_time(:millisecond)

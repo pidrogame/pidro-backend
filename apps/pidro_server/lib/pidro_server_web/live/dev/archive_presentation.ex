@@ -40,17 +40,39 @@ defmodule PidroServerWeb.Dev.ArchivePresentation do
 
   def state(_), do: nil
 
+  def teams(participants, names) do
+    Map.new(@positions, fn position ->
+      seat = participants[Atom.to_string(position)] || %{}
+
+      {position,
+       %{
+         name: participant_name(seat, names),
+         detail: if(seat["occupant_type"] == "bot", do: "Bot", else: "")
+       }}
+    end)
+  end
+
+  def participant_name(%{"occupant_type" => "bot"} = seat, _names),
+    do: PidroServer.Games.Room.Seat.bot_display_name(seat["bot_persona"])
+
+  def participant_name(%{"occupant_type" => "vacant"}, _names), do: "Open seat"
+
+  def participant_name(seat, names) do
+    user = names[seat["user_id"]] || %{}
+    user[:display_name] || user[:username] || "Unknown player"
+  end
+
   def seats(participants, names) do
     Map.new(@positions, fn position ->
       seat = participants[Atom.to_string(position)] || %{}
-      user = names[seat["user_id"]] || %{}
       bot? = seat["occupant_type"] == "bot"
       profile = if bot?, do: PidroServer.BotCatalogue.profile(seat["bot_persona"])
-      name = user[:display_name] || user[:username] || if(bot?, do: "Bot", else: "Unknown player")
+      name = participant_name(seat, names)
 
       {position,
        %{
          status: seat_status(seat),
+         status_label: initial_status(seat),
          player_id: if(match?({:ok, _}, Ecto.UUID.dump(seat["user_id"])), do: seat["user_id"]),
          username: name,
          display_name: name,
@@ -58,6 +80,17 @@ defmodule PidroServerWeb.Dev.ArchivePresentation do
          avatar_url: nil
        }}
     end)
+  end
+
+  defp initial_status(seat) do
+    case seat_status(seat) do
+      :vacant -> "Initially open"
+      :bot_substitute -> "Initially Bot covering"
+      :reconnecting -> "Initially Reconnecting"
+      :permanent_bot -> "Initial bot"
+      :normal -> "Initially Connected"
+      :unknown -> "Initial connection unknown"
+    end
   end
 
   defp seat_status(%{"occupant_type" => "vacant"}), do: :vacant

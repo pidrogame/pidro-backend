@@ -131,6 +131,7 @@ defmodule PidroServerWeb.CardComponents do
       |> assign(:avatar, Map.get(profile, :avatar_url) || Map.get(seat, :avatar_url))
       |> assign(:href, seat_link(seat))
       |> assign(:status, Map.get(seat, :status, :vacant))
+      |> assign(:status_label, Map.get(seat, :status_label))
 
     ~H"""
     <div class={[
@@ -146,7 +147,7 @@ defmodule PidroServerWeb.CardComponents do
       <span class="watch-seat-label">{position_label(@position)} · {if @position in [:north, :south],
         do: "N/S",
         else: "E/W"}</span>
-      <span class="watch-connection">{seat_status(@status)}</span>
+      <span class="watch-connection">{@status_label || seat_status(@status)}</span>
     </div>
     """
   end

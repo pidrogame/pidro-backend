@@ -3,8 +3,36 @@ defmodule PidroServerWeb.Dev.AdminComponents do
 
   use PidroServerWeb, :html
 
+  attr :seats, :map, required: true
+
+  def participant_teams(assigns) do
+    ~H"""
+    <div class="grid min-w-0 grid-cols-2 gap-4 sm:gap-6">
+      <section
+        :for={
+          {team, positions} <- [{"North / South", [:north, :south]}, {"East / West", [:east, :west]}]
+        }
+        class="min-w-0"
+      >
+        <h3 class="text-xs font-semibold text-stone-500">{team}</h3>
+        <ul class="mt-2 space-y-3">
+          <li :for={position <- positions} class="min-w-0">
+            <% seat = @seats[position] %>
+            <p class="break-words text-sm font-semibold leading-5 text-stone-950">{seat.name}</p>
+            <p class="mt-0.5 text-xs leading-5 text-stone-500">
+              {position |> to_string() |> String.capitalize()}{if seat.detail != "",
+                do: " · #{seat.detail}"}
+            </p>
+          </li>
+        </ul>
+      </section>
+    </div>
+    """
+  end
+
   attr :active, :string, required: true
   attr :title, :string, required: true
+  attr :class, :string, default: nil
   attr :subtitle, :string, default: nil
   attr :flash, :map, required: true
   slot :actions
@@ -12,7 +40,7 @@ defmodule PidroServerWeb.Dev.AdminComponents do
 
   def admin_shell(assigns) do
     ~H"""
-    <div class="dev-admin-shell min-h-screen bg-stone-50 text-stone-950">
+    <div class={["dev-admin-shell min-h-screen bg-stone-50 text-stone-950", @class]}>
       <div class="mx-auto max-w-[96rem] px-4 py-4 sm:px-6 lg:px-8">
         <Layouts.flash_group flash={@flash} />
         <.admin_nav active={@active} />

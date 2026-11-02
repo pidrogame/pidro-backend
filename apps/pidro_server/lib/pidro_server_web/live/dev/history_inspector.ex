@@ -5,6 +5,7 @@ defmodule PidroServerWeb.Dev.HistoryInspector do
 
   alias PidroServer.Accounts.User
   alias PidroServer.GameArchive
+  alias PidroServer.GameArchive.Event
   alias PidroServer.GameReports
   alias PidroServer.Repo
   alias PidroServer.Stats.GameStats
@@ -146,7 +147,11 @@ defmodule PidroServerWeb.Dev.HistoryInspector do
         page_opts(opts, [:from, :to, :user_id, :room_code, :game_instance_id, :status])
       )
 
-    %{rows: rows, next: cursor(rows, :started_at, :game_instance_id)}
+    %{
+      rows: rows,
+      names: participant_names(Enum.flat_map(rows, &Map.values(&1.participants))),
+      next: cursor(rows, :started_at, :game_instance_id)
+    }
   end
 
   defp read(:reports, _params, opts) do
@@ -161,18 +166,24 @@ defmodule PidroServerWeb.Dev.HistoryInspector do
   defp read(:archive, %{"id" => id}, opts) do
     with {:ok, _} <- token(id, ~r/^[A-Za-z0-9_-]{1,64}$/),
          archive when not is_nil(archive) <- GameArchive.get(id) do
-      snapshot = GameArchive.snapshot(id, opts[:revision] || :latest)
+      revision = opts[:revision] || archive.last_revision
+      event = GameArchive.step(id, revision - 1)
+      event = if event && event.revision == revision, do: event
 
       events =
         GameArchive.events(id, after_revision: opts[:after_revision] || -1, limit: @page_size)
+        |> Enum.map(&Map.take(&1, [:revision, :payload, :occurred_at, :saved_at]))
 
       %{
         archive: archive,
-        snapshot: snapshot,
+        snapshot: if(event, do: event.snapshot),
+        selected: if(event, do: Map.take(event, [:occurred_at, :payload])),
         events: events,
         next_event: if(length(events) == @page_size, do: List.last(events).revision),
-        next_step: if(snapshot, do: GameArchive.step(id, snapshot["state_revision"])),
-        names: participant_names(archive.participants),
+        checkpoints: checkpoint_bounds(id, archive.last_revision),
+        revision: revision,
+        checkpoint_index: checkpoint_index(id, revision),
+        names: participant_names(Map.values(archive.participants)),
         reports: GameReports.admin_search(game_instance_id: id, limit: @page_size)
       }
     else
@@ -245,12 +256,75 @@ defmodule PidroServerWeb.Dev.HistoryInspector do
 
   defp cursor(_, _, _), do: nil
 
+  # Keep only bounds in the LiveView, not an unbounded list of private snapshots.
+  defp checkpoint_bounds(id, last_revision) do
+    Repo.one(
+      from e in Event,
+        where:
+          e.game_instance_id == ^id and not is_nil(e.snapshot) and e.revision <= ^last_revision,
+        select: %{first: min(e.revision), last: max(e.revision), count: count(e.revision)}
+    )
+  end
+
+  defp checkpoint_index(id, revision) do
+    Repo.aggregate(
+      from(e in Event,
+        where: e.game_instance_id == ^id and not is_nil(e.snapshot) and e.revision < ^revision
+      ),
+      :count
+    )
+  end
+
+  @doc "Reads one saved checkpoint within the bounds captured when the page opened."
+  def checkpoint(id, direction, revision, bounds) do
+    query =
+      from e in Event,
+        where:
+          e.game_instance_id == ^id and not is_nil(e.snapshot) and e.revision <= ^bounds.last,
+        limit: 1,
+        select: %{
+          snapshot: e.snapshot,
+          revision: e.revision,
+          selected: %{occurred_at: e.occurred_at, payload: e.payload}
+        }
+
+    query =
+      case direction do
+        "first" ->
+          from e in query, order_by: [asc: e.revision]
+
+        "last" ->
+          from e in query, order_by: [desc: e.revision]
+
+        "next" ->
+          from e in query, where: e.revision > ^revision, order_by: [asc: e.revision]
+
+        "previous" ->
+          from e in query, where: e.revision < ^revision, order_by: [desc: e.revision]
+
+        "seek" ->
+          from e in query,
+            offset: ^min(revision, bounds.count - 1),
+            order_by: [asc: e.revision]
+      end
+
+    checkpoint = Repo.one(query)
+
+    {:ok,
+     if(checkpoint,
+       do: Map.put(checkpoint, :checkpoint_index, checkpoint_index(id, checkpoint.revision))
+     )}
+  rescue
+    _error in [Postgrex.Error, DBConnection.ConnectionError] ->
+      {:error, "Evidence storage is unavailable. Playback paused."}
+  end
+
   defp participant_names(participants) do
     ids =
       participants
-      |> Map.values()
       |> Enum.map(& &1["user_id"])
       |> Enum.filter(&match?({:ok, _}, Ecto.UUID.dump(&1)))
+      |> Enum.uniq()
 
     Repo.all(
       from u in User,

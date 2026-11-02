@@ -504,6 +504,25 @@
     box-shadow: none;
   }
 
+  .admin-game-inspection :is(button, select, input, summary) {
+    min-height: 44px;
+  }
+
+  .admin-game-inspection a {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+  }
+
+  .admin-game-inspection :is(button, a, input, select, summary):focus-visible {
+    outline: 2px solid #6366f1;
+    outline-offset: 3px;
+  }
+
+  .admin-game-inspection button:enabled:hover {
+    filter: brightness(0.92);
+  }
+
   .dev-admin-shell .font-black {
     font-weight: 650;
   }

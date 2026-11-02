@@ -10,11 +10,21 @@ defmodule PidroServerWeb.Dev.HistoryLive do
 
   @impl true
   def mount(_params, session, socket) do
-    {:ok, assign(socket, token: session["admin_token"], data: %{}, error: nil)}
+    {:ok,
+     assign(socket,
+       token: session["admin_token"],
+       data: %{},
+       error: nil,
+       timer: nil,
+       playing: false,
+       speed: "1",
+       playback_notice: nil
+     )}
   end
 
   @impl true
   def handle_params(params, _uri, socket) do
+    socket = pause(socket)
     # Private hands and client evidence require a real admin, even in dev.
     # Revalidate on URL patches as well as the shared hook's events.
     case Admins.get_admin_by_session_token(socket.assigns.token) do
@@ -23,7 +33,7 @@ defmodule PidroServerWeb.Dev.HistoryLive do
         socket = assign(socket, params: params, page_title: title(socket.assigns.live_action))
 
         case HistoryInspector.load(socket.assigns.live_action, params) do
-          {:ok, data} -> {:noreply, assign(socket, data: data, error: nil)}
+          {:ok, data} -> {:noreply, assign(socket, data: data, error: nil, playback_notice: nil)}
           {:error, error} -> {:noreply, assign(socket, data: %{}, error: error)}
         end
 
@@ -36,11 +46,145 @@ defmodule PidroServerWeb.Dev.HistoryLive do
   end
 
   @impl true
+  def handle_event(event, params, socket) do
+    with_admin(socket, fn socket -> playback_event(event, params, socket) end)
+  end
+
+  @impl true
+  def handle_info({:playback, tag}, %{assigns: %{timer: {_ref, tag}, playing: true}} = socket) do
+    with_admin(socket, fn socket ->
+      socket |> assign(:timer, nil) |> select_checkpoint("next") |> schedule()
+    end)
+  end
+
+  def handle_info({:playback, _stale}, socket), do: {:noreply, socket}
+
+  defp with_admin(socket, fun) do
+    case Admins.get_admin_by_session_token(socket.assigns.token) do
+      %{force_password_change: false} ->
+        {:noreply, fun.(socket)}
+
+      %{force_password_change: true} ->
+        {:noreply, socket |> pause() |> redirect(to: ~p"/admin/admins")}
+
+      _ ->
+        {:noreply, socket |> pause() |> redirect(to: ~p"/admin/login")}
+    end
+  end
+
+  defp playback_event("toggle_playback", _, %{assigns: %{playing: true}} = socket),
+    do: pause(socket)
+
+  defp playback_event("toggle_playback", _, socket) do
+    if playable?(socket.assigns.data) and socket.assigns.data.checkpoints.count > 1 do
+      data = socket.assigns.data
+
+      socket =
+        if data.revision >= data.checkpoints.last,
+          do: socket |> assign(:playing, true) |> select_checkpoint("first"),
+          else: assign(socket, :playing, true)
+
+      schedule(socket)
+    else
+      socket
+    end
+  end
+
+  defp playback_event("step", %{"direction" => direction}, socket)
+       when direction in ~w(first previous next last) do
+    socket |> pause() |> select_checkpoint(direction)
+  end
+
+  defp playback_event("seek", %{"checkpoint" => value}, socket) when is_binary(value) do
+    case Integer.parse(value) do
+      {index, ""} when index >= 0 and index <= 9_007_199_254_740_991 ->
+        socket |> cancel_timer() |> select_checkpoint("seek", index) |> schedule()
+
+      _ ->
+        socket
+    end
+  end
+
+  defp playback_event("speed", %{"speed" => speed}, socket) when speed in ~w(0.5 1 2 4),
+    do: socket |> cancel_timer() |> assign(:speed, speed) |> schedule()
+
+  defp playback_event(_, _, socket), do: socket
+
+  defp playable?(%{archive: archive, checkpoints: %{count: count}}),
+    do: archive.format_version == 1 and count > 0
+
+  defp playable?(_), do: false
+
+  defp select_checkpoint(socket, direction, revision \\ nil) do
+    if playable?(socket.assigns.data) do
+      data = socket.assigns.data
+      target = revision || data.revision
+
+      case HistoryInspector.checkpoint(
+             data.archive.game_instance_id,
+             direction,
+             target,
+             data.checkpoints
+           ) do
+        {:ok, nil} ->
+          socket
+          |> pause()
+          |> assign(
+            :playback_notice,
+            "No saved checkpoint in this direction. Evidence may have expired; reload to refresh."
+          )
+
+        {:ok, checkpoint} ->
+          notice =
+            cond do
+              direction in ~w(next previous) and abs(checkpoint.revision - data.revision) > 1 ->
+                "Missing revisions skipped between #{min(data.revision, checkpoint.revision)} and #{max(data.revision, checkpoint.revision)}; no state reconstructed."
+
+              true ->
+                nil
+            end
+
+          socket
+          |> assign(data: Map.merge(data, checkpoint), playback_notice: notice)
+          |> then(fn socket ->
+            if checkpoint.revision == data.checkpoints.last, do: pause(socket), else: socket
+          end)
+
+        {:error, message} ->
+          socket |> pause() |> assign(:playback_notice, message)
+      end
+    else
+      pause(socket)
+    end
+  end
+
+  defp schedule(%{assigns: %{playing: true, timer: nil}} = socket) do
+    if connected?(socket) do
+      tag = make_ref()
+      delay = %{"0.5" => 2000, "1" => 1000, "2" => 500, "4" => 250}[socket.assigns.speed]
+      ref = Process.send_after(self(), {:playback, tag}, delay)
+      assign(socket, :timer, {ref, tag})
+    else
+      socket
+    end
+  end
+
+  defp schedule(socket), do: socket
+
+  defp cancel_timer(socket) do
+    if socket.assigns.timer, do: Process.cancel_timer(elem(socket.assigns.timer, 0))
+    assign(socket, :timer, nil)
+  end
+
+  defp pause(socket), do: socket |> cancel_timer() |> assign(:playing, false)
+
+  @impl true
   def render(assigns) do
     ~H"""
     <.admin_shell
       active="history"
       title={@page_title}
+      class="admin-game-inspection"
       subtitle="Private admin evidence · Read-only · Display timezone: UTC"
       flash={@flash}
     >
@@ -64,7 +208,14 @@ defmodule PidroServerWeb.Dev.HistoryLive do
           data={@data}
           params={@params}
         />
-        <.archive :if={@live_action == :archive} data={@data} params={@params} />
+        <.archive
+          :if={@live_action == :archive}
+          data={@data}
+          params={@params}
+          playing={@playing}
+          speed={@speed}
+          notice={@playback_notice}
+        />
         <.report :if={@live_action == :report} data={@data} />
         <.summary :if={@live_action == :summary} data={@data} />
       <% end %>
@@ -80,31 +231,17 @@ defmodule PidroServerWeb.Dev.HistoryLive do
       id="history-search"
       class="rounded-lg border border-stone-200 bg-white p-4"
     >
-      <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div class="grid gap-3 sm:grid-cols-3">
         <.filter
           name="player"
           label="Player (exact name)"
           params={@params}
           placeholder="Username or display name"
         />
-        <.filter name="user_id" label="User ID" params={@params} placeholder="UUID" />
         <.filter name="room_code" label="Room code" params={@params} placeholder="ABCD" />
-        <.filter
-          name="game_instance_id"
-          label="Game instance (exact)"
-          params={@params}
-          placeholder="Not the room code"
-        />
-        <.filter
-          name="from"
-          label={if @action == :summaries, do: "Completed from (inclusive)", else: "From (inclusive)"}
-          params={@params}
-          placeholder="2026-10-22T00:00:00Z"
-        />
-        <.filter name="to" label="To (exclusive)" params={@params} placeholder="2026-10-23T00:00:00Z" />
         <label :if={@action == :archives} class="text-sm">
           Outcome
-          <select name="status" class="mt-1 block w-full rounded-md border-stone-300">
+          <select name="status" class="mt-1 block min-h-11 w-full rounded-md border-stone-300">
             <option
               :for={
                 {value, label} <- [
@@ -122,28 +259,67 @@ defmodule PidroServerWeb.Dev.HistoryLive do
             </option>
           </select>
         </label>
-        <.filter
-          :if={@action == :reports}
-          name="report_id"
-          label="Report ID"
-          params={@params}
-          placeholder="UUID"
-        />
-        <.filter
-          :if={@action == :reports}
-          name="build"
-          label="Client build (claimed)"
-          params={@params}
-          placeholder="123"
-        />
       </div>
-      <div class="mt-4 flex flex-wrap items-center gap-4">
-        <button class="rounded-md bg-stone-950 px-4 py-2 text-white">Search</button>
-        <.link navigate={list_path(@action)} class="text-sm underline">Clear filters</.link>
+      <details
+        class="mt-3"
+        open={
+          Enum.any?(
+            ~w(user_id game_instance_id from to report_id build),
+            &(@params[&1] not in [nil, ""])
+          )
+        }
+      >
+        <summary class="min-h-11 cursor-pointer py-3 text-sm font-medium">
+          More filters · dates and exact IDs
+        </summary>
+        <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <.filter name="user_id" label="User ID" params={@params} placeholder="UUID" />
+          <.filter
+            name="game_instance_id"
+            label="Game instance (exact)"
+            params={@params}
+            placeholder="Not the room code"
+          />
+          <.filter
+            name="from"
+            label={
+              if @action == :summaries, do: "Completed from (inclusive)", else: "From (inclusive)"
+            }
+            params={@params}
+            placeholder="2026-10-22T00:00:00Z"
+          />
+          <.filter
+            name="to"
+            label="To (exclusive)"
+            params={@params}
+            placeholder="2026-10-23T00:00:00Z"
+          />
+          <.filter
+            :if={@action == :reports}
+            name="report_id"
+            label="Report ID"
+            params={@params}
+            placeholder="UUID"
+          />
+          <.filter
+            :if={@action == :reports}
+            name="build"
+            label="Client build (claimed)"
+            params={@params}
+            placeholder="123"
+          />
+        </div>
         <p class="text-xs text-stone-500">
           ISO 8601 with offset; displayed in UTC. {if @action == :archives,
             do: "Time filters use game start."} 25 results per page.
         </p>
+      </details>
+      <div class="mt-3 flex flex-wrap items-center gap-4">
+        <button class="min-h-11 rounded-md bg-stone-950 px-4 py-2 text-sm font-semibold text-white">Search</button>
+        <.link
+          navigate={list_path(@action)}
+          class="inline-flex min-h-11 items-center text-sm underline"
+        >Clear filters</.link>
       </div>
     </form>
     """
@@ -158,7 +334,7 @@ defmodule PidroServerWeb.Dev.HistoryLive do
         value={if is_binary(@params[@name]), do: @params[@name], else: ""}
         placeholder={@placeholder}
         maxlength="80"
-        class="mt-1 block w-full rounded-md border-stone-300 text-sm"
+        class="mt-1 block min-h-11 w-full rounded-md border-stone-300 text-sm"
       />
     </label>
     """
@@ -175,16 +351,39 @@ defmodule PidroServerWeb.Dev.HistoryLive do
     <div class="space-y-3" id="history-results">
       <article :for={row <- @data.rows} class="rounded-lg border border-stone-200 bg-white p-4">
         <div class="flex flex-wrap items-center justify-between gap-2">
-          <.link navigate={detail_path(@action, row)} class="break-all font-semibold underline">{row.room_code} · {row.game_instance_id ||
-            "No recorded instance"}</.link>
-          <span class="rounded bg-stone-100 px-2 py-1 text-xs">{row_label(@action, row)}</span>
+          <.link
+            navigate={detail_path(@action, row)}
+            class="inline-flex min-h-11 items-center font-semibold text-stone-950"
+          >Room {row.room_code}</.link>
+          <div class="flex items-center gap-3 text-sm">
+            <span class="rounded bg-stone-100 px-2 py-1">{row_label(@action, row)}</span>
+            <.link
+              navigate={detail_path(@action, row)}
+              class="inline-flex min-h-11 items-center font-medium text-indigo-700 underline"
+            >Inspect</.link>
+          </div>
         </div>
-        <p class="mt-2 text-sm">{row_time(@action, row)}</p>
-        <p :if={@action == :archives} class="mt-1 text-sm">
-          Last saved revision {row.last_revision} · {utc(row.saved_at)} · {evidence(
-            row.evidence_status
-          )}
-        </p>
+        <div :if={@action == :archives} class="mt-4 grid gap-5 lg:grid-cols-[2fr_1fr_1fr]">
+          <.participant_teams seats={Presentation.teams(row.participants, @data.names)} />
+          <div class="text-sm">
+            <p class="font-semibold">{evidence(row.evidence_status)}</p>
+            <p class="mt-1 text-xs text-stone-500">Initial roster · current names</p>
+            <p :if={row.participants == %{}} class="mt-1 text-xs text-stone-500">
+              No initial seat evidence
+            </p>
+          </div>
+          <div class="space-y-1 text-xs text-stone-500">
+            <p>{row_time(@action, row)}</p>
+            <p>Last saved {utc(row.saved_at)}</p>
+            <p :if={row.ended_at}>Ended {utc(row.ended_at)}</p>
+          </div>
+        </div>
+        <p :if={@action != :archives} class="mt-2 text-sm">{row_time(@action, row)}</p>
+        <details class="mt-3 border-t border-stone-100 pt-2 text-xs text-stone-500">
+          <summary class="min-h-11 cursor-pointer py-3">Instance and evidence</summary>
+          <p class="break-all">{row.game_instance_id || "No recorded instance"}</p>
+          <p :if={@action == :archives}>Last saved revision {row.last_revision}</p>
+        </details>
         <p :if={@action == :reports} class="mt-1 break-all text-sm">
           Report {row.id} · User {row.user_id} · Build {row.build}
         </p>
@@ -201,7 +400,26 @@ defmodule PidroServerWeb.Dev.HistoryLive do
   defp archive(assigns) do
     ~H"""
     <%= if @data.archive do %>
-      <section class="rounded-lg border bg-white p-4">
+      <section class="rounded-lg border border-stone-200 bg-white p-4">
+        <div class="mb-4 flex flex-wrap items-center justify-between gap-2">
+          <h2 class="text-lg font-semibold">Room {@data.archive.room_code}</h2>
+          <span class="rounded bg-stone-100 px-2 py-1 text-sm">{outcome(@data.archive.status)}</span>
+        </div>
+        <div class="grid gap-4 lg:grid-cols-[2fr_1fr_1fr]">
+          <.participant_teams seats={Presentation.teams(@data.archive.participants, @data.names)} />
+          <p class="text-xs leading-5 text-stone-500">
+            Initial participants · current account and bot names.<br />Seat and connection facts are from game start, not this checkpoint.
+          </p>
+          <p class="text-xs leading-5 text-stone-500">
+            Started {utc(@data.archive.started_at)}<br />Last saved {utc(@data.archive.saved_at)}
+          </p>
+        </div>
+      </section>
+      <.saved_table data={@data} params={@params} playing={@playing} speed={@speed} notice={@notice} />
+      <details id="archive-evidence" class="rounded-lg border border-stone-200 bg-white p-4">
+        <summary class="min-h-11 cursor-pointer py-3 font-semibold">
+          Archive evidence and initial seat IDs
+        </summary>
         <div class="flex flex-wrap items-center justify-between gap-3">
           <h2 class="break-all text-lg font-semibold">
             Room {@data.archive.room_code} · {@data.archive.game_instance_id}
@@ -232,9 +450,7 @@ defmodule PidroServerWeb.Dev.HistoryLive do
           <.link navigate={~p"/admin/history?#{%{room_code: @data.archive.room_code}}"}>Other instances in this room (including rematches)</.link>
           <.link navigate={~p"/admin/reports?#{%{game_instance_id: @data.archive.game_instance_id}}"}>Reports for this exact instance</.link>
         </div>
-      </section>
-      <section class="rounded-lg border bg-white p-4">
-        <h2 class="font-semibold">Initial participants</h2>
+        <h2 class="mt-4 font-semibold">Initial participants</h2>
         <p class="text-xs text-stone-500">
           Names are current account labels; seat facts are from game start, not a complete replacement or connection history.
         </p>
@@ -250,7 +466,7 @@ defmodule PidroServerWeb.Dev.HistoryLive do
             class="break-all text-sm"
           >
             <strong>{position}</strong>
-            · {participant_name(seat, @data.names)} · {seat["occupant_type"]}
+            · {Presentation.participant_name(seat, @data.names)} · {seat["occupant_type"]}
             <.link
               :if={valid_uuid?(seat["user_id"])}
               navigate={~p"/admin/users/#{seat["user_id"]}"}
@@ -258,68 +474,15 @@ defmodule PidroServerWeb.Dev.HistoryLive do
             >{seat["user_id"]}</.link>
           </li>
         </ul>
-      </section>
-      <section class="space-y-3">
-        <h2 class="text-lg font-semibold">
-          Saved table · {if @data.snapshot,
-            do: "revision #{@data.snapshot["state_revision"]}",
-            else: "snapshot unavailable"}
-        </h2>
-        <p class="text-sm">
-          Checkpoint inspection, not deterministic replay. No commands can be sent to this game.
-        </p>
-        <p class="text-sm text-stone-500">
-          Seat identities and connection labels below reflect the initial roster, not the selected checkpoint. Names and bot portraits use current account/catalogue labels.
-        </p>
-        <form
-          method="get"
-          action={~p"/admin/history/#{@data.archive.game_instance_id}"}
-          class="flex flex-wrap gap-3"
-        >
-          <label class="text-sm">Revision
-          <input
-            type="number"
-            min="0"
-            name="revision"
-            value={if @data.snapshot, do: @data.snapshot["state_revision"], else: @params["revision"]}
-            class="w-28 rounded border-stone-300"
-            required
-          /></label>
-          <button class="rounded border bg-white px-3 py-1">Jump to saved revision</button>
-          <.link patch={~p"/admin/history/#{@data.archive.game_instance_id}"} class="p-2 underline">Latest</.link>
-          <.link
-            :if={@data.next_step}
-            patch={
-              ~p"/admin/history/#{@data.archive.game_instance_id}?#{%{revision: @data.next_step.revision}}"
-            }
-            class="p-2 underline"
-          >Next saved revision →</.link>
-        </form>
-        <%= cond do %>
-          <% is_nil(@data.snapshot) -> %>
-            <p class="rounded border border-amber-200 bg-amber-50 p-4">
-              No saved snapshot at this revision. A gap is not reconstructed.
-            </p>
-          <% @data.archive.format_version != 1 -> %>
-            <p class="rounded border border-amber-200 bg-amber-50 p-4">
-              Unsupported archive format. Table cannot be safely rendered; saved data remains below.
-            </p>
-          <% true -> %>
-            <CardComponents.watch_table
-              game_state={Presentation.state(@data.snapshot)}
-              seats={Presentation.seats(@data.archive.participants, @data.names)}
-              perspective={:all}
-            />
-        <% end %>
-        <details :if={@data.snapshot} class="rounded border bg-white p-3">
-          <summary class="cursor-pointer font-medium">
-            Saved JSON evidence (private admin data)
-          </summary>
-          <pre class="mt-2 max-h-96 overflow-auto whitespace-pre-wrap break-all text-xs">{Jason.encode!(@data.snapshot, pretty: true)}</pre>
-        </details>
-      </section>
-      <section class="rounded-lg border bg-white p-4">
-        <h2 class="text-lg font-semibold">Authoritative saved timeline</h2>
+      </details>
+      <details
+        id="timeline-details"
+        open={@params["after_revision"] not in [nil, ""]}
+        class="rounded-lg border bg-white p-4"
+      >
+        <summary class="min-h-11 cursor-pointer py-3 font-semibold">
+          Authoritative saved timeline
+        </summary>
         <p class="mt-1 text-sm text-stone-500">
           Ordered by server revision; missing revisions are explicit. Connection events appear only if captured; client connections are claims in reports.
         </p>
@@ -358,13 +521,20 @@ defmodule PidroServerWeb.Dev.HistoryLive do
         <.link
           :if={@data.next_event}
           patch={
-            ~p"/admin/history/#{@data.archive.game_instance_id}?#{%{after_revision: @data.next_event, revision: @params["revision"] || ""}}"
+            ~p"/admin/history/#{@data.archive.game_instance_id}?#{%{after_revision: @data.next_event, revision: @data.revision}}"
           }
           class="mt-4 inline-block underline"
         >Next saved events →</.link>
-      </section>
-      <section class="rounded-lg border bg-white p-4">
-        <h2 class="font-semibold">Linked client incident reports</h2>
+      </details>
+      <details class="rounded-lg border bg-white p-4">
+        <summary class="min-h-11 cursor-pointer py-3 font-semibold">
+          Linked client incident reports ({length(@data.reports)}{if length(@data.reports) == 25,
+            do: "+"})
+        </summary>
+        <.link
+          navigate={~p"/admin/reports?#{%{game_instance_id: @data.archive.game_instance_id}}"}
+          class="text-sm underline"
+        >Browse all reports for this instance</.link>
         <p :if={@data.reports == []} class="mt-2 text-sm">
           No retained reports for this exact instance.
         </p>
@@ -372,13 +542,169 @@ defmodule PidroServerWeb.Dev.HistoryLive do
           <.link navigate={~p"/admin/reports/#{report.id}"} class="underline">{report.id}</.link>
           · {utc(report.inserted_at)} · Build {report.build}
         </p>
-      </section>
+      </details>
     <% else %>
       <.empty_state
         title="No archive for this instance"
         body="The game may predate archiving, have expired, or never have saved evidence. Check completed summaries; a room code alone cannot identify this game."
       />
     <% end %>
+    """
+  end
+
+  defp saved_table(assigns) do
+    assigns = assign(assigns, :playable, playable?(assigns.data))
+
+    ~H"""
+    <section id="saved-playback" class="space-y-3">
+      <div class="rounded-lg border border-stone-200 bg-white p-4">
+        <div class="flex flex-wrap items-baseline justify-between gap-2">
+          <h2 id="checkpoint-label" class="font-semibold">
+            Saved table · {if @data.snapshot,
+              do: "revision #{@data.revision}",
+              else: "snapshot unavailable"}
+          </h2>
+          <span id="playback-state" role="status" class="text-sm text-stone-500">{cond do
+            @playing -> "Playing"
+            @data.checkpoints.count == 0 -> "No saved checkpoints"
+            @data.revision == @data.checkpoints.last -> "End of saved checkpoints"
+            true -> "Paused"
+          end}</span>
+        </div>
+        <div class="mt-3 flex flex-wrap items-center gap-2">
+          <button
+            :for={{direction, label} <- [{"first", "First"}, {"previous", "Previous"}]}
+            phx-click="step"
+            phx-value-direction={direction}
+            disabled={!@playable || @data.revision <= @data.checkpoints.first}
+            class="min-h-11 rounded-md border border-stone-300 px-3 text-sm disabled:opacity-40"
+          >{label}</button>
+          <button
+            id="play-toggle"
+            phx-click="toggle_playback"
+            disabled={!@playable || @data.checkpoints.count < 2}
+            class="min-h-11 min-w-24 rounded-md bg-stone-950 px-4 text-sm font-semibold text-white disabled:opacity-40"
+          >{cond do
+            @playing -> "Pause"
+            @data.revision == @data.checkpoints.last -> "Restart"
+            true -> "Play"
+          end}</button>
+          <button
+            :for={{direction, label} <- [{"next", "Next"}, {"last", "Last"}]}
+            phx-click="step"
+            phx-value-direction={direction}
+            disabled={!@playable || @data.revision >= @data.checkpoints.last}
+            class="min-h-11 rounded-md border border-stone-300 px-3 text-sm disabled:opacity-40"
+          >{label}</button>
+          <form id="playback-speed" phx-change="speed" class="flex items-center gap-2 sm:ml-auto">
+            <label for="checkpoint-speed" class="text-sm">Speed</label>
+            <select
+              id="checkpoint-speed"
+              name="speed"
+              class="min-h-11 rounded-md border-stone-300 text-sm"
+              disabled={!@playable}
+            >
+              <option :for={speed <- ~w(0.5 1 2 4)} value={speed} selected={@speed == speed}>
+                {speed}×
+              </option>
+            </select>
+          </form>
+        </div>
+        <form id="checkpoint-seek" phx-change="seek" class="mt-3">
+          <label for="checkpoint-range" class="text-xs text-stone-600">Saved checkpoint · {@data.checkpoints.count} available</label>
+          <input
+            id="checkpoint-range"
+            type="range"
+            name="checkpoint"
+            min="0"
+            max={max(@data.checkpoints.count - 1, 0)}
+            step="1"
+            value={min(@data.checkpoint_index, max(@data.checkpoints.count - 1, 0))}
+            phx-patch-focused
+            aria-valuetext={
+              if @data.snapshot, do: "Saved revision #{@data.revision}", else: "Snapshot unavailable"
+            }
+            disabled={!@playable || @data.checkpoints.count < 2}
+            class="block min-h-11 w-full accent-stone-900"
+          />
+        </form>
+        <p class="text-xs leading-5 text-stone-500">
+          Checkpoint cadence: 1× = one saved checkpoint per second, not original elapsed time. Each scrubber position selects a saved checkpoint; missing revisions are skipped. Read-only; no engine rules are rerun.
+        </p>
+        <p :if={@data.selected} class="mt-2 text-xs text-stone-600">
+          Observed {utc(@data.selected.occurred_at)} · {@data.selected.payload["kind"]}
+          <span :if={@data.selected.payload["action"]}> · {event_actor(
+            @data.selected.payload["position"],
+            @data
+          )}: {Presentation.describe(@data.selected.payload["action"])}</span>
+        </p>
+      </div>
+      <p
+        :if={
+          @data.archive.evidence_status != "continuous" || @data.archive.missing_revision_count > 0 ||
+            @data.archive.failed_checkpoints > 0
+        }
+        id="archive-gap-warning"
+        class="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900"
+      >
+        {evidence(@data.archive.evidence_status)} · Missing checkpoints: {@data.archive.missing_revision_count} · Failed writes: {@data.archive.failed_checkpoints}. Missing state is never reconstructed.
+      </p>
+      <p
+        :if={@notice}
+        id="playback-notice"
+        role="status"
+        class="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm"
+      >
+        {@notice}
+      </p>
+      <%= cond do %>
+        <% is_nil(@data.snapshot) -> %>
+          <p class="rounded border border-amber-200 bg-amber-50 p-4">
+            No saved snapshot at this revision. A gap is not reconstructed.
+          </p>
+        <% @data.archive.format_version != 1 -> %>
+          <p class="rounded border border-amber-200 bg-amber-50 p-4">
+            Unsupported archive format. Table cannot be safely rendered; saved data remains below.
+          </p>
+        <% true -> %>
+          <CardComponents.watch_table
+            game_state={Presentation.state(@data.snapshot)}
+            seats={Presentation.seats(@data.archive.participants, @data.names)}
+            perspective={:all}
+          />
+      <% end %>
+      <details class="rounded-lg border border-stone-200 bg-white p-4">
+        <summary class="min-h-11 cursor-pointer py-3 font-medium">
+          Exact revision and saved JSON evidence (private admin data)
+        </summary>
+        <form
+          method="get"
+          action={~p"/admin/history/#{@data.archive.game_instance_id}"}
+          class="my-3 flex flex-wrap items-end gap-3"
+        >
+          <label class="text-sm">Exact revision<input
+            type="number"
+            min="0"
+            name="revision"
+            value={@data.revision}
+            class="block min-h-11 w-32 rounded border-stone-300"
+            required
+          /></label>
+          <button class="min-h-11 rounded-md border px-3 text-sm">Jump to saved revision</button>
+          <.link
+            patch={~p"/admin/history/#{@data.archive.game_instance_id}"}
+            class="inline-flex min-h-11 items-center px-3 text-sm underline"
+          >Latest</.link>
+          <.link
+            patch={
+              ~p"/admin/history/#{@data.archive.game_instance_id}?#{%{revision: @data.revision}}"
+            }
+            class="inline-flex min-h-11 items-center px-3 text-sm underline"
+          >Link to this revision</.link>
+        </form>
+        <pre :if={@data.snapshot} class="max-h-96 overflow-auto whitespace-pre-wrap break-all text-xs">{Jason.encode!(@data.snapshot, pretty: true)}</pre>
+      </details>
+    </section>
     """
   end
 
@@ -520,20 +846,14 @@ defmodule PidroServerWeb.Dev.HistoryLive do
   defp utc(%NaiveDateTime{} = dt), do: Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S") <> " UTC"
   defp valid_uuid?(value), do: match?({:ok, _}, Ecto.UUID.dump(value))
 
-  defp participant_name(seat, names) do
-    user = names[seat["user_id"]] || %{}
-
-    user[:display_name] || user[:username] ||
-      if(seat["occupant_type"] == "bot", do: "Bot", else: "Unknown player")
-  end
-
   defp event_actor(nil, _), do: "Server"
 
   defp event_actor(position, data),
     do:
       position <>
         " (initial seat: " <>
-        participant_name(data.archive.participants[position] || %{}, data.names) <> ")"
+        Presentation.participant_name(data.archive.participants[position] || %{}, data.names) <>
+        ")"
 
   defp list_notice(:archives),
     do:

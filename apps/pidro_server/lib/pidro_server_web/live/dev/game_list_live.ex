@@ -188,6 +188,7 @@ defmodule PidroServerWeb.Dev.GameListLive do
     <.admin_shell
       active="games"
       title="Live games"
+      class="admin-game-inspection"
       subtitle="Live tables · observation only until you choose an action"
       flash={@flash}
     >
@@ -262,36 +263,8 @@ defmodule PidroServerWeb.Dev.GameListLive do
               >Delete</button>
             </div>
           </div>
-          <div class="mt-3 grid gap-4 md:grid-cols-[2fr_1fr_1fr]">
-            <div class="grid grid-cols-2 gap-3">
-              <div :for={{team, positions} <- [{"N/S", [:north, :south]}, {"E/W", [:east, :west]}]}>
-                <p class="text-xs font-semibold text-stone-500">{team}</p>
-                <div :for={position <- positions} class="mt-1 flex min-w-0 items-center gap-1 text-sm">
-                  <% seat = room.seats[position] %>
-                  <% profile = @profiles[seat.user_id] %>
-                  <img
-                    :if={profile && profile.avatar_url}
-                    src={profile.avatar_url}
-                    alt=""
-                    class="size-5 rounded-full"
-                  />
-                  <span class="min-w-0 break-words" title={seat.user_id}>{seat_name(seat, profile)}</span>
-                  <button
-                    :if={seat.user_id}
-                    id={"player-id-#{room.code}-#{position}"}
-                    phx-hook="Clipboard"
-                    data-clipboard-text={seat.user_id}
-                    title={"Copy player ID: #{seat.user_id}"}
-                    class="font-mono text-[10px] text-stone-400"
-                  >ID</button>
-                  <span class="text-xs text-stone-500">{position
-                  |> to_string()
-                  |> String.first()
-                  |> String.upcase()}</span>
-                  <span class="text-xs text-stone-500">{connection(seat)}</span>
-                </div>
-              </div>
-            </div>
+          <div class="mt-4 grid gap-5 lg:grid-cols-[2fr_1fr_1fr]">
+            <.participant_teams seats={team_seats(room, @profiles)} />
             <div class="text-sm">
               <p class="font-semibold">{phase_label(summary, room)}</p>
               <p class="mt-1 font-mono">
@@ -326,8 +299,25 @@ defmodule PidroServerWeb.Dev.GameListLive do
               <p :if={issue?(room, summary)} class="mt-1 text-amber-700">
                 Connection / process issue
               </p>
+              <p class="mt-2">Created {Calendar.strftime(room.created_at, "%d %b %H:%M UTC")}</p>
             </div>
           </div>
+          <details class="mt-3 border-t border-stone-100 pt-2 text-xs text-stone-500">
+            <summary class="cursor-pointer py-3">Seat identifiers</summary>
+            <ul class="space-y-1">
+              <li :for={{position, seat} <- room.seats} class="break-all">
+                {position} · {seat.user_id || "No player ID"}
+                <button
+                  :if={seat.user_id}
+                  id={"player-id-#{room.code}-#{position}"}
+                  phx-hook="Clipboard"
+                  data-clipboard-text={seat.user_id}
+                  class="min-h-11 min-w-11 px-3 underline"
+                  title={"Copy player ID: #{seat.user_id}"}
+                >Copy</button>
+              </li>
+            </ul>
+          </details>
         </article>
       </div>
 
@@ -494,6 +484,12 @@ defmodule PidroServerWeb.Dev.GameListLive do
         seat.status in [:reconnecting, :grace] or
           (seat.status == :bot_substitute and not is_nil(seat.reserved_for))
       end)
+  end
+
+  defp team_seats(room, profiles) do
+    Map.new(room.seats, fn {position, seat} ->
+      {position, %{name: seat_name(seat, profiles[seat.user_id]), detail: connection(seat)}}
+    end)
   end
 
   defp seat_name(%{bot_persona: persona}, _) when is_binary(persona),
