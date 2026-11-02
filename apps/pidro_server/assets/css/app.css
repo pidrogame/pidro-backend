@@ -506,12 +506,14 @@
 
   .admin-game-inspection :is(button, select, input, summary) {
     min-height: 44px;
+    min-width: 44px;
   }
 
   .admin-game-inspection a {
     display: inline-flex;
     align-items: center;
     min-height: 44px;
+    min-width: 44px;
   }
 
   .admin-game-inspection :is(button, a, input, select, summary):focus-visible {
