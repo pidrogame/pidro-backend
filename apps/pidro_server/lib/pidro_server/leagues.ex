@@ -2,8 +2,10 @@ defmodule PidroServer.Leagues do
   @moduledoc "Weekly Sunday-to-Sunday leagues, independent of lifetime Level XP."
   import Ecto.Query
 
-  alias PidroServer.Accounts.User
-  alias PidroServer.Leagues.{Membership, Player, Result, Room}
+  alias PidroServer.Accounts.{Auth, User}
+  alias PidroServer.Blocks.Block
+  alias PidroServer.Friends.Friendship
+  alias PidroServer.Leagues.{Membership, Player, Result, Ribbons, Room}
   alias PidroServer.Repo
 
   @leagues ~w(deuce ten jack ace pidro)
@@ -226,7 +228,17 @@ defmodule PidroServer.Leagues do
     }
 
     unless result?(member.user_id, room.closes_at) do
-      Repo.insert!(result)
+      history =
+        Repo.all(
+          from r in Result,
+            where: r.user_id == ^member.user_id and r.week_closes_at < ^room.closes_at
+        )
+
+      month = Ribbons.month(room.closes_at)
+      before = Ribbons.ribbon(history, month, room.closes_at)
+      ribbon = Ribbons.ribbon([result | history], month, room.closes_at)
+      ribbon = Map.put(ribbon, :changed, is_nil(before) or before.league != ribbon.league)
+      Repo.insert!(%{result | ribbon: ribbon})
       put_player(member.user_id, league: new_league)
       if step != 0, do: transfer(member.user_id, new_league, room.closes_at, now)
     end
@@ -259,6 +271,8 @@ defmodule PidroServer.Leagues do
       |> Ecto.Changeset.validate_required([:hidden])
 
     if changeset.valid? do
+      hidden = Ecto.Changeset.get_field(changeset, :hidden)
+
       Repo.transaction(fn ->
         lock()
         {starts, closes} = week(now)
@@ -276,7 +290,7 @@ defmodule PidroServer.Leagues do
           Repo.delete!(member)
         end
 
-        put_player(user.id, hidden: Ecto.Changeset.get_field(changeset, :hidden))
+        put_player(user.id, hidden: hidden)
       end)
     else
       {:error, changeset}
@@ -309,6 +323,186 @@ defmodule PidroServer.Leagues do
   defp put_player(id, attrs) do
     Repo.insert!(%Player{user_id: id}, on_conflict: :nothing)
     Repo.get!(Player, id) |> Ecto.Changeset.change(attrs) |> Repo.update!()
+  end
+
+  @doc "The raw League tab contract; reads never place a player."
+  def show(user, now \\ DateTime.utc_now()) do
+    base = %{
+      status: "off",
+      league: nil,
+      week: nil,
+      room: nil,
+      me: nil,
+      last_week: nil,
+      pending_result: nil,
+      friends: [],
+      ribbons: %{current: nil, past: []},
+      intro_seen: false,
+      classic: false
+    }
+
+    cond do
+      not enabled?(now) -> base
+      user.guest -> %{base | status: "guest", week: week_map(now)}
+      true -> show_player(user, now, base)
+    end
+  end
+
+  defp show_player(user, now, base) do
+    player = player(user.id)
+    {_, closes} = week(now)
+    member = if not player.hidden, do: membership(user.id, closes)
+    room = member && Repo.get!(Room, member.room_id)
+    ranked = if room, do: standings(room.id), else: []
+    friends = if player.hidden, do: [], else: friends(user.id, closes)
+    users = Auth.get_users_map(Enum.uniq([user.id | Enum.map(ranked ++ friends, & &1.user_id)]))
+
+    history =
+      Repo.all(from r in Result, where: r.user_id == ^user.id, order_by: [asc: r.week_closes_at])
+
+    last = List.last(history)
+    pending = Enum.find(history, &is_nil(&1.seen_at))
+    me = Enum.find(ranked, &(&1.user_id == user.id))
+    {promote, demote} = if room, do: bands(room.league, length(ranked)), else: {0, 0}
+    running = if room, do: {closes, room.league}
+
+    %{
+      base
+      | status:
+          cond do
+            player.hidden -> "opted_out"
+            member -> "placed"
+            true -> "not_placed"
+          end,
+        league: player.league,
+        week: week_map(now),
+        intro_seen: player.intro_seen,
+        classic: users[user.id].pin == "classic",
+        room:
+          if(room,
+            do: %{
+              size: length(ranked),
+              promote: promote,
+              demote: demote,
+              standings:
+                Enum.map(ranked, fn m ->
+                  Map.merge(identity(users[m.user_id]), %{
+                    place: m.place,
+                    points: m.points,
+                    me: m.user_id == user.id
+                  })
+                end)
+            }
+          ),
+        me: if(me, do: Map.take(me, [:place, :points])),
+        last_week:
+          if(last,
+            do: %{
+              league: last.old_league,
+              place: last.place,
+              room_size: last.room_size,
+              points: last.points
+            }
+          ),
+        pending_result: result_json(pending, history, now),
+        friends:
+          Enum.map(friends, fn f ->
+            identity(users[f.user_id])
+            |> Map.delete(:pin)
+            |> Map.merge(Map.take(f, [:league, :place]))
+          end),
+        ribbons: Ribbons.list(history, now, running)
+    }
+  end
+
+  defp week_map(now) do
+    {starts, closes} = week(now)
+    %{starts_at: starts, closes_at: closes}
+  end
+
+  defp identity(user),
+    do: %{
+      user_id: user.id,
+      username: User.public_name(user),
+      avatar: %{url: user.avatar_url},
+      level: user.level,
+      prestige: user.prestige,
+      pin: user.pin
+    }
+
+  defp result_json(nil, _history, _now), do: nil
+
+  defp result_json(result, history, now) do
+    # Outcomes stay frozen; star eligibility reflects every close elapsed today.
+    current = Ribbons.ribbon(history, result.ribbon["month"], now)
+
+    ribbon =
+      Map.put(
+        result.ribbon,
+        "star_possible",
+        current.star_possible
+      )
+
+    result
+    |> Map.take([
+      :id,
+      :week_starts_at,
+      :week_closes_at,
+      :old_league,
+      :new_league,
+      :move,
+      :place,
+      :points,
+      :room_size
+    ])
+    |> Map.put(:ribbon, ribbon)
+  end
+
+  defp friends(user_id, closes) do
+    friend_rooms =
+      from m in Membership,
+        join: f in Friendship,
+        on: f.friend_id == m.user_id and f.user_id == ^user_id,
+        where: m.closes_at == ^closes,
+        select: m.room_id
+
+    ranked =
+      from m in Membership,
+        join: r in Room,
+        on: r.id == m.room_id,
+        where: m.closes_at == ^closes and m.room_id in subquery(friend_rooms),
+        select: %{
+          user_id: m.user_id,
+          league: r.league,
+          place:
+            over(row_number(),
+              partition_by: m.room_id,
+              order_by: [desc: m.points, asc: m.points_at, asc: m.user_id]
+            )
+        }
+
+    Repo.all(
+      from m in subquery(ranked),
+        as: :friend,
+        join: f in Friendship,
+        on: f.user_id == ^user_id and f.friend_id == m.user_id,
+        join: reverse in Friendship,
+        on: reverse.user_id == m.user_id and reverse.friend_id == ^user_id,
+        left_join: p in Player,
+        on: p.user_id == m.user_id,
+        where: is_nil(p.user_id) or not p.hidden,
+        where:
+          not exists(
+            from b in Block,
+              where:
+                (b.user_id == ^user_id and b.blocked_id == parent_as(:friend).user_id) or
+                  (b.blocked_id == ^user_id and b.user_id == parent_as(:friend).user_id)
+          ),
+        select: m
+    )
+    |> Enum.sort_by(
+      &{-Enum.find_index(@leagues, fn league -> league == &1.league end), &1.place, &1.user_id}
+    )
   end
 
   defp membership(user_id, closes),

@@ -3,7 +3,7 @@ defmodule PidroServer.LeaguesConcurrencyTest do
   import PidroServer.AccountsFixtures
   alias PidroServer.{Leagues, Profiles, Stats}
   alias PidroServer.Games.Room.Seat
-  alias PidroServer.Leagues.{Membership, Result, Room}
+  alias PidroServer.Leagues.{Membership, Player, Result, Room}
 
   test "independent connections serialize first games, capacity and competing closes" do
     users = for _ <- 1..33, do: user_fixture()
@@ -31,6 +31,53 @@ defmodule PidroServer.LeaguesConcurrencyTest do
     assert Repo.aggregate(from(r in Result, where: r.move == "up"), :count) == 10
   end
 
+  test "close races new-week credit and grace hiding without stale rooms or resurrection" do
+    for action <- [:credit, :hide] do
+      a = user_fixture()
+      b = user_fixture()
+      close = if action == :credit, do: ~U[2026-11-01 19:00:00Z], else: ~U[2026-11-08 19:00:00Z]
+
+      room =
+        Repo.insert!(%Room{
+          league: "ten",
+          starts_at: DateTime.add(close, -604_800),
+          closes_at: close
+        })
+
+      for {user, points} <- [{a, 100}, {b, 10}] do
+        Repo.insert!(%Player{user_id: user.id, league: "ten"})
+
+        Repo.insert!(%Membership{
+          room_id: room.id,
+          user_id: user.id,
+          closes_at: close,
+          points: points,
+          points_at: DateTime.utc_now(),
+          placed_at: DateTime.utc_now()
+        })
+      end
+
+      at = DateTime.add(close, 30)
+      if action == :hide, do: save([a, b], at)
+
+      race([
+        fn -> Leagues.close(close, DateTime.add(close, 120)) end,
+        fn -> if action == :credit, do: save([a, b], at), else: Leagues.hidden(a, true, at) end
+      ])
+
+      assert Repo.get_by!(Result, user_id: a.id, week_closes_at: close).move == "up"
+      next = DateTime.add(close, 604_800)
+
+      if action == :credit do
+        member = Repo.get_by!(Membership, user_id: a.id, closes_at: next)
+        assert Repo.get!(Room, member.room_id).league == "jack"
+      else
+        refute Repo.get_by(Membership, user_id: a.id, closes_at: next)
+        assert Leagues.player(a.id).hidden
+      end
+    end
+  end
+
   defp race(funs) do
     parent = self()
 
@@ -56,7 +103,7 @@ defmodule PidroServer.LeaguesConcurrencyTest do
     Enum.map(tasks, &Task.await(&1, 15_000))
   end
 
-  defp save(users) do
+  defp save(users, at \\ ~U[2026-10-29 12:00:00Z]) do
     positions = [:north, :east, :south, :west]
 
     seats =
@@ -77,7 +124,7 @@ defmodule PidroServer.LeaguesConcurrencyTest do
                {:ok, game} =
                  Stats.save_game_result(%{
                    room_code: Ecto.UUID.generate(),
-                   completed_at: ~U[2026-10-29 12:00:00Z],
+                   completed_at: at,
                    player_ids: Map.keys(results),
                    player_results: results,
                    winner: :north_south,

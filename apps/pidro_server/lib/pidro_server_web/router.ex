@@ -221,6 +221,11 @@ defmodule PidroServerWeb.Router do
     post "/profile/avatar", AvatarController, :create, private: %{rate_limit: [:avatar_upload]}
     delete "/profile/avatar", AvatarController, :delete
 
+    get "/league", LeagueController, :show
+    put "/league/hidden", LeagueController, :hidden
+    post "/league/intro_seen", LeagueController, :intro_seen
+    post "/league/results/:id/seen", LeagueController, :seen
+
     # Lobby route with authentication (needs user_id for rejoinable rooms)
     get "/lobby", RoomController, :lobby
 

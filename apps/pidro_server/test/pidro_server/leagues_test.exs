@@ -55,9 +55,9 @@ defmodule PidroServer.LeaguesTest do
     end
   end
 
-  test "31st player opens a room Thursday but joins to 40 Saturday" do
-    for {at, sizes} <- [{@thursday, [1, 30]}, {~U[2026-11-07 20:00:00Z], [31]}] do
-      users = for _ <- 1..31, do: user_fixture()
+  test "31st player opens Thursday, Saturday extends to 40 but never 41" do
+    for {at, count, sizes} <- [{@thursday, 31, [1, 30]}, {~U[2026-11-07 20:00:00Z], 41, [1, 40]}] do
+      users = for _ <- 1..count, do: user_fixture()
       for pair <- Enum.chunk_every(users, 2, 1, :discard), do: complete(pair, at)
       {_, closes} = Leagues.week(at)
 
@@ -74,15 +74,32 @@ defmodule PidroServer.LeaguesTest do
   test "off and future gates do no league SQL but still pay XP" do
     original = Leagues.start_at()
     on_exit(fn -> Application.put_env(:pidro_server, :leagues_start_at, original) end)
+    handler = make_ref()
+    on_exit(fn -> :telemetry.detach(handler) end)
 
     for start <- [nil, ~U[2099-01-04 19:00:00Z]] do
       Application.put_env(:pidro_server, :leagues_start_at, start)
       users = [user_fixture(), user_fixture()]
+
+      :telemetry.attach(
+        handler,
+        [:pidro_server, :repo, :query],
+        &__MODULE__.capture_league_query/4,
+        self()
+      )
+
       complete(users, @thursday)
+      :telemetry.detach(handler)
+      refute_receive {:league_query, _}
       assert Repo.aggregate(Membership, :count) == 0
       assert Repo.aggregate(Room, :count) == 0
       for u <- users, do: assert(Repo.get_by!(GameXp, user_id: u.id).xp > 0)
     end
+  end
+
+  def capture_league_query(_event, _measurements, %{query: query}, test) do
+    if String.contains?(query, ["league_", "pg_advisory_xact_lock"]),
+      do: send(test, {:league_query, query})
   end
 
   test "hidden and Classic players are not seeded into a higher league" do
@@ -107,7 +124,7 @@ defmodule PidroServer.LeaguesTest do
     ten = Enum.filter(results, &(&1.old_league == "ten"))
     assert Enum.map(Enum.take(ten, 7), & &1.new_league) == List.duplicate("jack", 7)
     assert Enum.map(Enum.take(ten, -5), & &1.new_league) == List.duplicate("deuce", 5)
-    assert Enum.count(results, &(&1.old_league == "deuce" and &1.move == "down")) == 0
+    refute Enum.any?(results, &(&1.old_league == "deuce" and &1.move == "down"))
     assert Enum.count(results, &(&1.old_league == "pidro" and &1.move == "down")) == 8
     assert Leagues.player(skipped.id).league == "ace"
     assert {:ok, 0} = Leagues.close(@close, DateTime.add(@close, 180))
@@ -160,6 +177,64 @@ defmodule PidroServer.LeaguesTest do
     assert Repo.get_by!(Membership, user_id: played.id).points > old_points
     assert Repo.get_by!(Result, user_id: played.id) == result
     refute Repo.get_by(Membership, user_id: newcomer.id)
+  end
+
+  test "grace transfers fill the destination to 30, then create another room" do
+    {_old, [a, b | _]} = seed_room("ten", 8, @thursday)
+    at = DateTime.add(@close, 30)
+    {_destination, _users} = seed_room("jack", 29, at)
+    complete([a, b], at)
+    Leagues.close(@close, DateTime.add(@close, 120))
+    next = DateTime.add(@close, 604_800)
+
+    sizes =
+      Repo.all(
+        from m in Membership,
+          join: r in Room,
+          on: m.room_id == r.id,
+          where: r.closes_at == ^next and r.league == "jack",
+          group_by: r.id,
+          select: count(m.id)
+      )
+
+    assert Enum.sort(sizes) == [1, 30]
+  end
+
+  test "an unseen result cannot promise a star after a later skipped close" do
+    {_room, [user]} = seed_room("ten", 1, @thursday)
+    Leagues.close(@close, DateTime.add(@close, 120))
+    assert Leagues.show(user, ~U[2026-11-04 12:00:00Z]).pending_result.ribbon["star_possible"]
+    refute Leagues.show(user, ~U[2026-11-09 12:00:00Z]).pending_result.ribbon["star_possible"]
+    complete([user, user_fixture()], ~U[2026-11-05 12:00:00Z])
+    next = DateTime.add(@close, 604_800)
+    Leagues.close(next, DateTime.add(next, 120))
+    assert Leagues.show(user, ~U[2026-11-09 12:00:00Z]).pending_result.ribbon["star_possible"]
+  end
+
+  test "shared sandbox processes place together without duplicating the first room" do
+    users = for _ <- 1..4, do: user_fixture()
+
+    users
+    |> Enum.chunk_every(2)
+    |> Enum.map(fn pair -> Task.async(fn -> complete(pair, @thursday) end) end)
+    |> Enum.each(&Task.await/1)
+
+    assert Repo.aggregate(Room, :count) == 1
+    assert Repo.aggregate(Membership, :count) == 4
+  end
+
+  test "a failed result rolls back the claim, earlier results, movement and room closure" do
+    {room, users} = seed_room("ten", 4, @thursday)
+    Repo.query!("ALTER TABLE league_results ADD CONSTRAINT fail_second CHECK (points <> 998)")
+    assert_raise Ecto.ConstraintError, fn -> Leagues.close(@close, DateTime.add(@close, 120)) end
+    refute Repo.get!(Room, room.id).closed_at
+    assert Repo.aggregate(Result, :count) == 0
+    assert Repo.aggregate("league_weeks", :count) == 0
+    for user <- users, do: assert(Leagues.player(user.id).league == "ten")
+    Repo.query!("ALTER TABLE league_results DROP CONSTRAINT fail_second")
+    assert {:ok, n} = Leagues.close(@close, DateTime.add(@close, 120))
+    assert n > 0
+    assert Repo.aggregate(Result, :count) == 4
   end
 
   defp seed_room(league, n, at) do

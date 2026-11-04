@@ -31,6 +31,7 @@ defmodule PidroServerWeb.ApiSpec do
         - Invite links: one shareable code per table with an optional seat hint
         - Real-time gameplay via WebSocket channels
         - Game statistics tracking
+        - Runtime-gated weekly leagues: raw `/api/v1/league` standings, results and monthly ribbons
         - Admin panel for monitoring
 
         ## Authentication
