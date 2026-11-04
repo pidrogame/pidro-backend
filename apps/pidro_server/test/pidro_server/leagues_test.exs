@@ -2,7 +2,7 @@ defmodule PidroServer.LeaguesTest do
   use PidroServer.DataCase, async: false
   import PidroServer.AccountsFixtures
   alias PidroServer.{Leagues, Profiles, Stats}
-  alias PidroServer.Leagues.{Membership, Player, Room}
+  alias PidroServer.Leagues.{Membership, Player, Result, Room}
   alias PidroServer.Profiles.GameXp
 
   @thursday ~U[2026-10-29 12:00:00Z]
@@ -95,6 +95,96 @@ defmodule PidroServer.LeaguesTest do
     refute Repo.get_by(Membership, user_id: hidden.id)
     member = Repo.get_by!(Membership, user_id: classic.id)
     assert Repo.get!(Room, member.room_id).league == "deuce"
+  end
+
+  test "full close scales movement, skips absent players and reruns without changes" do
+    skipped = user_fixture()
+    Repo.insert!(%Player{user_id: skipped.id, league: "ace"})
+    for league <- ["ten", "deuce", "pidro"], do: seed_room(league, 30, @thursday)
+    assert {:ok, n} = Leagues.close(@close, DateTime.add(@close, 120))
+    assert n > 0
+    results = Repo.all(from r in Result, order_by: r.place)
+    ten = Enum.filter(results, &(&1.old_league == "ten"))
+    assert Enum.map(Enum.take(ten, 7), & &1.new_league) == List.duplicate("jack", 7)
+    assert Enum.map(Enum.take(ten, -5), & &1.new_league) == List.duplicate("deuce", 5)
+    assert Enum.count(results, &(&1.old_league == "deuce" and &1.move == "down")) == 0
+    assert Enum.count(results, &(&1.old_league == "pidro" and &1.move == "down")) == 8
+    assert Leagues.player(skipped.id).league == "ace"
+    assert {:ok, 0} = Leagues.close(@close, DateTime.add(@close, 180))
+    assert Repo.all(from r in Result, order_by: r.place) == results
+  end
+
+  test "hide locks in demotion or staying and cannot farm another result by unhiding" do
+    Leagues.close(elem(Leagues.week(@thursday), 0), @thursday)
+    {_room, users} = seed_room("ten", 30, @thursday)
+
+    for {index, tier} <- [{29, "deuce"}, {14, "ten"}] do
+      user = Enum.at(users, index)
+      assert {:ok, _} = Leagues.hidden(user, true, @thursday)
+      assert Leagues.player(user.id).league == tier
+      result = Repo.get_by!(Result, user_id: user.id)
+      assert result.seen_at
+      refute Repo.get_by(Membership, user_id: user.id)
+      assert {:ok, _} = Leagues.hidden(user, false, @thursday)
+      complete([user, user_fixture()], @thursday)
+      refute Repo.get_by(Membership, user_id: user.id)
+      assert Repo.get_by!(Result, user_id: user.id) == result
+    end
+  end
+
+  test "Sunday grace transfers points unchanged, but never resurrects a hidden membership" do
+    {_room, users} = seed_room("ten", 30, @thursday)
+    [up, hiding | _] = users
+    new_at = DateTime.add(@close, 30)
+    complete([up, hiding], new_at)
+    before = Repo.get_by!(Membership, user_id: up.id, closes_at: DateTime.add(@close, 604_800))
+    assert {:ok, _} = Leagues.hidden(hiding, true, new_at)
+    assert Repo.aggregate(Result, :count) == 0
+    assert {:ok, _} = Leagues.close(@close, DateTime.add(@close, 120))
+    after_member = Repo.get!(Membership, before.id)
+    assert after_member.points == before.points
+    assert after_member.points_at == before.points_at
+    assert after_member.placed_at == before.placed_at
+    assert Repo.get!(Room, after_member.room_id).league == "jack"
+    assert Repo.get_by!(Result, user_id: hiding.id).move == "up"
+    refute Repo.get_by(Membership, user_id: hiding.id, closes_at: before.closes_at)
+  end
+
+  test "late games only change existing closed memberships, never frozen results" do
+    {_room, [played | _]} = seed_room("ten", 2, @thursday)
+    Leagues.close(@close, DateTime.add(@close, 120))
+    result = Repo.get_by!(Result, user_id: played.id)
+    old_points = Repo.get_by!(Membership, user_id: played.id).points
+    newcomer = user_fixture()
+    complete([played, newcomer], @thursday)
+    assert Repo.get_by!(Membership, user_id: played.id).points > old_points
+    assert Repo.get_by!(Result, user_id: played.id) == result
+    refute Repo.get_by(Membership, user_id: newcomer.id)
+  end
+
+  defp seed_room(league, n, at) do
+    {starts, closes} = Leagues.week(at)
+    at = DateTime.from_unix!(DateTime.to_unix(at, :microsecond), :microsecond)
+    room = Repo.insert!(%Room{league: league, starts_at: starts, closes_at: closes})
+
+    users =
+      for i <- 1..n do
+        user = user_fixture()
+        Repo.insert!(%Player{user_id: user.id, league: league})
+
+        Repo.insert!(%Membership{
+          room_id: room.id,
+          user_id: user.id,
+          closes_at: closes,
+          points: 1000 - i,
+          points_at: at,
+          placed_at: at
+        })
+
+        user
+      end
+
+    {room, users}
   end
 
   defp complete(users, at) do

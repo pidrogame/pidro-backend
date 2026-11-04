@@ -14,6 +14,7 @@ defmodule PidroServer.Application do
       # Idle-guest sweep; needs the Repo and the RoomManager (started below by
       # Games.Supervisor) only when a run fires, never at start
       PidroServer.Accounts.GuestReaper,
+      PidroServer.Leagues.Closer,
       {DNSCluster, query: Application.get_env(:pidro_server, :dns_cluster_query) || :ignore},
       {Phoenix.PubSub, name: PidroServer.PubSub},
       PidroServer.BotCatalogue,

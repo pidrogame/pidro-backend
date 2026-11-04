@@ -100,7 +100,10 @@ defmodule PidroServer.Leagues do
               points: xp,
               points_at: now,
               placed_at: now
-            }, on_conflict: :nothing, conflict_target: [:closes_at, :user_id])
+            },
+            on_conflict: :nothing,
+            conflict_target: [:closes_at, :user_id]
+          )
         end
 
       true ->
@@ -146,6 +149,167 @@ defmodule PidroServer.Leagues do
 
   @doc "Stored preference, or the default Deuce row without writing on reads."
   def player(user_id), do: Repo.get(Player, user_id) || %Player{user_id: user_id}
+
+  @doc "Closes all due weeks in order; the claim and every outcome commit together."
+  def close_due(now \\ DateTime.utc_now()) do
+    if enabled?(now) do
+      {latest, _} = week(DateTime.add(now, -120))
+      close_through(latest, now)
+    else
+      {:ok, 0}
+    end
+  end
+
+  @doc "Closes through a due Sunday. An early or disabled call does nothing."
+  def close(closes, now \\ DateTime.utc_now()) do
+    if enabled?(now) and enabled?(closes) and elem(week(closes), 0) == closes and
+         DateTime.diff(now, closes) >= 120 do
+      close_through(closes, now)
+    else
+      {:ok, 0}
+    end
+  end
+
+  defp close_through(latest, now) do
+    now = DateTime.from_unix!(DateTime.to_unix(now, :microsecond), :microsecond)
+
+    Repo.transaction(fn ->
+      lock()
+
+      start_at()
+      |> Stream.iterate(&DateTime.add(&1, @week_seconds))
+      |> Enum.take_while(&(DateTime.compare(&1, latest) != :gt))
+      |> Enum.reduce(0, fn closes, count -> count + close_week(closes, now) end)
+    end)
+  end
+
+  defp close_week(closes, now) do
+    {claimed, _} = Repo.insert_all("league_weeks", [%{closes_at: closes}], on_conflict: :nothing)
+
+    if claimed == 1 do
+      rooms = Repo.all(from r in Room, where: r.closes_at == ^closes, order_by: r.id)
+
+      for room <- rooms do
+        members = standings(room.id)
+        for member <- members, do: settle(room, member, length(members), nil, now)
+        Repo.update!(Ecto.Changeset.change(room, closed_at: now))
+      end
+    end
+
+    claimed
+  end
+
+  defp settle(room, member, size, seen_at, now) do
+    {promote, demote} = bands(room.league, size)
+    index = Enum.find_index(@leagues, &(&1 == room.league))
+
+    {move, step} =
+      cond do
+        member.place <= promote -> {"up", 1}
+        member.place > size - demote -> {"down", -1}
+        true -> {"stayed", 0}
+      end
+
+    new_league = Enum.at(@leagues, index + step)
+
+    result = %Result{
+      user_id: member.user_id,
+      week_starts_at: room.starts_at,
+      week_closes_at: room.closes_at,
+      old_league: room.league,
+      new_league: new_league,
+      move: move,
+      place: member.place,
+      points: member.points,
+      room_size: size,
+      seen_at: seen_at
+    }
+
+    unless result?(member.user_id, room.closes_at) do
+      Repo.insert!(result)
+      put_player(member.user_id, league: new_league)
+      if step != 0, do: transfer(member.user_id, new_league, room.closes_at, now)
+    end
+  end
+
+  defp transfer(user_id, league, starts, now) do
+    closes = DateTime.add(starts, @week_seconds)
+
+    case membership(user_id, closes) do
+      nil ->
+        :ok
+
+      member ->
+        unless closed?(closes) do
+          room = placement_room(league, {starts, closes}, now)
+          Repo.update!(Ecto.Changeset.change(member, room_id: room.id))
+        end
+    end
+  end
+
+  @doc "Sets hiding atomically with an immediate seen outcome, except during Sunday grace."
+  def hidden(%User{guest: true}, _hidden, _now), do: {:error, :account_required}
+
+  def hidden(%User{} = user, hidden, now) do
+    now = DateTime.from_unix!(DateTime.to_unix(now, :microsecond), :microsecond)
+
+    changeset =
+      %Player{}
+      |> Ecto.Changeset.cast(%{hidden: hidden}, [:hidden])
+      |> Ecto.Changeset.validate_required([:hidden])
+
+    if changeset.valid? do
+      Repo.transaction(fn ->
+        lock()
+        {starts, closes} = week(now)
+        member = membership(user.id, closes)
+
+        if enabled?(now) and hidden and member do
+          # Before activation there is no preceding league week to wait for.
+          if DateTime.compare(starts, start_at()) != :gt or closed?(starts) do
+            room = Repo.get!(Room, member.room_id)
+            members = standings(room.id)
+            ranked = Enum.find(members, &(&1.user_id == user.id))
+            settle(room, ranked, length(members), now, now)
+          end
+
+          Repo.delete!(member)
+        end
+
+        put_player(user.id, hidden: Ecto.Changeset.get_field(changeset, :hidden))
+      end)
+    else
+      {:error, changeset}
+    end
+  end
+
+  @doc "Records dismissal of the league introduction."
+  def intro_seen(%User{guest: true}), do: {:error, :account_required}
+
+  def intro_seen(%User{id: id}) do
+    Repo.transaction(fn ->
+      lock()
+      put_player(id, intro_seen: true)
+    end)
+  end
+
+  @doc "Acknowledges only the caller's result, idempotently."
+  def seen(user_id, id) do
+    with {:ok, id} <- Ecto.UUID.cast(id),
+         %Result{} <- Repo.get_by(Result, id: id, user_id: user_id) do
+      from(r in Result, where: r.id == ^id and is_nil(r.seen_at))
+      |> Repo.update_all(set: [seen_at: DateTime.utc_now()])
+
+      :ok
+    else
+      _ -> {:error, :not_found}
+    end
+  end
+
+  defp put_player(id, attrs) do
+    Repo.insert!(%Player{user_id: id}, on_conflict: :nothing)
+    Repo.get!(Player, id) |> Ecto.Changeset.change(attrs) |> Repo.update!()
+  end
 
   defp membership(user_id, closes),
     do: Repo.get_by(Membership, user_id: user_id, closes_at: closes)
