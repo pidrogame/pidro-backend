@@ -1216,7 +1216,9 @@ defmodule PidroServerWeb.GameChannel do
             "Player #{user_id} disconnected from room #{room_code}: #{format_reason(reason)}"
           )
 
-          case RoomManager.unregister_game_channel(room_code, user_id, self()) do
+          close = if format_reason(reason) == "left", do: :left, else: :closed
+
+          case RoomManager.unregister_game_channel(room_code, user_id, self(), close) do
             :last_channel_closed ->
               broadcast_from(socket, "player_disconnected", %{
                 user_id: user_id,

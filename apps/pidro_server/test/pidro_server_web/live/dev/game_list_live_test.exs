@@ -347,6 +347,119 @@ defmodule PidroServerWeb.Dev.GameListLiveTest do
     end
   end
 
+  # Room 7NTI, 2026-11-04: three players drop, the host comes back, south and
+  # west are gone for good; after game over east leaves and the host's
+  # channel closes `left`. The table must not be left looking broken.
+  test "a finished table its players walk away from leaves no stale seats", %{conn: conn} do
+    require Phoenix.ChannelTest
+    import Phoenix.ChannelTest, only: [subscribe_and_join: 3, leave: 1]
+
+    users = for _ <- 1..4, do: PidroServer.AccountsFixtures.user_fixture()
+    [host, east, south, west] = Enum.map(users, & &1.id)
+    {:ok, room} = RoomManager.create_room(host)
+    for id <- [east, south, west], do: {:ok, _, _} = RoomManager.join_room(room.code, id)
+    code = RoomFixtures.ready_room(room.code).code
+
+    {:ok, socket} =
+      Phoenix.ChannelTest.connect(PidroServerWeb.UserSocket, %{
+        "token" => PidroServer.Accounts.Token.generate(hd(users))
+      })
+
+    {:ok, _, host_channel} =
+      subscribe_and_join(socket, PidroServerWeb.GameChannel, "game:#{code}")
+
+    for id <- [host, south, west], do: :ok = RoomManager.handle_player_disconnect(code, id)
+    for pos <- [:north, :south, :west], do: expire_phase(code, pos, :phase2_start)
+    {:ok, _} = RoomManager.handle_player_reconnect(code, host)
+    for pos <- [:south, :west], do: expire_phase(code, pos, :phase3_gone)
+
+    # Long enough an absence window to look at the table inside it.
+    lifecycle = Application.get_env(:pidro_server, Lifecycle, [])
+
+    Application.put_env(
+      :pidro_server,
+      Lifecycle,
+      Keyword.put(lifecycle, :hiccup_timeout_ms, 1_000)
+    )
+
+    send(RoomManager, {:game_over, code, :north_south, %{north_south: 62, east_west: 40}})
+
+    conn
+    |> put_req_header(
+      "authorization",
+      "Bearer #{PidroServer.Accounts.Token.generate(Enum.at(users, 1))}"
+    )
+    |> delete(~p"/api/v1/rooms/#{code}/leave")
+    |> response(204)
+
+    # Only the host's real channel is left; it leaves the way the app does.
+    RoomManager.unregister_game_channel(code, host, self())
+    Process.unlink(host_channel.channel_pid)
+    closed = Process.monitor(host_channel.channel_pid)
+    leave(host_channel)
+    assert_receive {:DOWN, ^closed, :process, _, {:shutdown, :left}}
+    :sys.get_state(RoomManager)
+
+    {:ok, reopened} = RoomManager.get_room(code)
+    assert reopened.status == :waiting
+
+    for {_position, seat} <- reopened.seats do
+      refute seat.status in [:reconnecting, :grace]
+      assert seat.grace_expires_at == nil
+      assert seat.bot_pid == nil
+    end
+
+    assert substitute_bots(code) == []
+
+    # South's and west's grace deadlines, had they kept them, are past now.
+    Process.sleep(Lifecycle.config(:grace_timeout_ms))
+
+    log =
+      ExUnit.CaptureLog.capture_log([level: :warning], fn ->
+        send(RoomManager, :health_check)
+        :sys.get_state(RoomManager)
+      end)
+
+    refute log =~ "expired grace period"
+
+    {:ok, view, _} = live(conn, ~p"/admin/games")
+    assert has_element?(view, "#room-#{code}")
+    refute has_element?(view, "#room-#{code}", "Connection / process issue")
+
+    # The host walked away from a table with nobody else at it: it closes.
+    eventually(fn -> assert {:error, :room_not_found} = RoomManager.get_room(code) end)
+  end
+
+  test "a reopened table starts its next game with its substitutes playing" do
+    {room, [_host, east, south, _west]} = playing_room()
+    :ok = RoomManager.handle_player_disconnect(room.code, south)
+    expire_phase(room.code, :south, :phase2_start)
+    expire_phase(room.code, :south, :phase3_gone)
+    send(RoomManager, {:game_over, room.code, :north_south, %{north_south: 62, east_west: 40}})
+    :ok = RoomManager.leave_room(east)
+    assert substitute_bots(room.code) == []
+
+    newcomer = PidroServer.AccountsFixtures.user_fixture().id
+    {:ok, _, :east} = RoomManager.join_room(room.code, newcomer)
+    {:ok, playing} = RoomManager.get_room(room.code)
+    playing = if playing.status == :playing, do: playing, else: RoomFixtures.ready_room(room.code)
+
+    assert playing.status == :playing
+    assert [pid] = substitute_bots(room.code)
+    assert playing.seats.south.bot_pid == pid
+  end
+
+  defp expire_phase(code, position, phase),
+    do: PidroServer.RoomManagerCase.expire_phase(code, position, phase)
+
+  defp substitute_bots(code) do
+    for {_, pid, _, [PidroServer.Games.Bots.SubstituteBot]} <-
+          DynamicSupervisor.which_children(PidroServer.Games.Bots.BotSupervisor),
+        is_pid(pid),
+        :sys.get_state(pid).room_code == code,
+        do: pid
+  end
+
   defp set_room_owner(room_code, host_id) do
     :sys.replace_state(RoomManager, fn state ->
       update_in(state.rooms[room_code], &%{&1 | host_id: host_id})

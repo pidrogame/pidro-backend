@@ -1260,10 +1260,17 @@ defmodule PidroServer.Games.RoomManager do
     GenServer.call(__MODULE__, {:register_game_channel, String.upcase(room_code), user_id, pid})
   end
 
-  @spec unregister_game_channel(String.t(), any(), pid()) ::
+  @doc """
+  Drops a game channel. `close` is `:left` when the client left the channel on
+  purpose rather than losing its connection (see `disconnect_player/5`).
+  """
+  @spec unregister_game_channel(String.t(), any(), pid(), :left | :closed) ::
           :last_channel_closed | :channels_remaining | :not_registered
-  def unregister_game_channel(room_code, user_id, pid \\ self()) do
-    GenServer.call(__MODULE__, {:unregister_game_channel, String.upcase(room_code), user_id, pid})
+  def unregister_game_channel(room_code, user_id, pid \\ self(), close \\ :closed) do
+    GenServer.call(
+      __MODULE__,
+      {:unregister_game_channel, String.upcase(room_code), user_id, pid, close}
+    )
   end
 
   @spec readiness(String.t()) :: {:ok, map()} | {:error, :room_not_found}
@@ -1812,12 +1819,16 @@ defmodule PidroServer.Games.RoomManager do
   end
 
   @impl true
-  def handle_call({:unregister_game_channel, room_code, user_id, pid}, _from, %State{} = state) do
+  def handle_call(
+        {:unregister_game_channel, room_code, user_id, pid, close},
+        _from,
+        %State{} = state
+      ) do
     {result, new_state} = unregister_channel_pid(state, room_code, user_id, pid)
 
     new_state =
       if result == :last_channel_closed,
-        do: disconnect_after_last_channel(new_state, room_code, user_id),
+        do: disconnect_after_last_channel(new_state, room_code, user_id, close),
         else: new_state
 
     {:reply, result, new_state}
@@ -2726,12 +2737,13 @@ defmodule PidroServer.Games.RoomManager do
   def handle_info({:finished_absence, room_code, user_id, token}, %State{} = state) do
     key = {room_code, user_id}
 
+    # The room may have reopened as a waiting table since: that is no reason to stay.
     with ^token <- Map.get(state.finished_absences, key),
          state = %State{state | finished_absences: Map.delete(state.finished_absences, key)},
-         %Room{status: :finished} = room <- Map.get(state.rooms, room_code),
+         %Room{status: status} = room when status != :playing <- Map.get(state.rooms, room_code),
          true <- Positions.has_player?(room, user_id),
          false <- channel_alive?(state, room_code, user_id) do
-      Logger.info("Player #{user_id} did not return to finished room #{room_code}, leaving")
+      Logger.info("Player #{user_id} did not return to #{status} room #{room_code}, leaving")
       {:noreply, leave_finished_room(state, room, user_id)}
     else
       _ -> {:noreply, state}
@@ -4191,9 +4203,10 @@ defmodule PidroServer.Games.RoomManager do
   # The engine has no way out of `:complete`, so a rematch replaces the game
   # process. Stopping it here lets `start_game_for_room/2` start a fresh one
   # under the same room code. A no-op for a room that has not played yet.
+  # Substitutes stay stopped until that game starts (`finish_game_start/3`).
   defp retire_finished_game(%Room{status: :finished, code: room_code} = room) do
     _ = GameSupervisor.stop_game(room_code)
-    revive_substitute_bots(room)
+    room
   end
 
   defp retire_finished_game(%Room{} = room), do: room
@@ -4214,7 +4227,7 @@ defmodule PidroServer.Games.RoomManager do
     %{room | seats: seats}
   end
 
-  # Game over stopped the substitutes, so bring them back for the rematch.
+  # Game over stopped the substitutes, so bring them back for the next game.
   defp revive_substitute_bots(%Room{seats: seats} = room) do
     seats =
       Map.new(seats, fn
@@ -4426,6 +4439,10 @@ defmodule PidroServer.Games.RoomManager do
   defp maybe_start_game(%Room{status: :ready} = room, %State{} = state) do
     channels_alive? =
       Enum.all?(room.seats, fn
+        # Substitutes start with the game (`finish_game_start/3`).
+        {_position, %Seat{occupant_type: :bot, status: :bot_substitute}} ->
+          true
+
         {_position, %Seat{occupant_type: :bot, bot_pid: pid}} ->
           is_pid(pid) and Process.alive?(pid)
 
@@ -4453,8 +4470,6 @@ defmodule PidroServer.Games.RoomManager do
 
     # A finished room that loses a player reopens as a waiting table, so its
     # completed game goes: the next start must be a new game, not this one.
-    # Retiring revives substitute bots, so the leaver's seat is vacated first:
-    # a substitute started for it would be orphaned by the vacate.
     updated_room =
       room
       |> Positions.remove(player_id)
@@ -4975,6 +4990,7 @@ defmodule PidroServer.Games.RoomManager do
           game_started_at: DateTime.utc_now(),
           post_game_summaries: %{}
       }
+      |> revive_substitute_bots()
       |> bump_seat_lifecycle_revision()
 
     %State{} =
@@ -5062,15 +5078,20 @@ defmodule PidroServer.Games.RoomManager do
     }
   end
 
-  defp disconnect_player(%State{} = state, %Room{} = room, room_code, user_id) do
+  # A player who leaves the channel of a table that is not playing has walked
+  # away from it, not lost their connection: their seat is not held for a
+  # reconnect, they get the finished room's absence window instead.
+  defp disconnect_player(%State{} = state, %Room{} = room, room_code, user_id, close \\ :closed) do
     if Positions.has_player?(room, user_id) do
+      walked_away? = close == :left and room.status in [:waiting, :ready]
+      room = %Room{room | last_activity: DateTime.utc_now()}
+
       updated_room =
-        %Room{room | last_activity: DateTime.utc_now()}
-        |> mark_disconnected(room_code, user_id)
+        if walked_away?, do: room, else: mark_disconnected(room, room_code, user_id)
 
       updated_state =
         %State{state | rooms: Map.put(state.rooms, room_code, updated_room)}
-        |> note_finished_absence(updated_room, user_id)
+        |> note_finished_absence(updated_room, user_id, walked_away?)
 
       {:ok, updated_room, updated_state}
     else
@@ -5083,7 +5104,10 @@ defmodule PidroServer.Games.RoomManager do
   # after the hiccup window, treat it as having left. The token belongs to this
   # absence: coming back drops it (`register_channel_pid/4`), so the timer of an
   # earlier absence cannot cut a later one short.
-  defp note_finished_absence(%State{} = state, %Room{status: :finished, code: code}, user_id) do
+  defp note_finished_absence(state, room, user_id, walked_away? \\ false)
+
+  defp note_finished_absence(%State{} = state, %Room{status: status, code: code}, user_id, away?)
+       when status == :finished or away? do
     token = make_ref()
 
     Process.send_after(
@@ -5095,7 +5119,7 @@ defmodule PidroServer.Games.RoomManager do
     %State{state | finished_absences: Map.put(state.finished_absences, {code, user_id}, token)}
   end
 
-  defp note_finished_absence(%State{} = state, %Room{}, _user_id), do: state
+  defp note_finished_absence(%State{} = state, %Room{}, _user_id, _away?), do: state
 
   # A player who dropped during the game gets no disconnect in the finished
   # room to start their window, so it starts when the game ends.
@@ -5312,10 +5336,10 @@ defmodule PidroServer.Games.RoomManager do
     end
   end
 
-  defp disconnect_after_last_channel(state, room_code, user_id) do
+  defp disconnect_after_last_channel(state, room_code, user_id, close \\ :closed) do
     case Map.get(state.rooms, room_code) do
       %Room{} = room ->
-        case disconnect_player(state, room, room_code, user_id) do
+        case disconnect_player(state, room, room_code, user_id, close) do
           {:ok, updated, next} ->
             broadcast_room(room_code, updated)
             broadcast_lobby_event({:room_updated, updated})

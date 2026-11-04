@@ -192,7 +192,7 @@ defmodule PidroServer.Games.Room.Seat do
 
   @doc """
   Makes a bot substitute permanent by clearing `reserved_for`. The original
-  human can no longer reclaim this seat.
+  human can no longer reclaim this seat, so it has no grace deadline either.
 
   Valid from: `:bot_substitute`
   """
@@ -203,6 +203,7 @@ defmodule PidroServer.Games.Room.Seat do
      %{
        seat
        | reserved_for: nil,
+         grace_expires_at: nil,
          decision_id: Ecto.UUID.generate(),
          decision_player_id: player_id
      }}
