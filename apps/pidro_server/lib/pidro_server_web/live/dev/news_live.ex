@@ -2,7 +2,8 @@ defmodule PidroServerWeb.Dev.NewsLive do
   @moduledoc """
   News posts (PID-346): write them in English and Swedish, preview them as
   the app shows them, publish them to every player. Data from
-  `PidroServer.News`.
+  `PidroServer.News`. The Swedish can be drafted from the English with
+  `PidroServer.Translate` (PID-349); nothing is saved until Save.
   """
 
   use PidroServerWeb, :live_view
@@ -11,12 +12,14 @@ defmodule PidroServerWeb.Dev.NewsLive do
 
   alias PidroServer.News
   alias PidroServer.News.Post
+  alias PidroServer.Translate
 
   @impl true
   def mount(_params, _session, socket) do
     {:ok,
      socket
      |> assign(page_title: "News", post: nil, form: nil, preview: "en")
+     |> assign(translate?: Translate.enabled?(), translating: false, translate_error: nil)
      |> load()}
   end
 
@@ -25,7 +28,8 @@ defmodule PidroServerWeb.Dev.NewsLive do
 
   def handle_event("edit", %{"id" => id}, socket), do: {:noreply, edit(socket, News.get!(id))}
 
-  def handle_event("close", _params, socket), do: {:noreply, assign(socket, post: nil, form: nil)}
+  def handle_event("close", _params, socket),
+    do: {:noreply, socket |> stop_translating() |> assign(post: nil, form: nil)}
 
   def handle_event("preview", %{"locale" => locale}, socket) when locale in ~w(en sv),
     do: {:noreply, assign(socket, preview: locale)}
@@ -56,12 +60,35 @@ defmodule PidroServerWeb.Dev.NewsLive do
     end
   end
 
+  def handle_event("translate", _params, socket) do
+    english = Ecto.Changeset.apply_changes(socket.assigns.form.source)
+
+    {:noreply,
+     socket
+     |> assign(translating: true, translate_error: nil)
+     |> start_async(:translate, fn ->
+       Translate.to_swedish(english.title_en, english.body_en)
+     end)}
+  end
+
   def handle_event(action, %{"id" => id}, socket)
       when action in ~w(publish unpublish delete) do
     case run(action, News.get!(id)) do
       {:ok, post} -> {:noreply, socket |> follow(action, post) |> load()}
       {:error, :published} -> {:noreply, put_flash(socket, :error, "That post is published.")}
     end
+  end
+
+  @impl true
+  def handle_async(:translate, {:ok, {:ok, swedish}}, socket) do
+    %{post: post, form: form} = socket.assigns
+    params = Map.merge(form.params, %{"title_sv" => swedish.title, "body_sv" => swedish.body})
+    {:noreply, assign(socket, translating: false, form: to_form(News.change(post, params)))}
+  end
+
+  def handle_async(:translate, _failed, socket) do
+    {:noreply,
+     assign(socket, translating: false, translate_error: "Translation failed. Try again.")}
   end
 
   defp run("publish", post), do: News.publish(post)
@@ -81,7 +108,15 @@ defmodule PidroServerWeb.Dev.NewsLive do
 
   defp follow(socket, _action, _post), do: socket
 
-  defp edit(socket, post), do: assign(socket, post: post, form: to_form(News.change(post)))
+  defp edit(socket, post),
+    do: socket |> stop_translating() |> assign(post: post, form: to_form(News.change(post)))
+
+  # A translation running for the post that was open is dropped.
+  defp stop_translating(socket),
+    do:
+      socket
+      |> cancel_async(:translate)
+      |> assign(translating: false, translate_error: nil)
 
   defp load(socket), do: assign(socket, posts: News.list_all())
 
@@ -200,6 +235,32 @@ defmodule PidroServerWeb.Dev.NewsLive do
             maxlength="5000"
             required
           />
+          <div class="flex items-center justify-between gap-3 border-t border-stone-100 pt-3">
+            <p class="text-sm font-semibold text-stone-800">Swedish</p>
+            <button
+              type="button"
+              id="translate"
+              phx-click="translate"
+              disabled={
+                !@translate? or @translating or blank?(@form[:title_en].value) or
+                  blank?(@form[:body_en].value)
+              }
+              data-confirm={
+                if !blank?(@form[:title_sv].value) or !blank?(@form[:body_sv].value),
+                  do: "Replace the Swedish text with a new translation?"
+              }
+              class="inline-flex items-center gap-2 rounded-md border border-stone-300 bg-white px-3 py-1.5 text-sm font-semibold text-stone-700 hover:text-stone-950 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <.icon :if={@translating} name="hero-arrow-path" class="size-4 animate-spin" />
+              {if @translating, do: "Translating…", else: "Translate to Swedish"}
+            </button>
+          </div>
+          <p :if={!@translate?} id="translate-off" class="text-xs text-stone-500">
+            Add ANTHROPIC_API_KEY to turn on translation.
+          </p>
+          <p :if={@translate_error} id="translate-error" class="text-sm text-rose-700">
+            {@translate_error}
+          </p>
           <.input field={@form[:title_sv]} label="Swedish title" maxlength="200" />
           <.input
             field={@form[:body_sv]}
@@ -267,6 +328,8 @@ defmodule PidroServerWeb.Dev.NewsLive do
   defp button,
     do:
       "rounded-md border border-stone-300 bg-white px-3 py-1.5 text-sm font-semibold text-stone-700 hover:text-stone-950"
+
+  defp blank?(value), do: value in [nil, ""] or String.trim(value) == ""
 
   defp answers(1), do: "1 answer"
   defp answers(n), do: "#{n} answers"

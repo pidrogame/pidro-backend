@@ -65,6 +65,8 @@ env:
     - SMTP_PORT
     - SMTP_USERNAME
     - SMTP_PASSWORD
+    # Optional: without it /admin/news has no Translate to Swedish.
+    - ANTHROPIC_API_KEY
 
 logging:
   driver: local

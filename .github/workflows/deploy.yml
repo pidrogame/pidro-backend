@@ -58,6 +58,8 @@ jobs:
       SMTP_PORT: ${{ secrets.SMTP_PORT }}
       SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
       SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+      # Optional, so it is not in the check below: empty turns translation off.
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
 
     steps:
       - name: Check deploy secrets
@@ -103,7 +105,7 @@ jobs:
           # Kamal expands each $NAME from this job's environment; no value touches disk.
           for name in KAMAL_REGISTRY_PASSWORD SECRET_KEY_BASE POSTGRES_PASSWORD \
             CLASSIC_API_URL CLASSIC_CLAIM_SECRET FB_APP_SECRET \
-            SMTP_RELAY SMTP_PORT SMTP_USERNAME SMTP_PASSWORD; do
+            SMTP_RELAY SMTP_PORT SMTP_USERNAME SMTP_PASSWORD ANTHROPIC_API_KEY; do
             echo "$name=\$$name"
           done > .kamal/secrets-common
 

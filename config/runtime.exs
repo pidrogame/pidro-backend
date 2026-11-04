@@ -541,3 +541,12 @@ if deferred_invites_enabled != nil and
            deferred_invites_enabled in ~w(true TRUE 1 yes YES)
          )
 end
+
+# News translation in /admin/news (PID-349). Without a key the button is off;
+# the test suite configures its own stub in test.exs.
+if config_env() != :test do
+  anthropic_api_key = System.get_env("ANTHROPIC_API_KEY")
+
+  config :pidro_server, PidroServer.Translate,
+    api_key: if(anthropic_api_key in [nil, ""], do: nil, else: anthropic_api_key)
+end

@@ -53,6 +53,17 @@ rm /tmp/pidro-deploy /tmp/pidro-deploy.pub
 Until all eight exist, the deploy job skips: it passes with a warning that
 names the missing ones, and `main` stays green.
 
+`ANTHROPIC_API_KEY` is optional and not in that check. It turns on
+**Translate to Swedish** in `/admin/news` (PID-349); without it a deploy runs
+as usual and the button says the key is missing. To turn it on:
+
+```bash
+gh secret set ANTHROPIC_API_KEY
+```
+
+The next deploy hands it to the app. For `just deploy`, set it in
+`.kamal/secrets-common` (empty keeps translation off).
+
 ## Rolling back
 
 ```bash
