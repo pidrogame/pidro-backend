@@ -26,7 +26,7 @@ if !exists(record.event) {
 event = string!(record.event)
 if !match(event, r'^[A-Za-z0-9_.:-]{1,64}$') { abort }
 metadata = filter(record) -> |key, _value| {
-  includes(["event", "level", "timestamp", "request_id", "room_code", "game_instance_id", "user_id", "action_id", "report_id", "app_version", "app_build", "platform", "server_build", "action", "outcome", "error_code", "reason", "join_type", "state_revision", "observed_revision", "duration_ms"], key)
+  includes(["event", "level", "timestamp", "request_id", "room_code", "game_instance_id", "user_id", "seat", "action_id", "report_id", "app_version", "app_build", "platform", "server_build", "action", "outcome", "error_code", "reason", "join_type", "state_revision", "observed_revision", "duration_ms"], key)
 }
 metadata.environment = "production"
 metadata.service = "pidro-backend"

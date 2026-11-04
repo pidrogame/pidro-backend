@@ -182,7 +182,8 @@ defmodule PidroServer.Games.RoomManager do
             spectator_timers: %{{String.t(), any()} => reference()},
             game_snapshot_cursors: %{String.t() => {String.t(), non_neg_integer()}},
             active_game_instances: %{String.t() => String.t()},
-            finished_absences: %{{String.t(), any()} => reference()}
+            finished_absences: %{{String.t(), any()} => reference()},
+            health_warnings: MapSet.t(String.t())
           }
 
     defstruct rooms: %{},
@@ -195,8 +196,10 @@ defmodule PidroServer.Games.RoomManager do
               spectator_timers: %{},
               game_snapshot_cursors: %{},
               active_game_instances: %{},
-              # One token per player absent from a finished room; see `note_finished_absence/3`.
-              finished_absences: %{}
+              # One token per player absent from a finished room; see `note_finished_absence/4`.
+              finished_absences: %{},
+              # What the last health check warned about, so a lasting problem logs once.
+              health_warnings: MapSet.new()
   end
 
   ## Client API
@@ -2664,22 +2667,17 @@ defmodule PidroServer.Games.RoomManager do
   end
 
   # Periodic health check — scans all rooms for inconsistencies.
-  # Logs warnings and auto-fixes safe issues (dead bot_pid references).
+  # Logs warnings and auto-fixes safe issues (dead bot_pid references). A
+  # warning logs when it first appears, not on every sweep it lasts.
   @impl true
   def handle_info(:health_check, %State{} = state) do
-    updated_state =
-      if map_size(state.rooms) == 0 do
-        state
-      else
-        Enum.reduce(state.rooms, state, fn {code, room}, acc_state ->
-          room = health_check_room(room, code)
-          %State{} = acc_state
-          %{acc_state | rooms: Map.put(acc_state.rooms, code, room)}
-        end)
-      end
+    rooms = Map.new(state.rooms, fn {code, room} -> {code, check_dead_bot_pids(room, code)} end)
+    warnings = rooms |> Enum.flat_map(&health_warnings/1) |> MapSet.new()
+
+    warnings |> MapSet.difference(state.health_warnings) |> Enum.each(&Logger.warning/1)
 
     schedule_health_check()
-    {:noreply, updated_state}
+    {:noreply, %State{state | rooms: rooms, health_warnings: warnings}}
   end
 
   @impl true
@@ -4735,13 +4733,9 @@ defmodule PidroServer.Games.RoomManager do
   end
 
   @doc false
-  # Checks a single room for inconsistencies and auto-fixes safe issues.
-  # Returns the (possibly updated) room.
-  defp health_check_room(%Room{} = room, room_code) do
-    room
-    |> check_dead_bot_pids(room_code)
-    |> check_expired_grace_periods(room_code)
-    |> check_missing_game_process(room_code)
+  # What is wrong with a room that the health check cannot fix.
+  defp health_warnings({room_code, %Room{} = room}) do
+    expired_grace_periods(room, room_code) ++ missing_game_process(room, room_code)
   end
 
   # RoomManager is the sole restart authority for replacement controllers.
@@ -4788,36 +4782,26 @@ defmodule PidroServer.Games.RoomManager do
     %{room | seats: updated_seats}
   end
 
-  # Log warning for expired grace periods that weren't transitioned
-  defp check_expired_grace_periods(%Room{seats: seats} = room, room_code) do
+  # Expired grace periods that weren't transitioned
+  defp expired_grace_periods(%Room{seats: seats}, room_code) do
     now = DateTime.utc_now()
 
-    Enum.each(seats, fn {pos, seat} ->
-      if seat.grace_expires_at && DateTime.compare(now, seat.grace_expires_at) == :gt do
-        Logger.warning(
-          "Health check: expired grace period at #{pos} in room #{room_code} " <>
-            "(expired at #{DateTime.to_iso8601(seat.grace_expires_at)})"
-        )
-      end
-    end)
-
-    room
-  end
-
-  # Log warning for :playing rooms with no game process
-  defp check_missing_game_process(%Room{status: :playing} = room, room_code) do
-    case GameSupervisor.get_game(room_code) do
-      {:ok, _pid} ->
-        :ok
-
-      {:error, :not_found} ->
-        Logger.warning("Health check: :playing room #{room_code} has no game process")
+    for {pos, %Seat{grace_expires_at: %DateTime{} = deadline}} <- seats,
+        DateTime.compare(now, deadline) == :gt do
+      "Health check: expired grace period at #{pos} in room #{room_code} " <>
+        "(expired at #{DateTime.to_iso8601(deadline)})"
     end
-
-    room
   end
 
-  defp check_missing_game_process(room, _room_code), do: room
+  # :playing rooms with no game process
+  defp missing_game_process(%Room{status: :playing}, room_code) do
+    case GameSupervisor.get_game(room_code) do
+      {:ok, _pid} -> []
+      {:error, :not_found} -> ["Health check: :playing room #{room_code} has no game process"]
+    end
+  end
+
+  defp missing_game_process(_room, _room_code), do: []
 
   defp abandoned?(room, now, grace_period_minutes) do
     idle_threshold_ms = idle_threshold_ms(room, now, grace_period_minutes)

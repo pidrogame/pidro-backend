@@ -57,7 +57,7 @@ defmodule PidroServerWeb.Endpoint do
     cookie_key: "request_logger"
 
   plug Plug.RequestId
-  plug Plug.Telemetry, event_prefix: [:phoenix, :endpoint]
+  plug Plug.Telemetry, event_prefix: [:phoenix, :endpoint], log: {__MODULE__, :log_level, []}
 
   # Before report auth/body admission so browser clients can read 401/413/429.
   plug CORSPlug,
@@ -79,6 +79,13 @@ defmodule PidroServerWeb.Endpoint do
   plug Plug.Session, @session_options
 
   plug PidroServerWeb.Router
+
+  @doc """
+  Request log level for `Plug.Telemetry`: a request that went well is debug
+  chatter, a 4xx or 5xx stays in the logs. The request start has no status yet.
+  """
+  def log_level(%Plug.Conn{status: status}) when is_integer(status) and status >= 400, do: :info
+  def log_level(%Plug.Conn{}), do: :debug
 
   @doc """
   Returns the list of allowed CORS origins based on environment configuration.

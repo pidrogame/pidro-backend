@@ -14,10 +14,12 @@ mise exec -- mix test apps/pidro_server/test/pidro_server/diagnostics_test.exs \
 mise exec -- mix precommit
 ```
 
-At production's unchanged `info` level, follow `action_received` to
-`action_applied`/`action_outcome`, then `state_broadcast`, `state_pushed`, and
-optional `state_received`. Filter by instance **and** action ID, then join the
-resulting revision to each recipient's user ID. Room codes alone are reusable.
+At production's unchanged `info` level, each applied move is one
+`action_applied` line (with `action_id` when a player sent it); a refused or
+timed-out action is its `action_outcome`, then optional `state_received`.
+Filter by instance **and** action ID. Room codes alone are reusable.
+`action_received`, `state_broadcast` and `state_pushed` are `debug`: lower the
+level locally to follow a revision to each recipient.
 For a report, search `report_created.report_id`, then use the authenticated
 admin inspector/internal context (`GameReports.admin_get/1` or `admin_search/1`).
 Never put the report's event buffer into a log message or public JSON endpoint.
@@ -45,7 +47,7 @@ bundle exec kamal app exec --primary --reuse \
 ```
 
 Both must equal the expected 40-character deployment SHA. Then verify one
-`channel_joined`/`action_outcome` record carries that SHA. This branch has tested
+`channel_joined`/`action_applied` record carries that SHA. This branch has tested
 runtime configuration precedence and local emission, **not a production deploy**.
 
 Source: [Kamal 2.12 app container command](https://github.com/basecamp/kamal/blob/v2.12.0/lib/kamal/commands/app.rb),
@@ -131,7 +133,7 @@ References: [Better Stack's Vector recipe](https://betterstack.com/docs/logs/vec
   request timeouts, then loses that batch. A full buffer drops newest events;
   restarting the collector loses its memory buffer. Backoff can add time beyond
   request timeouts. Do not turn on unbounded retries or a blocking log driver.
-* Existing Kamal Docker `local` rotation remains 20 MiB × 5 files per container.
+* Kamal Docker `local` rotation keeps 100 MiB × 10 files per container.
   Collection never reads from an application mailbox or synchronously gates a move.
   During provider loss, inspect retained local logs; alert on collector drop/error
   metrics through the existing ops system, not by sending more game reports.

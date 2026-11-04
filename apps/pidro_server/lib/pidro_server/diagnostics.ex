@@ -2,7 +2,7 @@ defmodule PidroServer.Diagnostics do
   @moduledoc "Bounded, payload-free diagnostics. Never pass game state or client payloads."
   require Logger
 
-  @identifiers ~w(room_code game_instance_id user_id action_id report_id app_version app_build platform server_build action outcome error_code reason join_type)a
+  @identifiers ~w(room_code game_instance_id user_id seat action_id report_id app_version app_build platform server_build action outcome error_code reason join_type)a
   @numbers ~w(state_revision observed_revision duration_ms)a
 
   @doc "Optional client correlation token: ASCII only, at most 64 bytes; invalid values disappear."

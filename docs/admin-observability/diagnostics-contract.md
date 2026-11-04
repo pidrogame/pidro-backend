@@ -181,28 +181,43 @@ the production workflow builds a clean SHA checkout and checks the deployed
 version equals that SHA. Rollback therefore reports the rollback image SHA, not
 the invoking checkout. Global production logging stays `info`. Never index user
 IDs as metric labels. Available correlation fields, omitted when unavailable:
-`room_code`, `game_instance_id`, `user_id`, `action_id`, `app_version`, `app_build`,
+`room_code`, `game_instance_id`, `user_id`, `seat`, `action_id`, `app_version`, `app_build`,
 `platform`, `report_id`, `action`, `outcome`, `error_code`, `reason`, `join_type`,
 `state_revision`, `observed_revision`, `duration_ms`.
 
-| Event | Meaning / fields |
-|---|---|
-| `channel_joined` | Successful join, `join_type=new/reconnect`; observed cursor and build labels |
-| `channel_closed` | Channel ends; bounded reason, no raw exit payload |
-| `action_received` | Handler entered; `action`, optional `action_id`, authenticated user, observed cursor |
-| `action_applied` | Engine accepted; **exact atomic resulting** `game_instance_id/state_revision`, engine-call `duration_ms`; no extra snapshot read |
-| `action_outcome` | Legacy handler reply; `outcome=accepted/rejected/unknown`, stable `error_code` if present, full handler `duration_ms` |
-| `action_failed` | Handler exception/exit; error level, `reason=timeout/process_failure`; behavior is not swallowed or retried |
-| `state_broadcast` | Adapter published a revision; same action correlation when action-originated |
-| `state_pushed` | Channel pushed that revision to a viewer; correlate through instance/revision/user, not a new action ID |
-| `state_received` | Sampled client claim for instance/revision/user |
-| `game_process_failed` | Engine timeout/crash/exception; warning/error, bounded reason |
-| `state_broadcast_failed` | Broadcast exception; error; does not rewrite an accepted engine result |
-| `report_created` | Durable insert completed; server `report_id`, identity, room and instance only; **never report contents** |
-| `report_cleanup_failed` | Bounded retention batch failed; warning without database exception/row contents; next scheduled batch retries |
+Production logs at `info`, so a `debug` event below is not in the production
+logs; it is there for local investigation with the level lowered. At `info`
+each applied move is exactly one line, `action_applied`.
+
+| Event | Level | Meaning / fields |
+|---|---|---|
+| `channel_joined` | info | Successful join, `join_type=new/reconnect`; observed cursor and build labels |
+| `channel_closed` | info | Channel ends; bounded reason, no raw exit payload |
+| `action_received` | debug | Handler entered; `action`, optional `action_id`, authenticated user, observed cursor |
+| `action_applied` | info | Engine accepted a move, a player's or one the server played (bot, timed-out turn). The one line per move: `action` (the channel event for a player's move, the engine action for the server's), `seat`, `outcome=accepted`, `user_id` for a player's move (absent for the server's), `action_id` and build labels when the player sent them; **exact atomic resulting** `game_instance_id/state_revision`, engine-call `duration_ms`; no extra snapshot read |
+| `action_outcome` | info; debug for an accepted move; warning for `game_unavailable` | Legacy handler reply; `outcome=accepted/rejected/unknown`, stable `error_code` if present, full handler `duration_ms`. An accepted move's outcome is `action_applied` |
+| `action_failed` | error | Handler exception/exit; `reason=timeout/process_failure`; behavior is not swallowed or retried |
+| `state_broadcast` | debug | Adapter published a revision; same action correlation when action-originated |
+| `state_pushed` | debug | Channel pushed that revision to a viewer; correlate through instance/revision/user, not a new action ID |
+| `state_received` | info | Sampled client claim for instance/revision/user |
+| `game_process_failed` | warning/error | Engine timeout/crash/exception; bounded reason |
+| `state_broadcast_failed` | error | Broadcast exception; does not rewrite an accepted engine result |
+| `report_created` | info | Durable insert completed; server `report_id`, identity, room and instance only; **never report contents** |
+| `report_cleanup_failed` | warning | Bounded retention batch failed; no database exception/row contents; next scheduled batch retries |
+
+Around these, plain log lines: Phoenix request logs are debug for a request
+that succeeded and info for a 4xx/5xx response (`Sent 401 in 2ms`, with its
+`request_id`); lobby channel joins are debug. A health-check warning (an
+expired grace period, a playing room without a game) logs once when it first
+appears, not on every sweep it lasts. Docker keeps ten 100 MiB log files per
+container (`config/deploy.yml`).
+
+Nothing reads these lines back: the admin History inspector reads the game
+archive, and client diagnostics are the reports above.
 
 `observed_revision` is the socket cursor at receipt, **not** the resulting revision.
-Use `action_applied.state_revision` for the latter. Readiness/rematch acceptance
+Use `action_applied.state_revision` for the latter, and filter on
+`event=action_applied` for "what happened at my table". Readiness/rematch acceptance
 does not necessarily start a game, so its outcome has no fabricated resulting
 revision. Subsequent joins/pushes identify the new instance.
 

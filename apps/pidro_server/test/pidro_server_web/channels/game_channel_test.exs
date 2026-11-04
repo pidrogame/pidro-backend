@@ -913,6 +913,9 @@ defmodule PidroServerWeb.GameChannelTest do
     @tag :stable_turn_timer
     test "real actions preserve replies and correlate exact revisions, rejections and bounded acknowledgements",
          ctx do
+      # The per-move echo is debug; correlation must hold there too.
+      Logger.configure(level: :debug)
+
       log =
         ExUnit.CaptureLog.capture_log([formatter: {PidroServer.DiagnosticsFormatter, %{}}], fn ->
           {:ok, joined, socket} =
@@ -968,9 +971,21 @@ defmodule PidroServerWeb.GameChannelTest do
       assert is_binary(applied["server_build"])
       assert is_integer(applied["duration_ms"])
 
+      assert applied["level"] == "info"
+      assert applied["action"] == "select_dealer"
+      assert applied["outcome"] == "accepted"
+      assert applied["seat"] == "north"
+
       for event <- ["action_received", "action_outcome", "state_broadcast"] do
-        assert Enum.any?(records, &(&1["event"] == event and &1["action_id"] == "tap-1"))
+        assert Enum.any?(
+                 records,
+                 &(&1["event"] == event and &1["action_id"] == "tap-1" and &1["level"] == "debug")
+               )
       end
+
+      # One info line for the applied move, nothing else at info.
+      assert [%{"event" => "action_applied"}] =
+               Enum.filter(records, &(&1["action_id"] == "tap-1" and &1["level"] != "debug"))
 
       assert Enum.any?(
                records,

@@ -380,5 +380,47 @@ defmodule PidroServer.Games.RoomCleanupTest do
       {:ok, checked_again} = RoomManager.get_room(room.code)
       assert checked_again.seats[position].bot_pid == replacement
     end
+
+    test "a lasting problem warns once, and again only after it went away and came back" do
+      room = create_playing_room()
+
+      sweep = fn ->
+        send(GenServer.whereis(RoomManager), :health_check)
+        _ = RoomManager.list_rooms()
+      end
+
+      warnings = fn log ->
+        length(String.split(log, "room #{room.code} has no game process")) - 1
+      end
+
+      # The problem starts inside the capture, so a scheduled sweep cannot log it outside.
+      assert 1 ==
+               warnings.(
+                 ExUnit.CaptureLog.capture_log(fn ->
+                   :ok = PidroServer.Games.GameSupervisor.stop_game(room.code)
+                   for _ <- 1..3, do: sweep.()
+                 end)
+               )
+
+      participants = PidroServer.GameArchive.participants(room.seats)
+
+      {:ok, _pid} =
+        PidroServer.Games.GameSupervisor.start_game(
+          room.code,
+          room.config.rule_set,
+          room.pace,
+          participants
+        )
+
+      assert 0 == warnings.(ExUnit.CaptureLog.capture_log(sweep))
+
+      assert 1 ==
+               warnings.(
+                 ExUnit.CaptureLog.capture_log(fn ->
+                   :ok = PidroServer.Games.GameSupervisor.stop_game(room.code)
+                   for _ <- 1..2, do: sweep.()
+                 end)
+               )
+    end
   end
 end

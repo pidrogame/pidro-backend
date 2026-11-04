@@ -46,7 +46,7 @@ defmodule PidroServerWeb.LobbyChannel do
       channel.on("room_closed", ({room_code}) => removeRoomFromList(room_code))
   """
 
-  use PidroServerWeb, :channel
+  use Phoenix.Channel, log_join: :debug
 
   alias PidroServer.Games.RoomManager
   alias PidroServer.Games.PresenceAggregator

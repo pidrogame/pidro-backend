@@ -101,6 +101,9 @@ defmodule PidroServerWeb.GameChannel do
   alias PidroServerWeb.Presence
   alias PidroServerWeb.Serializers.GameStateSerializer
 
+  # The events that apply an engine move, as `GameAdapter.apply_action/5` logs it.
+  @moves ~w(bid pass declare_trump play_card select_hand select_dealer)
+
   @suit_map %{
     "hearts" => :hearts,
     "diamonds" => :diamonds,
@@ -366,7 +369,7 @@ defmodule PidroServerWeb.GameChannel do
     started = System.monotonic_time(:millisecond)
     action_id = if is_map(params), do: Diagnostics.action_id(params["action_id"])
     context = diagnostic_fields(socket, %{action: event, action_id: action_id})
-    Diagnostics.emit(:action_received, context)
+    Diagnostics.emit(:action_received, context, :debug)
 
     try do
       {:reply, reply, updated} =
@@ -385,6 +388,14 @@ defmodule PidroServerWeb.GameChannel do
           true -> :accepted
         end
 
+      # An accepted move already has its line: `action_applied`.
+      level =
+        cond do
+          code == "game_unavailable" -> :warning
+          outcome == :accepted and event in @moves -> :debug
+          true -> :info
+        end
+
       Diagnostics.emit(
         :action_outcome,
         Map.merge(context, %{
@@ -392,7 +403,7 @@ defmodule PidroServerWeb.GameChannel do
           error_code: code,
           duration_ms: System.monotonic_time(:millisecond) - started
         }),
-        if(code == "game_unavailable", do: :warning, else: :info)
+        level
       )
 
       {:reply, reply, %{updated | assigns: Map.delete(updated.assigns, :diagnostic_context)}}
@@ -1550,7 +1561,8 @@ defmodule PidroServerWeb.GameChannel do
 
     Diagnostics.emit(
       :state_pushed,
-      diagnostic_fields(socket, Map.take(snapshot, [:game_instance_id, :state_revision]))
+      diagnostic_fields(socket, Map.take(snapshot, [:game_instance_id, :state_revision])),
+      :debug
     )
 
     assign_snapshot_cursor(socket, snapshot)

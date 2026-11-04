@@ -78,12 +78,17 @@ defmodule PidroServer.Games.GameAdapter do
     with {:ok, pid} <- GameRegistry.lookup(room_code) do
       try do
         case Pidro.Server.apply_action_with_snapshot(pid, position, action, timeout) do
+          # The one info line per applied move. A move the server plays (a
+          # bot's, a timed-out turn) has a `seat` and no `user_id`.
           {:ok, old_state, snapshot} ->
             fields =
-              diagnostics
+              %{action: action_name(action)}
+              |> Map.merge(diagnostics)
               |> Map.merge(Map.take(snapshot, [:game_instance_id, :state_revision]))
               |> Map.merge(%{
                 room_code: room_code,
+                seat: position,
+                outcome: :accepted,
                 duration_ms: System.monotonic_time(:millisecond) - started
               })
 
@@ -341,6 +346,9 @@ defmodule PidroServer.Games.GameAdapter do
 
   ## Private Functions
 
+  defp action_name(action) when is_tuple(action), do: elem(action, 0)
+  defp action_name(action), do: action
+
   # The registry can still name a game that has stopped, and a stopped or
   # stalled game exits whoever calls it. Answer as if the game were gone so the
   # exit costs only this room, not the caller (often the RoomManager).
@@ -397,7 +405,8 @@ defmodule PidroServer.Games.GameAdapter do
             Map.take(snapshot, [:game_instance_id, :state_revision]),
             %{room_code: room_code}
           )
-        )
+        ),
+        :debug
       )
 
       # The engine finishes at :complete; older callers may still use :game_over.
