@@ -126,10 +126,12 @@ defmodule PidroServerWeb.LobbyChannel do
 
       {:error, reason} ->
         legacy_reason = if is_atom(reason), do: Atom.to_string(reason), else: "action_failed"
+        # A room moving between nodes is there, just not yet here.
+        code = if reason == :room_moving, do: :game_unavailable, else: reason
 
         {:reply,
          {:error,
-          ErrorContract.add(%{status: "error", reason: legacy_reason}, reason, :action_failed)},
+          ErrorContract.add(%{status: "error", reason: legacy_reason}, code, :action_failed)},
          socket}
 
       nil ->

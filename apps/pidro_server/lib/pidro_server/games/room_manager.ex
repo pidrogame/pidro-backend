@@ -205,7 +205,8 @@ defmodule PidroServer.Games.RoomManager do
             boot_id: String.t() | nil,
             epochs: %{String.t() => pos_integer()},
             saved: %{String.t() => {Room.t(), map()}},
-            releasing?: boolean()
+            releasing?: boolean(),
+            foreign: %{String.t() => Room.t()}
           }
 
     defstruct rooms: %{},
@@ -228,7 +229,10 @@ defmodule PidroServer.Games.RoomManager do
               epochs: %{},
               saved: %{},
               # Set on shutdown, once the rooms are handed over: claim nothing.
-              releasing?: false
+              releasing?: false,
+              # Rooms another node owns, as last stored, so this node can show
+              # them while they move (a deploy's drain). Read only.
+              foreign: %{}
   end
 
   ## Client API
@@ -642,6 +646,16 @@ defmodule PidroServer.Games.RoomManager do
   @spec find_room(String.t()) :: {:ok, Room.t()} | {:error, :room_not_found | :room_moving}
   def find_room(room_code) do
     GenServer.call(__MODULE__, {:get_room, String.upcase(room_code), :force})
+  end
+
+  @doc """
+  The room, for a decision only its owner may make (an invite, a bot):
+  `{:error, :room_moving}` while another node owns it, where `get_room/1`
+  gives a copy to read.
+  """
+  @spec owned_room(String.t()) :: {:ok, Room.t()} | {:error, :room_not_found | :room_moving}
+  def owned_room(room_code) do
+    GenServer.call(__MODULE__, {:get_room, String.upcase(room_code), :owned})
   end
 
   @doc """
@@ -1416,6 +1430,9 @@ defmodule PidroServer.Games.RoomManager do
     schedule_health_check()
     Process.send_after(self(), :save_rooms, @save_interval_ms)
     Process.send_after(self(), :room_store_sweep, @room_store_interval_ms)
+    # Know other nodes' rooms from the start, so writes to them answer
+    # `:room_moving` before the first sweep.
+    send(self(), :load_foreign)
     {:ok, %State{boot_id: Ecto.UUID.generate()}}
   end
 
@@ -1841,8 +1858,8 @@ defmodule PidroServer.Games.RoomManager do
   @impl true
   def handle_call({:list_rooms, filter}, _from, %State{} = state) do
     rooms =
-      state.rooms
-      |> Map.values()
+      state
+      |> listed_rooms()
       |> filter_rooms(filter)
 
     {:reply, rooms, state}
@@ -1851,8 +1868,8 @@ defmodule PidroServer.Games.RoomManager do
   @impl true
   def handle_call({:list_lobby, user_id}, _from, %State{} = state) do
     rooms =
-      state.rooms
-      |> Map.values()
+      state
+      |> listed_rooms()
       |> Enum.filter(&visible_in_lobby?/1)
 
     lobby = categorize_lobby(rooms, user_id)
@@ -1860,6 +1877,14 @@ defmodule PidroServer.Games.RoomManager do
   end
 
   @impl true
+  def handle_call({:get_room, room_code, :owned}, from, %State{} = state) do
+    case handle_call({:get_room, room_code, :free}, from, state) do
+      {:reply, {:ok, _room}, state} = owned when is_map_key(state.rooms, room_code) -> owned
+      {:reply, {:ok, _room}, state} -> {:reply, {:error, :room_moving}, state}
+      other -> other
+    end
+  end
+
   # A room this node does not have may be open on another, or left by one.
   def handle_call({:get_room, room_code, mode}, _from, %State{} = state) do
     case Map.get(state.rooms, room_code) do
@@ -2037,7 +2062,8 @@ defmodule PidroServer.Games.RoomManager do
   def handle_call({:join_spectator_room, room_code, spectator_id}, _from, %State{} = state) do
     cond do
       not Map.has_key?(state.rooms, room_code) ->
-        {:reply, {:error, :room_not_found}, state}
+        # Not here: missing, or another node's to change.
+        {:reply, fetch_room(state, room_code), state}
 
       Map.has_key?(state.player_rooms, spectator_id) ->
         {:reply, {:error, :already_in_room}, state}
@@ -3026,8 +3052,10 @@ defmodule PidroServer.Games.RoomManager do
       end
 
     send(self(), :restore_rooms)
-    {:noreply, state}
+    {:noreply, load_foreign(state)}
   end
+
+  def handle_info(:load_foreign, %State{} = state), do: {:noreply, load_foreign(state)}
 
   # A few rooms at a time, so calls from players get in between; a full
   # batch means there may be more right away.
@@ -3285,10 +3313,12 @@ defmodule PidroServer.Games.RoomManager do
   end
 
   @doc false
-  defp fetch_room(%State{rooms: rooms}, code) do
-    case Map.get(rooms, code) do
-      nil -> {:error, :room_not_found}
-      room -> {:ok, room}
+  # A room another node owns exists, but only that node may change it.
+  defp fetch_room(%State{rooms: rooms, foreign: foreign}, code) do
+    case {Map.get(rooms, code), Map.has_key?(foreign, code)} do
+      {nil, true} -> {:error, :room_moving}
+      {nil, false} -> {:error, :room_not_found}
+      {room, _} -> {:ok, room}
     end
   end
 
@@ -5008,12 +5038,40 @@ defmodule PidroServer.Games.RoomManager do
         resume_room(state, room_code, claimed)
 
       :none ->
-        {{:error, :room_not_found}, state}
+        {{:error, :room_not_found}, %{state | foreign: Map.delete(state.foreign, room_code)}}
 
-      # Another node serves it, or the store did not answer: it is still there.
+      # Another node serves it: here it is as stored, to read.
+      {:held, json} when json != nil ->
+        case decode_foreign(%{room_code => json}) do
+          %{^room_code => room} = decoded ->
+            {{:ok, room}, %{state | foreign: Map.merge(state.foreign, decoded)}}
+
+          _undecodable ->
+            {{:error, :room_moving}, state}
+        end
+
+      # Not saved yet, or the store did not answer: it is still there.
       _held_or_error ->
         {{:error, :room_moving}, state}
     end
+  end
+
+  defp load_foreign(%State{} = state) do
+    case RoomStore.others(state.boot_id) do
+      {:ok, rows} -> %{state | foreign: decode_foreign(rows)}
+      :error -> state
+    end
+  end
+
+  # Decodes stored `{code, room}` rows, skipping any that will not decode
+  # (its owner, or the node that restores it, says what is wrong).
+  defp decode_foreign(rows) do
+    for {code, json} <- rows, {:ok, room} <- [decode_room(json)], into: %{}, do: {code, room}
+  end
+
+  # This node's rooms, then those other nodes own.
+  defp listed_rooms(%State{} = state) do
+    Map.values(state.rooms) ++ Map.values(Map.drop(state.foreign, Map.keys(state.rooms)))
   end
 
   defp resume_room(%State{} = state, room_code, %{epoch: epoch, game_instance_id: id} = claimed) do
@@ -5177,6 +5235,7 @@ defmodule PidroServer.Games.RoomManager do
       %State{
         state
         | rooms: Map.put(state.rooms, code, room),
+          foreign: Map.delete(state.foreign, code),
           player_rooms:
             Map.merge(state.player_rooms, Map.new(Positions.player_ids(room), &{&1, code})),
           spectator_rooms: Map.merge(state.spectator_rooms, spectators)

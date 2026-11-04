@@ -264,6 +264,17 @@ defmodule PidroServerWeb.API.FallbackController do
     })
   end
 
+  # The room exists but is moving to another node (a deploy): try again soon.
+  def call(conn, {:error, :room_moving}) do
+    error(
+      conn,
+      :service_unavailable,
+      "GAME_UNAVAILABLE",
+      "Room is moving",
+      "This table is moving to a new server. Try again in a moment."
+    )
+  end
+
   def call(conn, {:error, :room_not_found}) do
     conn
     |> put_status(:not_found)

@@ -51,7 +51,7 @@ defmodule PidroServer.Games.Bots.BotManager do
     alias PidroServer.Games.RoomManager
     alias PidroServer.Games.Room.Positions
 
-    with {:ok, room} <- RoomManager.get_room(room_code) do
+    with {:ok, room} <- RoomManager.owned_room(room_code) do
       empty_seats = Positions.available(room)
 
       if length(empty_seats) < bot_count do

@@ -149,11 +149,11 @@ defmodule PidroServer.Games.RoomStore do
   Takes a room over at the next epoch. `:free` takes only a released or
   stale row, or one this owner holds already (a claim whose answer was lost);
   `:force` takes it from a live owner too, which is what a player asking this
-  node for the room means. `:held` if a live owner keeps it, `:none` if there
-  is no such room.
+  node for the room means. `{:held, room}` with the stored room (nil if not
+  saved yet) if a live owner keeps it, `:none` if there is no such room.
   """
   @spec claim(String.t(), owner(), :free | :force) ::
-          {:ok, claimed()} | :held | :none | :error
+          {:ok, claimed()} | {:held, map() | nil} | :none | :error
   def claim(code, owner, mode) do
     run(:none, fn ->
       case sql(
@@ -167,10 +167,10 @@ defmodule PidroServer.Games.RoomStore do
           {:ok, %{epoch: epoch, game_instance_id: game_instance_id, room: room}}
 
         %{rows: []} ->
-          %{rows: [[exists?]]} =
-            sql("SELECT EXISTS (SELECT 1 FROM live_rooms WHERE code = $1)", [code])
-
-          if exists?, do: :held, else: :none
+          case sql("SELECT room FROM live_rooms WHERE code = $1", [code]) do
+            %{rows: [[room]]} -> {:held, room}
+            %{rows: []} -> :none
+          end
       end
     end)
   end
@@ -188,6 +188,20 @@ defmodule PidroServer.Games.RoomStore do
       )
 
       :ok
+    end)
+  end
+
+  @doc "The stored rooms this owner does not hold, as `{code, room}`, for reading only."
+  @spec others(owner()) :: {:ok, [{String.t(), map()}]} | :error
+  def others(owner) do
+    run({:ok, []}, fn ->
+      %{rows: rows} =
+        sql(
+          "SELECT code, room FROM live_rooms WHERE owner IS DISTINCT FROM $1 AND room IS NOT NULL",
+          [owner]
+        )
+
+      {:ok, Enum.map(rows, fn [code, room] -> {code, room} end)}
     end)
   end
 

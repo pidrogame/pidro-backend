@@ -12,7 +12,12 @@ defmodule PidroServer.Games.RoomHandoverTest do
   alias PidroServer.Games.Room.Positions
   alias PidroServer.Stats.{AbandonmentEvent, SeatEvent}
   alias PidroServer.{AccountsFixtures, RoomFixtures, RoomManagerCase}
+  alias PidroServer.Accounts.Token
   alias PidroServerWeb.UserSocket
+
+  import Phoenix.ConnTest
+  import Plug.Conn, only: [put_req_header: 3]
+  @endpoint PidroServerWeb.Endpoint
 
   setup do
     previous = Application.get_env(:pidro_server, Lifecycle, [])
@@ -87,14 +92,45 @@ defmodule PidroServer.Games.RoomHandoverTest do
     assert %{restored.state | events: []} == %{ahead | events: []}
   end
 
-  test "only a join takes a room from a live owner, and a node takes back a row it holds" do
-    {code, _users} = table()
+  test "a room another node owns reads from the store, only a join takes it, and a node takes back a row it holds" do
+    {code, [host | _]} = table()
     before = play_until(code, &(&1.phase == :bidding))
     new_node()
 
+    # Known from boot: the first write to it, before any read, is told it moves.
+    outsider = AccountsFixtures.user_fixture()
+    assert {:error, :room_moving} = RoomManager.join_room(code, outsider)
+    assert code in Enum.map(RoomManager.list_rooms(:available), & &1.code)
+
     # The previous manager still heartbeats: a lobby read or invite preview
-    # leaves the room with it.
-    assert {:error, :room_not_found} = RoomManager.get_room(code)
+    # shows the room as stored and leaves it with that node, which alone
+    # decides for it.
+    assert {:ok, %{code: ^code, status: :playing, host_id: ^host}} = RoomManager.get_room(code)
+    assert {:error, :room_moving} = RoomManager.owned_room(code)
+    assert {:error, :room_moving} = RoomManager.join_spectator_room(code, outsider.id)
+
+    auth = put_req_header(build_conn(), "authorization", "Bearer #{Token.generate(outsider)}")
+
+    assert %{"data" => %{"room" => %{"code" => ^code}}} =
+             json_response(get(auth, "/api/v1/rooms/#{code}"), 200)
+
+    assert %{"errors" => [%{"code" => "GAME_UNAVAILABLE"}]} =
+             json_response(post(auth, "/api/v1/rooms/#{code}/join", %{}), 503)
+
+    assert %{"errors" => [%{"code" => "GAME_UNAVAILABLE"}]} =
+             json_response(post(auth, "/api/v1/rooms/#{code}/watch", %{}), 503)
+
+    host_user = PidroServer.Accounts.Auth.get_user(host)
+    as_host = put_req_header(build_conn(), "authorization", "Bearer #{Token.generate(host_user)}")
+
+    for path <- ["invites", "bot"] do
+      assert %{"errors" => [%{"code" => "GAME_UNAVAILABLE"}]} =
+               json_response(
+                 post(as_host, "/api/v1/rooms/#{code}/#{path}", %{"position" => "north"}),
+                 503
+               )
+    end
+
     assert [_old, 1, _] = row(code)
 
     # A takeover that committed, though its answer never came back.

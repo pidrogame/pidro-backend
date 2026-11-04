@@ -1713,7 +1713,7 @@ defmodule PidroServerWeb.API.RoomController do
   def create_invite(conn, %{"code" => code} = params) do
     user = conn.assigns[:current_user]
 
-    with {:ok, room} <- RoomManager.get_room(code),
+    with {:ok, room} <- RoomManager.owned_room(code),
          :ok <- ensure_host(room, user.id),
          :ok <- ensure_waiting(room),
          {:ok, superseded} <- fetch_superseded(params["supersedes"], user.id),
@@ -1781,7 +1781,7 @@ defmodule PidroServerWeb.API.RoomController do
     user = conn.assigns[:current_user]
 
     with {:ok, position} <- parse_position_strict(params["position"]),
-         {:ok, room} <- RoomManager.get_room(code),
+         {:ok, room} <- RoomManager.owned_room(code),
          :ok <- ensure_host(room, user.id),
          :ok <- ensure_waiting(room),
          :ok <- ensure_vacant(room, position),
