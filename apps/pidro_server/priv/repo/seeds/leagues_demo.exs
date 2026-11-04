@@ -2,6 +2,7 @@
 # DEV_DATABASE=pidro_leagues_demo mix ecto.migrate
 # DEV_DATABASE=pidro_leagues_demo mix run apps/pidro_server/priv/repo/seeds/leagues_demo.exs
 # Append --reset to restore the demo after playing, hiding or acknowledging results.
+# Append --write-samples to regenerate the committed league_samples JSON files.
 # Stop the demo server before resetting; replay holds the league lock for about two minutes.
 if Mix.env() != :dev, do: raise("League demo is dev only")
 alias PidroServer.{Admins, Leagues, Profiles, Progression, Repo, Stats}
@@ -171,34 +172,38 @@ unless Admins.get_admin_by_email(admin_email) do
 end
 
 directory = Path.expand("../league_samples", __DIR__ <> "/..")
-File.mkdir_p!(directory)
+write_samples? = "--write-samples" in System.argv()
 
-samples = [
-  {"placed", known},
-  {"not_placed", Enum.at(users, 70)},
-  {"opted_out", Enum.at(users, 71)},
-  {"guest", guest},
-  {"pending_up", known},
-  {"pending_stayed", Enum.at(users, 54)},
-  {"pending_down", Enum.at(users, 49)}
-]
+if write_samples? do
+  File.mkdir_p!(directory)
 
-for {name, user} <- samples do
+  samples = [
+    {"placed", known},
+    {"not_placed", Enum.at(users, 70)},
+    {"opted_out", Enum.at(users, 71)},
+    {"guest", guest},
+    {"pending_up", known},
+    {"pending_stayed", Enum.at(users, 54)},
+    {"pending_down", Enum.at(users, 49)}
+  ]
+
+  for {name, user} <- samples do
+    File.write!(
+      Path.join(directory, name <> ".json"),
+      Jason.encode!(Leagues.show(user), pretty: true) <> "\n"
+    )
+  end
+
+  start = Leagues.start_at()
+  Application.put_env(:pidro_server, :leagues_start_at, nil)
+
   File.write!(
-    Path.join(directory, name <> ".json"),
-    Jason.encode!(Leagues.show(user), pretty: true) <> "\n"
+    Path.join(directory, "off.json"),
+    Jason.encode!(Leagues.show(known), pretty: true) <> "\n"
   )
+
+  Application.put_env(:pidro_server, :leagues_start_at, start)
 end
-
-start = Leagues.start_at()
-Application.put_env(:pidro_server, :leagues_start_at, nil)
-
-File.write!(
-  Path.join(directory, "off.json"),
-  Jason.encode!(Leagues.show(known), pretty: true) <> "\n"
-)
-
-Application.put_env(:pidro_server, :leagues_start_at, start)
 
 data = Leagues.show(known)
 true = data.league == "jack" and data.me.place == 6 and data.room.size == 30
@@ -255,4 +260,7 @@ IO.puts(
 
 IO.puts("Admin: #{admin_email} / #{password}; /dev/leagues")
 IO.puts("Guest: #{guest.id}; create a fresh guest through POST /api/v1/auth/guest to sign in")
-IO.puts("Samples: #{directory}")
+
+if write_samples?,
+  do: IO.puts("Samples written: #{directory}"),
+  else: IO.puts("Samples unchanged; pass --write-samples to regenerate #{directory}")
