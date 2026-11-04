@@ -10,10 +10,10 @@
     "promote": 5,
     "standings": [
       {
-        "level": 1,
+        "level": 8,
         "pin": null,
         "user_id": "bbc26046-87d0-4dce-b8f7-1af5a0d5b15c",
-        "username": "Antti 2",
+        "username": "league2",
         "points": 3000,
         "prestige": 0,
         "place": 1,
@@ -23,10 +23,10 @@
         "me": false
       },
       {
-        "level": 1,
+        "level": 8,
         "pin": null,
         "user_id": "3b39d9b6-7126-4767-91dc-a6d7c211f5fc",
-        "username": "Jocke 3",
+        "username": "league3",
         "points": 2940,
         "prestige": 0,
         "place": 2,
@@ -36,10 +36,10 @@
         "me": false
       },
       {
-        "level": 1,
+        "level": 8,
         "pin": null,
         "user_id": "9d78e2a5-bd6e-45ab-9c83-3c13fb049db3",
-        "username": "Aino 4",
+        "username": "league4",
         "points": 2880,
         "prestige": 0,
         "place": 3,
@@ -49,10 +49,10 @@
         "me": false
       },
       {
-        "level": 1,
+        "level": 8,
         "pin": null,
         "user_id": "fe90a1cc-0e89-4d4a-825d-5d1dd81c321a",
-        "username": "Eero 5",
+        "username": "league5",
         "points": 2820,
         "prestige": 0,
         "place": 4,
@@ -62,10 +62,10 @@
         "me": false
       },
       {
-        "level": 1,
+        "level": 8,
         "pin": null,
         "user_id": "5365ccce-600b-4f60-bc9b-5bf3ba9dab6e",
-        "username": "Sanna 6",
+        "username": "league6",
         "points": 2760,
         "prestige": 0,
         "place": 5,
@@ -75,10 +75,10 @@
         "me": false
       },
       {
-        "level": 1,
+        "level": 8,
         "pin": null,
         "user_id": "c600968c-e5b1-4a5a-a935-db725dcd7661",
-        "username": "Mirja 1",
+        "username": "league1",
         "points": 2700,
         "prestige": 0,
         "place": 6,
@@ -88,10 +88,10 @@
         "me": true
       },
       {
-        "level": 1,
+        "level": 8,
         "pin": null,
         "user_id": "7b2eec83-ab63-4c88-b7c3-5d87b8d7aa24",
-        "username": "Olli 7",
+        "username": "league7",
         "points": 2640,
         "prestige": 0,
         "place": 7,
@@ -101,10 +101,10 @@
         "me": false
       },
       {
-        "level": 1,
+        "level": 8,
         "pin": null,
         "user_id": "2b5830fe-6f9d-482a-a9c4-3416769e2637",
-        "username": "Leena 8",
+        "username": "league8",
         "points": 2580,
         "prestige": 0,
         "place": 8,
@@ -114,10 +114,10 @@
         "me": false
       },
       {
-        "level": 1,
+        "level": 7,
         "pin": null,
         "user_id": "c6855e65-f993-47bd-89dd-22f797d04885",
-        "username": "Mika 9",
+        "username": "league9",
         "points": 2520,
         "prestige": 0,
         "place": 9,
@@ -127,10 +127,10 @@
         "me": false
       },
       {
-        "level": 1,
+        "level": 7,
         "pin": null,
         "user_id": "1fd2eb16-253a-47f5-bb99-f4d3e5413dd8",
-        "username": "Tuula 10",
+        "username": "league10",
         "points": 2460,
         "prestige": 0,
         "place": 10,
@@ -140,10 +140,10 @@
         "me": false
       },
       {
-        "level": 1,
+        "level": 7,
         "pin": null,
         "user_id": "291867b6-e773-4af4-8f3f-52ec233b71dc",
-        "username": "Mirja 11",
+        "username": "league11",
         "points": 2400,
         "prestige": 0,
         "place": 11,
@@ -153,10 +153,10 @@
         "me": false
       },
       {
-        "level": 1,
+        "level": 7,
         "pin": null,
         "user_id": "abd351b0-9761-4178-9b28-8b35507795d0",
-        "username": "Antti 12",
+        "username": "league12",
         "points": 2340,
         "prestige": 0,
         "place": 12,
@@ -166,10 +166,10 @@
         "me": false
       },
       {
-        "level": 1,
+        "level": 7,
         "pin": null,
         "user_id": "32798feb-818b-4fa1-8340-6d5b01f76558",
-        "username": "Jocke 13",
+        "username": "league13",
         "points": 2280,
         "prestige": 0,
         "place": 13,
@@ -179,10 +179,10 @@
         "me": false
       },
       {
-        "level": 1,
+        "level": 7,
         "pin": null,
         "user_id": "5b7e737d-619b-43b6-85f8-c49007a0e391",
-        "username": "Aino 14",
+        "username": "league14",
         "points": 2220,
         "prestige": 0,
         "place": 14,
@@ -192,10 +192,10 @@
         "me": false
       },
       {
-        "level": 1,
+        "level": 7,
         "pin": null,
         "user_id": "1e87bb00-baa8-4944-b067-ea40fb69bd0b",
-        "username": "Eero 15",
+        "username": "league15",
         "points": 2160,
         "prestige": 0,
         "place": 15,
@@ -205,10 +205,10 @@
         "me": false
       },
       {
-        "level": 1,
+        "level": 7,
         "pin": null,
         "user_id": "c8e0f60f-d381-4f64-aa6b-ba6e8ec8d5e0",
-        "username": "Sanna 16",
+        "username": "league16",
         "points": 2100,
         "prestige": 0,
         "place": 16,
@@ -218,10 +218,10 @@
         "me": false
       },
       {
-        "level": 1,
+        "level": 7,
         "pin": null,
         "user_id": "02c29f39-ba04-490a-abb9-5ad31118f5b0",
-        "username": "Olli 17",
+        "username": "league17",
         "points": 2040,
         "prestige": 0,
         "place": 17,
@@ -231,10 +231,10 @@
         "me": false
       },
       {
-        "level": 1,
+        "level": 7,
         "pin": null,
         "user_id": "e8176076-2836-4f09-8134-35330c9f0999",
-        "username": "Leena 18",
+        "username": "league18",
         "points": 1980,
         "prestige": 0,
         "place": 18,
@@ -244,10 +244,10 @@
         "me": false
       },
       {
-        "level": 1,
+        "level": 6,
         "pin": null,
         "user_id": "ee860fb0-ee8f-4014-b14b-46ef49449bd1",
-        "username": "Mika 19",
+        "username": "league19",
         "points": 1920,
         "prestige": 0,
         "place": 19,
@@ -257,10 +257,10 @@
         "me": false
       },
       {
-        "level": 1,
+        "level": 6,
         "pin": null,
         "user_id": "43c96c2b-23b6-4fcb-b146-d7ae71150b4a",
-        "username": "Tuula 20",
+        "username": "league20",
         "points": 1860,
         "prestige": 0,
         "place": 20,
@@ -270,10 +270,10 @@
         "me": false
       },
       {
-        "level": 1,
+        "level": 6,
         "pin": null,
         "user_id": "f7a25fb1-79d5-451a-ba31-64c49011a996",
-        "username": "Mirja 21",
+        "username": "league21",
         "points": 1800,
         "prestige": 0,
         "place": 21,
@@ -283,10 +283,10 @@
         "me": false
       },
       {
-        "level": 1,
+        "level": 6,
         "pin": null,
         "user_id": "256d2eab-a670-4d3d-8e14-7534f1b226f5",
-        "username": "Antti 22",
+        "username": "league22",
         "points": 1740,
         "prestige": 0,
         "place": 22,
@@ -296,10 +296,10 @@
         "me": false
       },
       {
-        "level": 1,
+        "level": 6,
         "pin": null,
         "user_id": "f103aabf-79b8-4ae7-b4d3-b46d4f3b62d2",
-        "username": "Jocke 23",
+        "username": "league23",
         "points": 1680,
         "prestige": 0,
         "place": 23,
@@ -309,10 +309,10 @@
         "me": false
       },
       {
-        "level": 1,
+        "level": 6,
         "pin": null,
         "user_id": "532ae5ee-905c-4f08-b9f6-b2997f63effd",
-        "username": "Aino 24",
+        "username": "league24",
         "points": 1620,
         "prestige": 0,
         "place": 24,
@@ -322,10 +322,10 @@
         "me": false
       },
       {
-        "level": 1,
+        "level": 6,
         "pin": null,
         "user_id": "b45ed733-4959-4a83-89c1-627268128951",
-        "username": "Eero 25",
+        "username": "league25",
         "points": 1560,
         "prestige": 0,
         "place": 25,
@@ -335,10 +335,10 @@
         "me": false
       },
       {
-        "level": 1,
+        "level": 6,
         "pin": null,
         "user_id": "56883c1d-0910-44f6-86e2-38d9d908cf9c",
-        "username": "Sanna 26",
+        "username": "league26",
         "points": 1500,
         "prestige": 0,
         "place": 26,
@@ -348,10 +348,10 @@
         "me": false
       },
       {
-        "level": 1,
+        "level": 6,
         "pin": null,
         "user_id": "5857de59-4534-4bcc-add4-9f5b44b12df9",
-        "username": "Olli 27",
+        "username": "league27",
         "points": 1440,
         "prestige": 0,
         "place": 27,
@@ -361,10 +361,10 @@
         "me": false
       },
       {
-        "level": 1,
+        "level": 5,
         "pin": null,
         "user_id": "e9b6a96f-99ef-4d36-9108-eee59c146a3a",
-        "username": "Leena 28",
+        "username": "league28",
         "points": 1380,
         "prestige": 0,
         "place": 28,
@@ -374,10 +374,10 @@
         "me": false
       },
       {
-        "level": 1,
+        "level": 5,
         "pin": null,
         "user_id": "0cd3b889-d481-4ee0-81d3-ace5e517198e",
-        "username": "Mika 29",
+        "username": "league29",
         "points": 1320,
         "prestige": 0,
         "place": 29,
@@ -387,10 +387,10 @@
         "me": false
       },
       {
-        "level": 1,
+        "level": 5,
         "pin": null,
         "user_id": "f5b371d3-ccd8-40fd-abfb-a9e6a0709df9",
-        "username": "Tuula 30",
+        "username": "league30",
         "points": 1260,
         "prestige": 0,
         "place": 30,
@@ -452,7 +452,7 @@
     ]
   },
   "pending_result": {
-    "id": "d9c9923c-7649-412d-b464-67440404e2ee",
+    "id": "a2325c62-ac19-4eed-ad46-80cafbef59fe",
     "move": "up",
     "points": 3000,
     "place": 1,
@@ -485,9 +485,9 @@
   "intro_seen": false,
   "friends": [
     {
-      "level": 3,
+      "level": 8,
       "user_id": "832b064e-9ec5-4588-b38b-4049e53d0f74",
-      "username": "Mirja 41",
+      "username": "league41",
       "prestige": 0,
       "place": 1,
       "league": "ten",
@@ -496,9 +496,9 @@
       }
     },
     {
-      "level": 2,
+      "level": 8,
       "user_id": "7d637dbb-bd6d-4a59-aa2d-7d77ed4ea211",
-      "username": "Antti 42",
+      "username": "league42",
       "prestige": 0,
       "place": 2,
       "league": "ten",

@@ -7,12 +7,45 @@
   "room": null,
   "league": "deuce",
   "ribbons": {
-    "current": null,
+    "current": {
+      "month": "2026-11",
+      "star": false,
+      "league": "deuce",
+      "weeks_total": 5,
+      "weeks_played": 1,
+      "star_possible": true,
+      "so_far": true
+    },
     "past": []
   },
-  "pending_result": null,
+  "pending_result": {
+    "id": "f4d34afe-4b87-4f0e-80b6-9e1b23764b00",
+    "move": "stayed",
+    "points": 112,
+    "place": 11,
+    "week_starts_at": "2026-10-25T19:00:00Z",
+    "week_closes_at": "2026-11-01T19:00:00Z",
+    "room_size": 11,
+    "ribbon": {
+      "changed": true,
+      "league": "deuce",
+      "month": "2026-11",
+      "so_far": true,
+      "star": false,
+      "star_possible": true,
+      "weeks_played": 1,
+      "weeks_total": 5
+    },
+    "old_league": "deuce",
+    "new_league": "deuce"
+  },
   "me": null,
-  "last_week": null,
+  "last_week": {
+    "points": 112,
+    "place": 11,
+    "league": "deuce",
+    "room_size": 11
+  },
   "intro_seen": false,
   "friends": [],
   "classic": false

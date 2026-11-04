@@ -409,6 +409,7 @@ defmodule PidroServer.Stats do
 
   `room.game_started_at`, when set, is the start of this game: it bounds the
   duration and the abandonment events that count against this result.
+  `:completed_at` permits historical replay; live callers default to now.
 
   On a successful first save, returns `{:ok, summaries}` where `summaries` is the
   ephemeral `%{user_id => post_game_summary_map}` from
@@ -426,13 +427,14 @@ defmodule PidroServer.Stats do
         opts \\ []
       ) do
     game_instance_id = Keyword.get(opts, :game_instance_id)
+    completed_at = Keyword.get_lazy(opts, :completed_at, &DateTime.utc_now/0)
     game_started_at = Map.get(room, :game_started_at) || room.created_at
 
     if game_saved?(room_code, game_instance_id) do
       :ok
     else
       bid_info = extract_bid_info(game_state)
-      duration_seconds = max(1, DateTime.diff(DateTime.utc_now(), game_started_at, :second))
+      duration_seconds = max(1, DateTime.diff(completed_at, game_started_at, :second))
       abandonment_events = list_abandonments_for_room(room_code, game_started_at)
       player_results = build_player_results(room.seats, winner, abandonment_events)
       player_results = reject_bot_results(player_results)
@@ -447,7 +449,7 @@ defmodule PidroServer.Stats do
         bid_amount: bid_info.bid_amount,
         bid_team: bid_info.bid_team,
         duration_seconds: duration_seconds,
-        completed_at: DateTime.utc_now(),
+        completed_at: completed_at,
         player_ids: Map.keys(player_results),
         player_results: player_results,
         player_bidding: player_bidding

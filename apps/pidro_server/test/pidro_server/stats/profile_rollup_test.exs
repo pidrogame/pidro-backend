@@ -19,6 +19,57 @@ defmodule PidroServer.Stats.ProfileRollupTest do
   @delta 1.0e-9
   @base ~U[2026-06-07 12:00:00Z]
 
+  test "historical completion credits the same games to profiles, XP periods and league weeks" do
+    user = AccountsFixtures.user_fixture()
+    guest = AccountsFixtures.guest_fixture()
+
+    for {at, score} <- [{~U[2026-10-31 18:00:00Z], 62}, {~U[2026-11-01 19:00:00Z], 70}] do
+      room = %{
+        code: Ecto.UUID.generate(),
+        created_at: DateTime.add(at, -300),
+        seats: %{
+          north: Seat.new_human(:north, user.id),
+          east: Seat.new_human(:east, guest.id),
+          south: Seat.new_bot(:south, nil),
+          west: Seat.new_bot(:west, nil)
+        }
+      }
+
+      assert {:ok, _} =
+               Stats.save_completed_game(
+                 room,
+                 :north_south,
+                 %{north_south: score, east_west: 40},
+                 nil,
+                 completed_at: at
+               )
+
+      game = Repo.get_by!(GameStats, room_code: room.code)
+      assert game.completed_at == at
+      assert game.duration_seconds == 300
+      assert Repo.get_by!(GameXp, game_stats_id: game.id, user_id: user.id).earned_at == at
+    end
+
+    profile = Repo.get_by!(PlayerProfile, user_id: user.id)
+    assert profile.games_played == 2
+    assert profile.veteran_xp == 232
+
+    assert Profiles.xp_periods(user.id, ~U[2026-11-02 12:00:00Z]) == %{
+             this_week: 0,
+             this_month: 120
+           }
+
+    assert Repo.get_by!(PidroServer.Leagues.Membership,
+             user_id: user.id,
+             closes_at: ~U[2026-11-01 19:00:00Z]
+           ).points == 112
+
+    assert Repo.get_by!(PidroServer.Leagues.Membership,
+             user_id: user.id,
+             closes_at: ~U[2026-11-08 19:00:00Z]
+           ).points == 120
+  end
+
   test "Louisiana persists and skips live, full and incremental ratings for four real users" do
     ids = for _ <- 1..4, do: player_id()
     [n, e, s, w] = ids
