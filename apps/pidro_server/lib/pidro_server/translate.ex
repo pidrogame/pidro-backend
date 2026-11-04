@@ -41,7 +41,8 @@ defmodule PidroServer.Translate do
       headers: [{"x-api-key", config[:api_key]}, {"anthropic-version", "2023-06-01"}],
       json: %{
         model: "claude-sonnet-5-5",
-        max_tokens: 1_000,
+        # The model thinks before it answers, and the thinking counts here.
+        max_tokens: 2_000,
         system: @system,
         messages: [%{role: "user", content: Jason.encode!(%{title: title, body: body})}]
       },
@@ -53,17 +54,30 @@ defmodule PidroServer.Translate do
     |> answer()
   end
 
-  # Strict: one text block holding exactly the JSON asked for.
-  defp answer({:ok, %{status: 200, body: body}}) do
-    with %{"content" => [%{"type" => "text", "text" => text}]} <- body,
+  # Strict: the first text block, after any thinking, holds exactly the JSON
+  # asked for.
+  defp answer({:ok, %{status: 200, body: %{"content" => content} = answer}})
+       when is_list(content) do
+    with %{"text" => text} when is_binary(text) <-
+           Enum.find(content, &match?(%{"type" => "text"}, &1)) ||
+             {:no_text, answer["stop_reason"]},
          {:ok, %{"title" => title, "body" => body}} when is_binary(title) and is_binary(body) <-
            Jason.decode(text) do
       {:ok, %{title: title, body: body}}
     else
+      {:no_text, "max_tokens"} ->
+        Logger.warning("Translation ran out of tokens before it answered")
+        {:error, :max_tokens}
+
       _ ->
         Logger.warning("Translation answer was not the JSON asked for")
         {:error, :bad_answer}
     end
+  end
+
+  defp answer({:ok, %{status: 200}}) do
+    Logger.warning("Translation answer was not the JSON asked for")
+    {:error, :bad_answer}
   end
 
   defp answer({:ok, %{status: status}}) do

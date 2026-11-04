@@ -109,7 +109,9 @@ defmodule PidroServerWeb.Dev.NewsLiveTest do
     test "fills both Swedish fields from the answer and saves nothing", %{conn: conn} do
       Req.Test.stub(PidroServer.Translate, fn conn ->
         Req.Test.json(conn, %{
+          "stop_reason" => "end_turn",
           "content" => [
+            %{"type" => "thinking", "thinking" => "Casual, short.", "signature" => "sig"},
             %{"type" => "text", "text" => ~s({"title":"Hej alla","body":"Rad ett\\nRad två"})}
           ]
         })

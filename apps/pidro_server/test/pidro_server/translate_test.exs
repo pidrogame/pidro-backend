@@ -27,7 +27,7 @@ defmodule PidroServer.TranslateTest do
     assert Plug.Conn.get_req_header(conn, "x-api-key") == ["anthropic-test-key"]
     assert Plug.Conn.get_req_header(conn, "anthropic-version") == ["2023-06-01"]
 
-    assert %{"model" => "claude-sonnet-5-5", "max_tokens" => 1000, "system" => system} = request
+    assert %{"model" => "claude-sonnet-5-5", "max_tokens" => 2000, "system" => system} = request
     assert system =~ "Finland-Swedish card players"
     assert system =~ "casual, friendly Swedish"
     assert system =~ "every line break"
@@ -42,7 +42,26 @@ defmodule PidroServer.TranslateTest do
     assert Jason.decode!(content) == %{"title" => title, "body" => body}
   end
 
+  test "out of tokens while still thinking is an error" do
+    Req.Test.stub(Translate, fn conn ->
+      Req.Test.json(conn, %{
+        "stop_reason" => "max_tokens",
+        "content" => [%{"type" => "thinking", "thinking" => "The player base is Finland-Swedish"}]
+      })
+    end)
+
+    log = capture_log(fn -> assert Translate.to_swedish("Hi", "Row") == {:error, :max_tokens} end)
+    assert log =~ "ran out of tokens"
+  end
+
   test "anything but the asked-for JSON is an error, never a guess" do
+    Req.Test.stub(
+      Translate,
+      &Req.Test.json(&1, %{"stop_reason" => "end_turn", "content" => [thinking()]})
+    )
+
+    capture_log(fn -> assert Translate.to_swedish("Hi", "Row") == {:error, :bad_answer} end)
+
     for text <- [
           ~s(Here you go: {"title":"Hej","body":"Rad"}),
           ~s(```json\n{"title":"Hej","body":"Rad"}\n```),
@@ -70,5 +89,17 @@ defmodule PidroServer.TranslateTest do
     capture_log(fn -> assert {:error, _} = Translate.to_swedish("Hi", "Row") end)
   end
 
-  defp answer(text), do: %{"content" => [%{"type" => "text", "text" => text}]}
+  # claude-sonnet-5-5 thinks first: a thinking block, then the text block.
+  defp answer(text),
+    do: %{
+      "stop_reason" => "end_turn",
+      "content" => [thinking(), %{"type" => "text", "text" => text}]
+    }
+
+  defp thinking,
+    do: %{
+      "type" => "thinking",
+      "thinking" => ~s(Draft: {"title":"Fel","body":"Fel"}),
+      "signature" => "sig"
+    }
 end
