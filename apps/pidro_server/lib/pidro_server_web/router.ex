@@ -166,9 +166,6 @@ defmodule PidroServerWeb.Router do
     post "/classic/help", ClassicHelpController, :create,
       log: false,
       private: %{rate_limit: [:classic_help]}
-
-    # Rate limited in the controller: notes and answers in separate buckets.
-    post "/feedback", FeedbackController, :create, log: false
   end
 
   scope "/api/v1", PidroServerWeb.API do
@@ -197,6 +194,8 @@ defmodule PidroServerWeb.Router do
 
     # User routes with authentication
     get "/users/me/stats", UserController, :stats
+    # Rate limited in the controller: notes and answers in separate buckets.
+    post "/feedback", FeedbackController, :create, log: false
     get "/feedback/ask", FeedbackController, :ask
     get "/news", NewsController, :index
     post "/news/seen", NewsController, :seen

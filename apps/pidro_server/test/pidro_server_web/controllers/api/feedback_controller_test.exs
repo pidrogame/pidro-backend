@@ -70,19 +70,33 @@ defmodule PidroServerWeb.API.FeedbackControllerTest do
       end)
     end
 
-    test "a guest note without an address is mailed with no reply-to", %{conn: conn} do
-      body = String.duplicate("long ", 30)
-      conn = post(conn, ~p"/api/v1/feedback", %{"kind" => "note", "body" => body})
+    test "without a token a note answers 401, saves nothing and mails no one", %{conn: conn} do
+      for params <- [@note, %{"kind" => "pace", "answer" => "right"}] do
+        conn = post(conn, ~p"/api/v1/feedback", params)
+        assert %{"error_code" => "unauthorized"} = json_response(conn, 401)
+      end
 
-      assert %{"data" => %{"id" => id}} = json_response(conn, 201)
+      assert Repo.aggregate(Entry, :count) == 0
+      assert_no_email_sent()
+    end
 
-      assert_email_sent(fn email ->
-        assert email.subject == "Pidro ##{id}: " <> String.slice(body, 0, 60)
-        assert email.reply_to == nil
-        assert email.text_body =~ "Player: Guest, no account"
-        assert email.text_body =~ "Reply to: No reply address"
-        assert email.text_body =~ "Last game: None"
-      end)
+    test "a guest's note answers 403 ACCOUNT_REQUIRED, saves nothing and mails no one",
+         %{conn: conn} do
+      guest = AccountsFixtures.guest_fixture()
+      note = Map.put(@note, "reply_email", "crawlerrobo@gmail.com")
+
+      for params <- [note, %{"kind" => "pace", "answer" => "right"}] do
+        conn = conn |> auth(guest) |> post(~p"/api/v1/feedback", params)
+
+        assert %{
+                 "errors" => [%{"code" => "ACCOUNT_REQUIRED"}],
+                 "error_code" => "account_required"
+               } =
+                 json_response(conn, 403)
+      end
+
+      assert Repo.aggregate(Entry, :count) == 0
+      assert_no_email_sent()
     end
 
     test "a note written back to a news post names it; a draft's, unknown or bad id is dropped",
@@ -126,7 +140,7 @@ defmodule PidroServerWeb.API.FeedbackControllerTest do
         assert_email_sent(fn email -> assert email.subject =~ ~r/\APidro #/ end)
       end
 
-      conn = build_conn() |> post(~p"/api/v1/feedback", @note)
+      conn = build_conn() |> auth(user) |> post(~p"/api/v1/feedback", @note)
       assert %{"data" => %{"id" => id}} = json_response(conn, 201)
       assert %Entry{news_post_id: nil} = Repo.get!(Entry, id)
 
@@ -143,22 +157,24 @@ defmodule PidroServerWeb.API.FeedbackControllerTest do
       assert %Entry{news_post_id: nil} = Repo.get!(Entry, id)
     end
 
-    test "a note with null details is saved", %{conn: conn} do
+    test "a note with null details is saved", %{conn: conn, user: user} do
       conn =
-        post(conn, ~p"/api/v1/feedback", %{"kind" => "note", "body" => "hi", "details" => nil})
+        conn
+        |> auth(user)
+        |> post(~p"/api/v1/feedback", %{"kind" => "note", "body" => "hi", "details" => nil})
 
       assert %{"data" => %{"id" => id}} = json_response(conn, 201)
       assert %Entry{details: %{}} = Repo.get!(Entry, id)
     end
 
-    test "a failed mail still answers 201 and keeps the note", %{conn: conn} do
+    test "a failed mail still answers 201 and keeps the note", %{conn: conn, user: user} do
       mailer_env = Application.fetch_env!(:pidro_server, PidroServer.Mailer)
       Application.put_env(:pidro_server, PidroServer.Mailer, adapter: ErrorMailer)
       on_exit(fn -> Application.put_env(:pidro_server, PidroServer.Mailer, mailer_env) end)
 
       log =
         ExUnit.CaptureLog.capture_log(fn ->
-          conn = post(conn, ~p"/api/v1/feedback", @note)
+          conn = conn |> auth(user) |> post(~p"/api/v1/feedback", @note)
           assert %{"data" => %{"id" => id}} = json_response(conn, 201)
           assert %Entry{body: "Trumps are hard to see\nin dark mode"} = Repo.get!(Entry, id)
         end)
@@ -191,15 +207,14 @@ defmodule PidroServerWeb.API.FeedbackControllerTest do
 
       assert [%{"code" => "answer"}] = json_response(conn, 422)["errors"]
 
-      conn = post(build_conn(), ~p"/api/v1/feedback", %{"kind" => "pace", "answer" => "right"})
+      conn =
+        build_conn()
+        |> auth(user)
+        |> post(~p"/api/v1/feedback", %{"kind" => "note", "body" => ""})
 
-      assert [%{"code" => "user_id", "detail" => "must be signed in"}] =
-               json_response(conn, 422)["errors"]
-
-      conn = post(build_conn(), ~p"/api/v1/feedback", %{"kind" => "note", "body" => ""})
       assert [%{"code" => "body"}] = json_response(conn, 422)["errors"]
 
-      conn = post(build_conn(), ~p"/api/v1/feedback", %{"body" => "no kind"})
+      conn = build_conn() |> auth(user) |> post(~p"/api/v1/feedback", %{"body" => "no kind"})
       assert [%{"code" => "kind"}] = json_response(conn, 422)["errors"]
       assert_no_email_sent()
     end
@@ -207,9 +222,11 @@ defmodule PidroServerWeb.API.FeedbackControllerTest do
     test "notes are limited by address; answers still go through", %{conn: conn, user: user} do
       with_limit(:feedback_note, 1, 3_600_000)
 
-      assert post(conn, ~p"/api/v1/feedback", @note).status == 201
+      assert conn |> auth(user) |> post(~p"/api/v1/feedback", @note) |> Map.get(:status) == 201
 
-      conn = post(build_conn(), ~p"/api/v1/feedback", @note)
+      conn =
+        build_conn() |> auth(AccountsFixtures.user_fixture()) |> post(~p"/api/v1/feedback", @note)
+
       assert [%{"code" => "RATE_LIMITED"}] = json_response(conn, 429)["errors"]
 
       for _ <- 1..3 do
@@ -271,6 +288,20 @@ defmodule PidroServerWeb.API.FeedbackControllerTest do
 
     test "needs a signed-in player", %{conn: conn} do
       assert get(conn, ~p"/api/v1/feedback/ask").status == 401
+    end
+
+    test "never asks a guest, even after a game with people", %{conn: conn, user: user} do
+      guest = AccountsFixtures.guest_fixture()
+
+      Repo.insert!(%GameStats{
+        room_code: "GST1",
+        rule_set: "finnish",
+        completed_at: DateTime.utc_now(:second),
+        player_ids: [guest.id, user.id]
+      })
+
+      assert conn |> auth(guest) |> get(~p"/api/v1/feedback/ask") |> json_response(200) ==
+               %{"data" => %{"ask" => nil}}
     end
   end
 

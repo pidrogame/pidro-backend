@@ -92,10 +92,14 @@ defmodule PidroServer.Feedback do
 
   Pace is asked once a UTC day, after a game with another person in the last
   24 hours. A Classic player is asked about the old Pidro once, from their
-  third such game. A skipped question counts as answered.
+  third such game. A skipped question counts as answered. A guest is never
+  asked, because only a registered player sends feedback.
   """
   @spec ask(map(), DateTime.t()) :: %{ask: String.t(), game_id: Ecto.UUID.t()} | %{ask: nil}
-  def ask(user, now \\ DateTime.utc_now()) do
+  def ask(user, now \\ DateTime.utc_now())
+  def ask(%{guest: true}, _now), do: %{ask: nil}
+
+  def ask(user, now) do
     since = DateTime.add(now, -24, :hour)
     today = DateTime.new!(DateTime.to_date(now), ~T[00:00:00])
 
