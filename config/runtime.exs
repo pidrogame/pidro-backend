@@ -1,5 +1,19 @@
 import Config
 
+case System.get_env("LEAGUES_START_AT") do
+  nil ->
+    if config_env() == :prod, do: config(:pidro_server, :leagues_start_at, nil)
+
+  "" ->
+    config :pidro_server, :leagues_start_at, nil
+
+  value ->
+    {:ok, start, 0} = DateTime.from_iso8601(value)
+    true = Date.day_of_week(DateTime.to_date(start)) == 7
+    true = DateTime.to_time(start) == ~T[19:00:00]
+    config :pidro_server, :leagues_start_at, start
+end
+
 # config/runtime.exs is executed for all environments, including
 # during releases. It is executed after compilation and before the
 # system starts, so it is typically used to load production configuration

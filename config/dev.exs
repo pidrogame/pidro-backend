@@ -1,5 +1,7 @@
 import Config
 
+config :pidro_server, :leagues_start_at, ~U[2026-01-04 19:00:00Z]
+
 # Browser journeys run the real development server on an isolated CI runner.
 # Keep ordinary development and all production builds at bcrypt's default cost.
 if System.get_env("CI") in ["1", "true"] and System.get_env("PIDRO_E2E") == "1" do

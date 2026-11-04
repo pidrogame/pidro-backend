@@ -764,6 +764,7 @@ defmodule PidroServer.Profiles do
     game = Keyword.get(opts, :game)
     rated? = match?({:ok, _}, rated_game?(player_results, rule_set))
     players = Map.take(player_results, with_user(Map.keys(player_results)))
+    league_game? = PidroServer.Leagues.prepare_game(game, players)
 
     # 1. Lifetime counters (PID-44) + veteran XP (PID-49) + playstyle (PID-51):
     #    every participant with a user, regardless of rated status. Capture a
@@ -771,11 +772,16 @@ defmodule PidroServer.Profiles do
     #    the loop body, before the writers run) and the XP delta the writer
     #    already computes — both threaded into the summary later.
     {before_snapshots, xp_deltas} =
-      Enum.reduce(players, {%{}, %{}}, fn {user_id, result}, {befores, xp} ->
+      Enum.reduce(Enum.sort_by(players, &elem(&1, 0)), {%{}, %{}}, fn {user_id, result},
+                                                                      {befores, xp} ->
         {:ok, before} = get_or_create_profile(user_id)
 
         apply_one(user_id, win_from_result?(result))
         xp_delta = apply_xp(user_id, result, scores, game)
+
+        if league_game?,
+          do: PidroServer.Leagues.credit(user_id, xp_delta.xp_earned, game.completed_at)
+
         apply_playstyle(user_id, bidding_facts_for(player_bidding, user_id))
 
         {Map.put(befores, user_id, before_snapshot(before)), Map.put(xp, user_id, xp_delta)}

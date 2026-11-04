@@ -1,5 +1,8 @@
 import Config
 
+config :pidro_server, :leagues_start_at, ~U[2026-01-04 19:00:00Z]
+config :pidro_server, :league_timer, false
+
 # Exercise real hash/verify behavior without spending production-strength CPU
 # on every fixture account.
 config :bcrypt_elixir, log_rounds: 4
