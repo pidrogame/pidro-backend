@@ -172,6 +172,17 @@ defmodule PidroServer.Leagues do
     end
   end
 
+  if Application.compile_env(:pidro_server, :dev_routes, false) do
+    @doc "Dev-only manual close through a given Sunday, including a future demo close."
+    def dev_close(closes) do
+      if elem(week(closes), 0) == closes do
+        close(closes, DateTime.add(closes, 120))
+      else
+        {:error, :invalid_close}
+      end
+    end
+  end
+
   defp close_through(latest, now) do
     now = DateTime.from_unix!(DateTime.to_unix(now, :microsecond), :microsecond)
 

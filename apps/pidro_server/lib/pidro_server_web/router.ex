@@ -325,6 +325,25 @@ defmodule PidroServerWeb.Router do
     end
   end
 
+  scope "/dev", PidroServerWeb.Dev do
+    pipe_through [
+      :browser,
+      :dev_layout,
+      :fetch_admin,
+      :require_admin,
+      :require_changed_admin_password
+    ]
+
+    live_session :leagues,
+      root_layout: {PidroServerWeb.Layouts, :dev_root},
+      on_mount: [
+        {PidroServerWeb.AdminAuth, :ensure_authenticated_and_password_changed},
+        {PidroServerWeb.Dev.AdminComponents, :reload_on_new_assets}
+      ] do
+      live "/leagues", LeaguesLive
+    end
+  end
+
   # Enable LiveDashboard and Swoosh mailbox preview in development
   if Application.compile_env(:pidro_server, :dev_routes) do
     import Phoenix.LiveDashboard.Router

@@ -198,6 +198,9 @@ defmodule PidroServerWeb.Dev.AdminComponents do
           <.link navigate={~p"/admin/beta"} class={nav_item_class(@active == "beta")}>
             <.icon name="hero-chart-pie" class="size-4" /> Beta
           </.link>
+          <.link navigate={~p"/dev/leagues"} class={nav_item_class(@active == "leagues")}>
+            <.icon name="hero-trophy" class="size-4" /> Leagues
+          </.link>
           <.link navigate={~p"/admin/feedback"} class={nav_item_class(@active == "feedback")}>
             <.icon name="hero-chat-bubble-left-ellipsis" class="size-4" /> Feedback
           </.link>

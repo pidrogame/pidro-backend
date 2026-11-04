@@ -1,0 +1,16 @@
+{
+  "status": "off",
+  "week": null,
+  "room": null,
+  "league": null,
+  "ribbons": {
+    "current": null,
+    "past": []
+  },
+  "pending_result": null,
+  "me": null,
+  "last_week": null,
+  "intro_seen": false,
+  "friends": [],
+  "classic": false
+}

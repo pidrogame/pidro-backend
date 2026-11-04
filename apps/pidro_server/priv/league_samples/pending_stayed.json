@@ -1,0 +1,191 @@
+{
+  "status": "placed",
+  "week": {
+    "closes_at": "2026-11-08T19:00:00Z",
+    "starts_at": "2026-11-01T19:00:00Z"
+  },
+  "room": {
+    "size": 10,
+    "demote": 2,
+    "promote": 1,
+    "standings": [
+      {
+        "level": 1,
+        "pin": null,
+        "user_id": "d927860c-7a0b-48b4-b509-e9a4ab4fa75a",
+        "username": "Mirja 51",
+        "points": 3000,
+        "prestige": 0,
+        "place": 1,
+        "avatar": {
+          "url": null
+        },
+        "me": false
+      },
+      {
+        "level": 1,
+        "pin": null,
+        "user_id": "768e5bd2-0a3a-46dd-b3ad-21ae9ce9d552",
+        "username": "Antti 52",
+        "points": 2940,
+        "prestige": 0,
+        "place": 2,
+        "avatar": {
+          "url": null
+        },
+        "me": false
+      },
+      {
+        "level": 1,
+        "pin": null,
+        "user_id": "76b738d7-f5df-43a0-b468-32e30084c1ba",
+        "username": "Jocke 53",
+        "points": 2880,
+        "prestige": 0,
+        "place": 3,
+        "avatar": {
+          "url": null
+        },
+        "me": false
+      },
+      {
+        "level": 1,
+        "pin": null,
+        "user_id": "1886a660-c849-4d68-99d4-3de3cb39c20c",
+        "username": "Aino 54",
+        "points": 2820,
+        "prestige": 0,
+        "place": 4,
+        "avatar": {
+          "url": null
+        },
+        "me": false
+      },
+      {
+        "level": 1,
+        "pin": null,
+        "user_id": "30c8a036-060f-4ae7-83c3-1e2851165ceb",
+        "username": "Eero 55",
+        "points": 2760,
+        "prestige": 0,
+        "place": 5,
+        "avatar": {
+          "url": null
+        },
+        "me": true
+      },
+      {
+        "level": 1,
+        "pin": null,
+        "user_id": "52c69e38-b839-4115-ba23-b69f45362100",
+        "username": "Sanna 56",
+        "points": 2700,
+        "prestige": 0,
+        "place": 6,
+        "avatar": {
+          "url": null
+        },
+        "me": false
+      },
+      {
+        "level": 1,
+        "pin": null,
+        "user_id": "8cf9e595-3f56-4c55-84d1-3e4290d2f8d8",
+        "username": "Olli 57",
+        "points": 2640,
+        "prestige": 0,
+        "place": 7,
+        "avatar": {
+          "url": null
+        },
+        "me": false
+      },
+      {
+        "level": 1,
+        "pin": null,
+        "user_id": "c2b48790-4135-4ebe-acd3-6377e8e9a080",
+        "username": "Leena 58",
+        "points": 2580,
+        "prestige": 0,
+        "place": 8,
+        "avatar": {
+          "url": null
+        },
+        "me": false
+      },
+      {
+        "level": 1,
+        "pin": null,
+        "user_id": "313f6ed5-53c1-4969-beb8-d9e15cd62410",
+        "username": "Mika 59",
+        "points": 2520,
+        "prestige": 0,
+        "place": 9,
+        "avatar": {
+          "url": null
+        },
+        "me": false
+      },
+      {
+        "level": 1,
+        "pin": null,
+        "user_id": "ebc6852d-6fa7-4de8-8507-4de4d3b9c5b6",
+        "username": "Tuula 60",
+        "points": 2460,
+        "prestige": 0,
+        "place": 10,
+        "avatar": {
+          "url": null
+        },
+        "me": false
+      }
+    ]
+  },
+  "league": "ace",
+  "ribbons": {
+    "current": {
+      "month": "2026-11",
+      "star": false,
+      "league": "ace",
+      "weeks_total": 5,
+      "weeks_played": 2,
+      "star_possible": true,
+      "so_far": true
+    },
+    "past": []
+  },
+  "pending_result": {
+    "id": "9e7b84c8-5387-414b-968a-5485097fbacd",
+    "move": "stayed",
+    "points": 2760,
+    "place": 5,
+    "week_starts_at": "2026-10-25T19:00:00Z",
+    "week_closes_at": "2026-11-01T19:00:00Z",
+    "room_size": 10,
+    "ribbon": {
+      "changed": true,
+      "league": "ace",
+      "month": "2026-11",
+      "so_far": true,
+      "star": false,
+      "star_possible": true,
+      "weeks_played": 1,
+      "weeks_total": 5
+    },
+    "old_league": "ace",
+    "new_league": "ace"
+  },
+  "me": {
+    "points": 2760,
+    "place": 5
+  },
+  "last_week": {
+    "points": 2760,
+    "place": 5,
+    "league": "ace",
+    "room_size": 10
+  },
+  "intro_seen": false,
+  "friends": [],
+  "classic": false
+}

@@ -1,0 +1,19 @@
+{
+  "status": "opted_out",
+  "week": {
+    "closes_at": "2026-11-08T19:00:00Z",
+    "starts_at": "2026-11-01T19:00:00Z"
+  },
+  "room": null,
+  "league": "deuce",
+  "ribbons": {
+    "current": null,
+    "past": []
+  },
+  "pending_result": null,
+  "me": null,
+  "last_week": null,
+  "intro_seen": false,
+  "friends": [],
+  "classic": false
+}
