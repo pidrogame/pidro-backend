@@ -23,6 +23,42 @@ defmodule PidroServer.GameArchive.Serialization do
   def encode(value) when is_list(value), do: encode_list(value, [])
   def encode(_), do: raise(ArgumentError, "unsupported archive value")
 
+  @game_structs Map.new(
+                  [
+                    Pidro.Core.Types.GameState,
+                    Pidro.Core.Types.Player,
+                    Pidro.Core.Types.Trick,
+                    Pidro.Core.Types.Bid
+                  ],
+                  &{Atom.to_string(&1), &1}
+                )
+
+  @doc """
+  Decodes an encoded game state or engine events back into engine terms.
+
+  A game state holds no strings, so every string is an existing atom; only the
+  engine's own structs are rebuilt. Anything else raises.
+  """
+  @spec decode_game(term()) :: term()
+  def decode_game(nil), do: nil
+  def decode_game(value) when is_boolean(value) or is_number(value), do: value
+  def decode_game(value) when is_binary(value), do: String.to_existing_atom(value)
+  def decode_game(%{"$integer" => value}), do: String.to_integer(value)
+  def decode_game(%{"$set" => items}), do: MapSet.new(decode_game(items))
+  def decode_game(%{"$tuple" => items}), do: items |> decode_game() |> List.to_tuple()
+
+  def decode_game(%{"$improper_list" => head, "$tail" => tail}),
+    do: decode_game(head) ++ decode_game(tail)
+
+  def decode_game(%{"$struct" => module} = value),
+    do:
+      struct!(Map.fetch!(@game_structs, module), value |> Map.delete("$struct") |> decode_game())
+
+  def decode_game(value) when is_map(value),
+    do: Map.new(value, fn {key, item} -> {String.to_existing_atom(key), decode_game(item)} end)
+
+  def decode_game(value) when is_list(value), do: Enum.map(value, &decode_game/1)
+
   defp key(value) when is_atom(value), do: Atom.to_string(value)
   defp key(value) when is_binary(value), do: value
   defp key(value) when is_integer(value), do: Integer.to_string(value)

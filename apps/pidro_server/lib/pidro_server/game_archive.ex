@@ -51,7 +51,7 @@ defmodule PidroServer.GameArchive do
         send(caller, {tag, result})
       end)
 
-    case await_capture(pid, monitor, tag) do
+    case await_capture(pid, monitor, tag, 50) do
       :ok -> :ok
       _ -> capture_failed(snapshot, cause)
     end
@@ -62,25 +62,72 @@ defmodule PidroServer.GameArchive do
   end
 
   defp write_capture(room, participants, snapshot, cause) do
-    event =
-      if cause.kind == :closed,
-        do:
-          Map.merge(
-            cause.last_cause,
-            Map.take(cause, @capture_metadata)
-          ),
-        else: cause
-
-    checkpoint!(room, participants, snapshot, event)
-    if cause.kind == :closed, do: finalize(snapshot.game_instance_id, "closed", "room_closed")
-    :ok
+    case write(room, participants, snapshot, event(cause), nil, "40ms", 2_000) do
+      {:ok, _} -> closed(snapshot, cause)
+      {:error, _} -> {:error, :unavailable}
+    end
   rescue
     _ -> {:error, :unavailable}
   catch
     _, _ -> {:error, :unavailable}
   end
 
-  defp await_capture(pid, monitor, tag) do
+  @doc """
+  The checkpoint a room's game must save before it applies a transition:
+  synchronous, and only while `fence` (the room's owner and epoch in
+  `live_rooms`) still holds the room. `{:error, :fenced}` means this game may
+  not go on here: another node has taken the room over, or the database holds
+  a revision this game never acknowledged.
+  """
+  @spec commit(String.t(), map(), map(), map(), {String.t(), pos_integer()}) ::
+          :ok | {:error, :fenced | :unavailable}
+  # A resumed game closed before its first move has nothing new to write.
+  def commit(_room, _participants, snapshot, %{kind: :closed, last_cause: nil} = cause, _fence),
+    do: closed(snapshot, cause)
+
+  # Capped well inside a player's 250 ms move call, so a move whose commit
+  # landed is always broadcast; a capped write that landed anyway shows up as
+  # a conflicting revision on the next one.
+  def commit(room, participants, snapshot, cause, fence) do
+    caller = self()
+    tag = make_ref()
+
+    {pid, monitor} =
+      spawn_monitor(fn ->
+        send(caller, {tag, write_commit(room, participants, snapshot, cause, fence)})
+      end)
+
+    await_capture(pid, monitor, tag, 150)
+  end
+
+  defp write_commit(room, participants, snapshot, cause, fence) do
+    case write(room, participants, snapshot, event(cause), fence, "100ms", 1_000) do
+      {:ok, _} -> closed(snapshot, cause)
+      {:error, :fenced} -> {:error, :fenced}
+      # A write that timed out here but committed there: the database is ahead
+      # of this game, so the room has to come back from the database too.
+      {:error, :conflicting_revision} -> {:error, :fenced}
+      {:error, _} -> {:error, :unavailable}
+    end
+  rescue
+    _ -> {:error, :unavailable}
+  catch
+    _, _ -> {:error, :unavailable}
+  end
+
+  defp event(%{kind: :closed} = cause),
+    do: Map.merge(cause.last_cause, Map.take(cause, @capture_metadata))
+
+  defp event(cause), do: cause
+
+  defp closed(snapshot, %{kind: :closed}) do
+    finalize(snapshot.game_instance_id, "closed", "room_closed")
+    :ok
+  end
+
+  defp closed(_snapshot, _cause), do: :ok
+
+  defp await_capture(pid, monitor, tag, cap_ms) do
     receive do
       {^tag, result} ->
         Process.demonitor(monitor, [:flush])
@@ -89,7 +136,7 @@ defmodule PidroServer.GameArchive do
       {:DOWN, ^monitor, :process, ^pid, _} ->
         {:error, :unavailable}
     after
-      50 ->
+      cap_ms ->
         Process.exit(pid, :kill)
         # DOWN follows any result from this worker. Drain both so a late reply
         # cannot become an unexpected message in the game GenServer.
@@ -112,6 +159,13 @@ defmodule PidroServer.GameArchive do
   @doc "Writes a checkpoint atomically; raises on failure. Use capture/4 in the live game."
   @spec checkpoint!(String.t(), map(), map(), map()) :: :ok
   def checkpoint!(room_code, participants, snapshot, cause) do
+    case write(room_code, participants, snapshot, cause, nil, "40ms", 2_000) do
+      {:ok, _} -> :ok
+      {:error, reason} -> raise "archive checkpoint rejected: #{reason}"
+    end
+  end
+
+  defp write(room_code, participants, snapshot, cause, fence, statement_timeout, timeout) do
     now = DateTime.utc_now()
     data = encode_snapshot(snapshot)
 
@@ -121,49 +175,58 @@ defmodule PidroServer.GameArchive do
     failures = Map.get(cause, :failures, 0)
     initial = Map.get(cause, :initial_snapshot, snapshot)
 
-    result =
-      Repo.transaction(
-        fn ->
-          # Bound server-side work too: killing the client task alone does not
-          # guarantee PostgreSQL immediately stops a blocked statement.
-          %{rows: [[previous_timeout]]} = Repo.query!("SHOW statement_timeout")
-          Repo.query!("SET LOCAL statement_timeout = '40ms'")
+    Repo.transaction(
+      fn ->
+        # Bound server-side work too: killing the client task alone does not
+        # guarantee PostgreSQL immediately stops a blocked statement.
+        %{rows: [[previous_timeout]]} = Repo.query!("SHOW statement_timeout")
+        Repo.query!("SET LOCAL statement_timeout = '#{statement_timeout}'")
+        hold!(fence, room_code, snapshot.game_instance_id)
 
-          unless Repo.exists?(
-                   from a in Archive, where: a.game_instance_id == ^snapshot.game_instance_id
-                 ) do
-            insert_initial(room_code, participants, initial, encode_snapshot(initial), now)
-          end
+        unless Repo.exists?(
+                 from a in Archive, where: a.game_instance_id == ^snapshot.game_instance_id
+               ) do
+          insert_initial(room_code, participants, initial, encode_snapshot(initial), now)
+        end
 
-          archive =
-            Repo.one!(
-              from a in Archive,
-                where: a.game_instance_id == ^snapshot.game_instance_id,
-                lock: "FOR UPDATE"
-            )
+        archive =
+          Repo.one!(
+            from a in Archive,
+              where: a.game_instance_id == ^snapshot.game_instance_id,
+              lock: "FOR UPDATE"
+          )
 
-          save_revision(archive, snapshot, data, payload, failures, now)
-          save_participation(archive, cause)
+        save_revision(archive, snapshot, data, payload, failures, now)
+        save_participation(archive, cause)
 
-          if is_nil(archive.initial_deal) and cause[:initial_deal] do
-            deal = encode_snapshot(cause.initial_deal)
+        if is_nil(archive.initial_deal) and cause[:initial_deal] do
+          deal = encode_snapshot(cause.initial_deal)
 
-            Repo.update_all(
-              from(a in Archive, where: a.game_instance_id == ^snapshot.game_instance_id),
-              set: [initial_deal: deal]
-            )
-          end
+          Repo.update_all(
+            from(a in Archive, where: a.game_instance_id == ^snapshot.game_instance_id),
+            set: [initial_deal: deal]
+          )
+        end
 
-          # Preserve an enclosing transaction's setting (including SQL Sandbox).
-          Repo.query!("SELECT set_config('statement_timeout', $1, true)", [previous_timeout])
-        end,
-        timeout: 2_000
+        # Preserve an enclosing transaction's setting (including SQL Sandbox).
+        Repo.query!("SELECT set_config('statement_timeout', $1, true)", [previous_timeout])
+      end,
+      timeout: timeout
+    )
+  end
+
+  # The fence: this row lock serializes the write with a takeover, which bumps
+  # the epoch, so a write from the room's previous owner can never land.
+  defp hold!(nil, _room_code, _id), do: :ok
+
+  defp hold!({owner, epoch}, room_code, id) do
+    %{num_rows: rows} =
+      Repo.query!(
+        "UPDATE live_rooms SET game_instance_id = $4 WHERE code = $1 AND owner = $2 AND epoch = $3",
+        [room_code, owner, epoch, id]
       )
 
-    case result do
-      {:ok, _} -> :ok
-      {:error, reason} -> raise "archive checkpoint rejected: #{reason}"
-    end
+    if rows == 0, do: Repo.rollback(:fenced)
   end
 
   @doc "Idempotently closes an active archive. Complete evidence is never relabelled."
@@ -255,6 +318,48 @@ defmodule PidroServer.GameArchive do
   @spec last_snapshot(String.t()) :: map() | nil
   def last_snapshot(id),
     do: Repo.one(from a in Archive, where: a.game_instance_id == ^id, select: a.last_snapshot)
+
+  @doc """
+  The last saved checkpoint of a room's game, decoded into a state a
+  `Pidro.Server` continues from: `%{game_instance_id, state_revision, state}`.
+  A checkpoint holds no engine events, so they are folded back from each
+  revision's own. `:not_active` for a game not of this room, or in none of
+  `statuses` (a finished room's game is `"complete"`).
+  """
+  @spec resume(String.t(), String.t(), [String.t()]) ::
+          {:ok, map()} | {:error, :not_found | :not_active}
+  def resume(id, room_code, statuses) do
+    archive =
+      Repo.one(
+        from a in Archive,
+          where: a.game_instance_id == ^id,
+          select: %{status: a.status, room_code: a.room_code, snapshot: a.last_snapshot}
+      )
+
+    with %{status: status, room_code: ^room_code, snapshot: snapshot} <- archive,
+         true <- status in statuses,
+         %{"state" => state, "state_revision" => revision} <- snapshot do
+      payloads =
+        Repo.all(
+          from e in Event,
+            where: e.game_instance_id == ^id,
+            order_by: e.revision,
+            select: e.payload
+        )
+
+      events =
+        Enum.reduce(payloads, [], fn payload, events ->
+          added = Serialization.decode_game(payload["engine_events"] || [])
+          if payload["events_replaced"], do: added, else: events ++ added
+        end)
+
+      game = %{Serialization.decode_game(state) | events: events}
+      {:ok, %{game_instance_id: id, state_revision: revision, state: game}}
+    else
+      nil -> {:error, :not_found}
+      _ -> {:error, :not_active}
+    end
+  end
 
   @doc "Returns the pre-action initial snapshot, or nil. The first deal is a timeline checkpoint."
   @spec initial_snapshot(String.t()) :: map() | nil

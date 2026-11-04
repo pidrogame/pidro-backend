@@ -123,6 +123,12 @@ defmodule PidroServer.Games.Bots.BotBrain do
             event_index: length(game_state.events)
           })
 
+        # Not saved, so not made: try again from a fresh read of the game.
+        {:error, :game_unavailable} ->
+          Logger.warning("#{label} move not saved, retrying (#{inspect(action)})")
+          Process.send_after(self(), :make_move, 1_000)
+          :ok
+
         {:error, reason} ->
           Logger.warning("#{label} action failed: #{inspect(reason)} (#{inspect(action)})")
       end

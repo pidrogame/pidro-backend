@@ -43,7 +43,21 @@ defmodule PidroServer.Application do
     # See https://hexdocs.pm/elixir/Supervisor.html
     # for other strategies and supported options
     opts = [strategy: :one_for_one, name: PidroServer.Supervisor]
-    Supervisor.start_link(children, opts)
+
+    with {:ok, _pid} = started <- Supervisor.start_link(children, opts) do
+      # Everything rooms need is up now: take over rooms a previous node left.
+      send(PidroServer.Games.RoomManager, :restore_rooms)
+      started
+    end
+  end
+
+  # Before anything stops, hand the rooms over to the node that replaces this one.
+  @impl true
+  def prep_stop(state) do
+    PidroServer.Games.RoomManager.release_rooms()
+    state
+  catch
+    :exit, _ -> state
   end
 
   # Tell Phoenix to update the endpoint configuration

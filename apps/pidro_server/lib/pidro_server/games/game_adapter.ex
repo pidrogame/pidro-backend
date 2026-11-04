@@ -96,6 +96,10 @@ defmodule PidroServer.Games.GameAdapter do
             broadcast_state_update(room_code, old_state, snapshot, fields)
             {:ok, snapshot.state}
 
+          # The move could not be saved, so it was not made; the player may retry.
+          {:error, :not_saved} ->
+            {:error, :game_unavailable}
+
           {:error, _reason} = error ->
             error
         end
@@ -174,11 +178,12 @@ defmodule PidroServer.Games.GameAdapter do
   end
 
   @doc "Updates an authorized room's pace and broadcasts its current state."
-  @spec set_pace(String.t(), :quick | :own) :: {:ok, :ok} | {:error, term()}
+  @spec set_pace(String.t(), :quick | :own) ::
+          {:ok, :ok | {:error, :not_saved}} | {:error, term()}
   def set_pace(room_code, pace), do: call_game(room_code, &Pidro.Server.set_pace(&1, pace))
 
   @doc "Continues a held hand after room authorization."
-  @spec continue_hand(String.t()) :: {:ok, :ok} | {:error, term()}
+  @spec continue_hand(String.t()) :: {:ok, :ok | {:error, :not_saved}} | {:error, term()}
   def continue_hand(room_code), do: call_game(room_code, &Pidro.Server.continue_hand/1)
 
   @doc """

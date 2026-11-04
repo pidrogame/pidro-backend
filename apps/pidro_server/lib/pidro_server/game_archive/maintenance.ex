@@ -6,7 +6,7 @@ defmodule PidroServer.GameArchive.Maintenance do
 
   alias PidroServer.GameArchive
   alias PidroServer.GameArchive.Archive
-  alias PidroServer.Games.GameRegistry
+  alias PidroServer.Games.{GameRegistry, RoomStore}
   alias PidroServer.Repo
 
   @doc "Starts periodic maintenance; disabled under the SQL sandbox."
@@ -74,9 +74,11 @@ defmodule PidroServer.GameArchive.Maintenance do
       state.cursor
   end
 
+  # A game an open room still runs is alive on whichever node owns the room,
+  # or about to be restored there.
   defp missing_instance?(room, id) do
     case GameRegistry.lookup(room) do
-      {:error, :not_found} -> true
+      {:error, :not_found} -> not RoomStore.live_instance?(id)
       {:ok, pid} -> Pidro.Server.get_snapshot(pid, 1_000).game_instance_id != id
     end
   catch

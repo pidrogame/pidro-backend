@@ -149,6 +149,11 @@ defmodule PidroServer.GameArchiveTest do
 
     assert {:ok, _, :east} = RoomManager.join_as_substitute(room.code, replacement)
     refute GameArchive.participant?(id, room.code, replacement)
+    # A room's game makes no move it cannot save.
+    assert {:error, :game_unavailable} =
+             GameAdapter.apply_action(room.code, :north, :select_dealer)
+
+    Repo.query!("ALTER TABLE game_archives DROP CONSTRAINT participation_outage")
     assert {:ok, _} = GameAdapter.apply_action(room.code, :north, :select_dealer)
     wait(fn -> Pidro.Server.get_state(pid).phase == :bidding end)
 
@@ -170,7 +175,6 @@ defmodule PidroServer.GameArchiveTest do
            end)
 
     :ok = RoomManager.leave_room(replacement)
-    Repo.query!("ALTER TABLE game_archives DROP CONSTRAINT participation_outage")
     assert :ok = RoomManager.close_room(room.code)
     refute Process.alive?(pid)
     assert GameArchive.participant?(id, room.code, replacement)
@@ -180,7 +184,9 @@ defmodule PidroServer.GameArchiveTest do
     refute GameArchive.participant?("other-instance", room.code, replacement)
     assert [%{game_instance_id: ^id}] = GameArchive.search(user_id: replacement)
     assert GameArchive.get(id).participants["east"]["user_id"] == departing
-    assert GameArchive.get(id).evidence_status == "partial"
+    # The failed participation write is on record; no revision is missing.
+    assert GameArchive.get(id).evidence_status == "uncertain"
+    assert GameArchive.get(id).missing_revision_count == 0
   end
 
   test "participation union is bounded and explicitly marked when truncated" do
@@ -243,7 +249,7 @@ defmodule PidroServer.GameArchiveTest do
     assert GameArchive.initial_deal(id)["state"]["phase"] == "bidding"
   end
 
-  test "production bots keep acting while archive writes fail" do
+  test "a room's game makes no move it cannot save, and its bots retry until they can" do
     host = AccountsFixtures.user_fixture()
     {:ok, room} = RoomManager.create_room(host.id, %{solo: true})
 
@@ -260,23 +266,37 @@ defmodule PidroServer.GameArchiveTest do
     {:ok, pid} = GameSupervisor.get_game(room.code)
     id = Pidro.Server.get_snapshot(pid).game_instance_id
     outage()
-    Phoenix.PubSub.subscribe(PidroServer.PubSub, "game:#{room.code}")
+
+    assert {:error, :game_unavailable} =
+             GameAdapter.apply_action(room.code, :north, :select_dealer)
+
+    assert Pidro.Server.get_snapshot(pid).state_revision == 0
+    recover()
     assert {:ok, _} = GameAdapter.apply_action(room.code, :north, :select_dealer)
-    # No bot can select a dealer or bid until the real DB fault is installed.
     wait(fn -> Pidro.Server.get_state(pid).phase != :dealer_selection end)
     state = Pidro.Server.get_state(pid)
 
     if state.phase == :bidding and state.current_turn == :north,
       do: GameAdapter.apply_action(room.code, :north, :pass)
 
+    outage()
     for bot <- bots, do: PidroServer.Games.Bots.BotPlayer.resume(bot)
+    Process.sleep(300)
+    refute Enum.any?(Pidro.Server.get_state(pid).events, &bot_bid?/1)
+    recover()
     wait(fn -> Enum.any?(Pidro.Server.get_state(pid).events, &bot_bid?/1) end)
     assert Process.alive?(pid)
-    assert_receive {:state_update, _, _}, 1_000
-    recover()
-    :ok = Pidro.Server.set_pace(pid, :own)
-    assert GameArchive.summary(id).evidence_status == "partial"
-    assert GameArchive.summary(id).failed_checkpoints > 0
+
+    for bot <- bots do
+      PidroServer.Games.Bots.BotPlayer.pause(bot)
+      :sys.get_state(bot)
+    end
+
+    Process.sleep(50)
+    summary = GameArchive.summary(id)
+    assert summary.last_revision == Pidro.Server.get_snapshot(pid).state_revision
+    assert summary.evidence_status == "continuous"
+    assert summary.missing_revision_count == 0
   end
 
   test "failed start can recover initial facts; process death and restart reconciliation are truthful" do

@@ -53,6 +53,10 @@ defmodule PidroServer.Games.GameSupervisor do
   ## Parameters
 
     - `room_code` - Unique room code (e.g., "A3F9")
+    - `opts` - For a room's game: `:fence`, the room's `{owner, epoch}` in
+      `live_rooms`, makes every checkpoint a fenced commit the game waits
+      for. A resumed game also passes `:initial_state`, `:game_instance_id`
+      and `:state_revision` from `GameArchive.resume/3`.
 
   ## Returns
 
@@ -74,10 +78,13 @@ defmodule PidroServer.Games.GameSupervisor do
           DynamicSupervisor.on_start_child()
   @spec start_game(String.t(), :finnish | :louisiana, :quick | :own, map()) ::
           DynamicSupervisor.on_start_child()
-  def start_game(room_code, rule_set \\ :finnish, pace \\ :quick, participants \\ %{}) do
+  @spec start_game(String.t(), :finnish | :louisiana, :quick | :own, map(), keyword()) ::
+          DynamicSupervisor.on_start_child()
+  def start_game(room_code, rule_set \\ :finnish, pace \\ :quick, participants \\ %{}, opts \\ []) do
     Logger.info("Starting game for room #{room_code}")
 
     alias PidroServer.Games.Lifecycle
+    fence = Keyword.get(opts, :fence)
 
     game_opts = [
       name: GameRegistry.via(room_code),
@@ -89,14 +96,16 @@ defmodule PidroServer.Games.GameSupervisor do
         for({_pos, %{occupant_type: :human, user_id: id}} <- participants, do: id),
       checkpoint:
         if Application.get_env(:pidro_server, :game_archive_enabled, true) do
-          fn snapshot, cause ->
-            PidroServer.GameArchive.capture(room_code, participants, snapshot, cause)
-          end
+          fn snapshot, cause -> checkpoint(room_code, participants, snapshot, cause, fence) end
         end,
+      durable: fence != nil,
       state_observer: {PidroServer.Games.AdminGameSummary, :record},
       dealer_selection_delay_ms: Lifecycle.config(:dealer_selection_delay_ms),
       deal_transition_delay_ms: Lifecycle.config(:deal_transition_delay_ms)
     ]
+
+    game_opts =
+      game_opts ++ Keyword.take(opts, [:initial_state, :game_instance_id, :state_revision])
 
     # Start Pidro.Server under this supervisor
     child_spec = %{
@@ -117,6 +126,19 @@ defmodule PidroServer.Games.GameSupervisor do
       {:error, reason} = error ->
         Logger.error("Failed to start game for room #{room_code}: #{inspect(reason)}")
         error
+    end
+  end
+
+  defp checkpoint(room_code, participants, snapshot, cause, nil),
+    do: PidroServer.GameArchive.capture(room_code, participants, snapshot, cause)
+
+  # A fenced write means another node owns the room now: the room manager
+  # gives the room up here.
+  defp checkpoint(room_code, participants, snapshot, cause, {_owner, epoch} = fence) do
+    with {:error, :fenced} = refused <-
+           PidroServer.GameArchive.commit(room_code, participants, snapshot, cause, fence) do
+      send(PidroServer.Games.RoomManager, {:room_fenced, room_code, epoch})
+      refused
     end
   end
 
@@ -174,6 +196,13 @@ defmodule PidroServer.Games.GameSupervisor do
       # A failed closure write must not hold a room open. The last checkpoint
       # remains active until reconciliation labels the missing process interrupted.
       DynamicSupervisor.terminate_child(__MODULE__, pid)
+  end
+
+  @doc "Stops a game without closing its archive: the game carries on elsewhere."
+  @spec drop_game(String.t()) :: :ok | {:error, :not_found}
+  def drop_game(room_code) do
+    with {:ok, pid} <- GameRegistry.lookup(room_code),
+         do: DynamicSupervisor.terminate_child(__MODULE__, pid)
   end
 
   @doc """

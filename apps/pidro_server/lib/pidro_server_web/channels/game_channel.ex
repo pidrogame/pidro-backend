@@ -143,7 +143,7 @@ defmodule PidroServerWeb.GameChannel do
     :ok = GameAdapter.subscribe(room_code)
 
     # First, check if this is a reconnection attempt
-    with {:ok, room} <- RoomManager.get_room(room_code) do
+    with {:ok, room} <- RoomManager.find_room(room_code) do
       # Determine user role (player or spectator)
       role = determine_user_role(room, user_id)
 
@@ -164,6 +164,15 @@ defmodule PidroServerWeb.GameChannel do
            )}
       end
     else
+      # Not terminal for the app: it retries the join, and the room is there.
+      {:error, :room_moving} ->
+        {:error,
+         ErrorContract.add(
+           %{reason: "room is moving, try again"},
+           :game_unavailable,
+           :action_failed
+         )}
+
       _ ->
         {:error, ErrorContract.add(%{reason: "room not found"}, :room_not_found, :action_failed)}
     end

@@ -50,15 +50,33 @@ defmodule PidroServer.Games.RoomManager do
   alias Pidro.Game.{Engine, Play}
   alias PidroServer.Accounts.User
   alias PidroServer.Games.Bots.{BotBrain, BotManager, SubstituteBot, TimeoutStrategy}
-  alias PidroServer.Games.{GameAdapter, GameSupervisor, Lifecycle, RoomCodes, TurnTimer}
+  alias PidroServer.GameArchive
+
+  alias PidroServer.Games.{
+    GameAdapter,
+    GameSupervisor,
+    Lifecycle,
+    RoomCodes,
+    RoomStore,
+    TurnTimer
+  }
+
   alias PidroServer.Games.Room.Config
   alias PidroServer.Games.Room.Positions
   alias PidroServer.Games.Room.Seat
   alias PidroServer.Stats
 
   @max_players 4
-  # Two engine calls must finish well before the public caller's 5-second timeout.
-  @player_action_call_timeout_ms 250
+  # Rooms are saved this often; a heartbeat and a look for rooms to take over
+  # run on the slower beat. `RoomStore` calls an owner stale after 10 s.
+  @save_interval_ms 250
+  @room_store_interval_ms 2_000
+  @restore_batch 4
+  # Two engine calls must finish well before the public caller's 5-second
+  # timeout, and one must outlast two of a room's fenced commits (150 ms
+  # each; a timed transition's may be ahead of the move's), or a move that was
+  # saved would never be broadcast.
+  @player_action_call_timeout_ms 400
 
   # Room struct representing a game room
   defmodule Room do
@@ -183,7 +201,11 @@ defmodule PidroServer.Games.RoomManager do
             game_snapshot_cursors: %{String.t() => {String.t(), non_neg_integer()}},
             active_game_instances: %{String.t() => String.t()},
             finished_absences: %{{String.t(), any()} => reference()},
-            health_warnings: MapSet.t(String.t())
+            health_warnings: MapSet.t(String.t()),
+            boot_id: String.t() | nil,
+            epochs: %{String.t() => pos_integer()},
+            saved: %{String.t() => {Room.t(), map()}},
+            releasing?: boolean()
           }
 
     defstruct rooms: %{},
@@ -199,7 +221,14 @@ defmodule PidroServer.Games.RoomManager do
               # One token per player absent from a finished room; see `note_finished_absence/4`.
               finished_absences: %{},
               # What the last health check warned about, so a lasting problem logs once.
-              health_warnings: MapSet.new()
+              health_warnings: MapSet.new(),
+              # This manager's owner id in `live_rooms`, the epoch it holds for
+              # each of its rooms there, and each room as it was last saved.
+              boot_id: nil,
+              epochs: %{},
+              saved: %{},
+              # Set on shutdown, once the rooms are handed over: claim nothing.
+              releasing?: false
   end
 
   ## Client API
@@ -588,14 +617,40 @@ defmodule PidroServer.Games.RoomManager do
   - `{:ok, room}` - Room details
   - `{:error, :room_not_found}` - Room doesn't exist
 
+  A room another node released, or whose node stopped, is restored here
+  first.
+
   ## Examples
 
       {:ok, room} = RoomManager.get_room("A1B2")
   """
   @spec get_room(String.t()) :: {:ok, Room.t()} | {:error, :room_not_found}
   def get_room(room_code) do
-    GenServer.call(__MODULE__, {:get_room, String.upcase(room_code)})
+    case GenServer.call(__MODULE__, {:get_room, String.upcase(room_code), :free}) do
+      {:error, :room_moving} -> {:error, :room_not_found}
+      result -> result
+    end
   end
+
+  @doc """
+  The room a player joins: like `get_room/1`, but a room open on another
+  node is taken over from it, since the player asking here is what moves it
+  here. Tells a room that exists and cannot be served here yet (this node is
+  handing its rooms over, or the room store did not answer) from one that
+  does not exist: `{:error, :room_moving}`.
+  """
+  @spec find_room(String.t()) :: {:ok, Room.t()} | {:error, :room_not_found | :room_moving}
+  def find_room(room_code) do
+    GenServer.call(__MODULE__, {:get_room, String.upcase(room_code), :force})
+  end
+
+  @doc """
+  Hands every room over on shutdown: stops their games and bots without
+  closing them, saves the rooms, releases them in `live_rooms` and drops their
+  players' sockets so they reconnect to the node that takes over.
+  """
+  @spec release_rooms() :: :ok
+  def release_rooms, do: GenServer.call(__MODULE__, :release_rooms, 10_000)
 
   @doc "Publicly claimable seats, shared by REST and lobby snapshots. Bots are not vacancies."
   @spec available_positions(Room.t()) :: [Positions.position()]
@@ -1359,7 +1414,9 @@ defmodule PidroServer.Games.RoomManager do
     schedule_cleanup()
     send(self(), :startup_sweep)
     schedule_health_check()
-    {:ok, %State{}}
+    Process.send_after(self(), :save_rooms, @save_interval_ms)
+    Process.send_after(self(), :room_store_sweep, @room_store_interval_ms)
+    {:ok, %State{boot_id: Ecto.UUID.generate()}}
   end
 
   @impl true
@@ -1490,9 +1547,10 @@ defmodule PidroServer.Games.RoomManager do
     # authoritative set of live codes for the whole check-then-insert.
     with :ok <- ensure_not_in_other_room(state, host_id, nil),
          :ok <- ensure_invitable(state, nil, Map.values(config.seat_holds)),
+         # A code another node holds is taken too: claiming its row is the check.
          {:ok, room_code} <-
            RoomCodes.generate_unique(
-             &Map.has_key?(state.rooms, &1),
+             &(Map.has_key?(state.rooms, &1) or RoomStore.insert(&1, state.boot_id) == :taken),
              RoomCodes.default_attempts(),
              room_code_generator()
            ) do
@@ -1534,14 +1592,22 @@ defmodule PidroServer.Games.RoomManager do
         new_state = %State{
           state
           | rooms: Map.put(state.rooms, room_code, room_with_host),
-            player_rooms: Map.put(state.player_rooms, host_id, room_code)
+            player_rooms: Map.put(state.player_rooms, host_id, room_code),
+            # Without its row (the store did not answer) the room is served
+            # as before, just not durably.
+            epochs:
+              if(RoomStore.inserted?(room_code, state.boot_id),
+                do: Map.put(state.epochs, room_code, 1),
+                else: state.epochs
+              )
         }
 
       Logger.info("Room created: #{room_code} by host: #{host_id}")
       broadcast_seat_invitation_changes(nil, room_with_host)
       broadcast_lobby_event({:room_created, room_with_host})
 
-      {:reply, {:ok, room_with_host}, new_state}
+      # Saved at once: a row without its room is one nobody could restore.
+      {:reply, {:ok, room_with_host}, save_rooms(new_state)}
     else
       {:error, :room_code_exhausted} = error ->
         # Ten misses over a 36^4 space means rooms are leaking, not that the
@@ -1794,10 +1860,15 @@ defmodule PidroServer.Games.RoomManager do
   end
 
   @impl true
-  def handle_call({:get_room, room_code}, _from, %State{} = state) do
+  # A room this node does not have may be open on another, or left by one.
+  def handle_call({:get_room, room_code, mode}, _from, %State{} = state) do
     case Map.get(state.rooms, room_code) do
-      nil -> {:reply, {:error, :room_not_found}, state}
-      room -> {:reply, {:ok, room}, state}
+      nil ->
+        {reply, state} = restore_room(state, room_code, mode)
+        {:reply, reply, state}
+
+      room ->
+        {:reply, {:ok, room}, state}
     end
   end
 
@@ -2374,6 +2445,19 @@ defmodule PidroServer.Games.RoomManager do
   end
 
   @impl true
+  def handle_call(:release_rooms, _from, %State{} = state) do
+    state = save_rooms(state)
+    codes = Map.keys(state.rooms)
+    Logger.info("Handing over #{length(codes)} rooms: #{Enum.join(codes, ",")}")
+    rooms = Map.values(state.rooms)
+    epochs = state.epochs
+    state = Enum.reduce(codes, state, &drop_room(&2, &1))
+    RoomStore.release(state.boot_id, epochs)
+    Enum.each(rooms, &disconnect_players/1)
+    {:reply, :ok, %{state | releasing?: true}}
+  end
+
+  @impl true
   def handle_call(:reset_for_test, _from, %State{} = state) do
     Logger.info("RoomManager state reset for testing")
     {:reply, :ok, teardown_state(state)}
@@ -2919,6 +3003,58 @@ defmodule PidroServer.Games.RoomManager do
 
         {:noreply, next}
     end
+  end
+
+  @impl true
+  def handle_info(:save_rooms, %State{} = state) do
+    Process.send_after(self(), :save_rooms, @save_interval_ms)
+    {:noreply, save_rooms(state)}
+  end
+
+  # Heartbeat the rooms this node owns, give up those another node took, and
+  # take over rooms whose owner released them or stopped heartbeating.
+  @impl true
+  def handle_info(:room_store_sweep, %State{releasing?: true} = state), do: {:noreply, state}
+
+  def handle_info(:room_store_sweep, %State{} = state) do
+    Process.send_after(self(), :room_store_sweep, @room_store_interval_ms)
+
+    state =
+      case RoomStore.heartbeat(state.boot_id, Map.keys(state.epochs)) do
+        {:ok, held} -> Enum.reduce(Map.keys(state.epochs) -- held, state, &give_up(&2, &1))
+        _ -> state
+      end
+
+    send(self(), :restore_rooms)
+    {:noreply, state}
+  end
+
+  # A few rooms at a time, so calls from players get in between; a full
+  # batch means there may be more right away.
+  def handle_info(:restore_rooms, %State{releasing?: true} = state), do: {:noreply, state}
+
+  def handle_info(:restore_rooms, %State{} = state) do
+    codes = RoomStore.claimable(@restore_batch, Map.keys(state.rooms))
+
+    {restored, state} =
+      Enum.reduce(codes, {0, state}, fn code, {restored, acc} ->
+        case restore_room(acc, code, :free) do
+          {{:ok, _room}, acc} -> {restored + 1, acc}
+          {_failed, acc} -> {restored, acc}
+        end
+      end)
+
+    # Rooms that would not come back now wait for the next sweep.
+    if length(codes) == @restore_batch and restored > 0, do: send(self(), :restore_rooms)
+    {:noreply, state}
+  end
+
+  # The room's game could not save a move against this node's epoch.
+  @impl true
+  def handle_info({:room_fenced, room_code, epoch}, %State{} = state) do
+    if state.epochs[room_code] == epoch,
+      do: {:noreply, give_up(state, room_code)},
+      else: {:noreply, state}
   end
 
   @impl true
@@ -4545,6 +4681,7 @@ defmodule PidroServer.Games.RoomManager do
           Enum.reduce(room.spectator_ids, state, &drop_spectator_connections(&2, room_code, &1))
 
         _ = GameSupervisor.stop_game(room_code)
+        delete_row(state, room_code)
 
         # Remove room and all player/spectator mappings
         new_rooms = Map.delete(state.rooms, room_code)
@@ -4572,7 +4709,9 @@ defmodule PidroServer.Games.RoomManager do
               finished_absences:
                 Map.reject(state.finished_absences, fn {{code, _user_id}, _token} ->
                   code == room_code
-                end)
+                end),
+              epochs: Map.delete(state.epochs, room_code),
+              saved: Map.delete(state.saved, room_code)
           }
 
         broadcast_seat_invitation_changes(room, nil)
@@ -4716,6 +4855,354 @@ defmodule PidroServer.Games.RoomManager do
           {:seat_invitation, user_id, seat_invitation(after_room, position)}
         )
       end
+    end
+  end
+
+  ## Durable rooms
+  #
+  # Each room this manager serves has a `live_rooms` row it holds at an epoch
+  # (see `RoomStore`). The room is saved there when it changes, its game's
+  # checkpoints are fenced on the same row, and a room this node finds there
+  # comes back from it with its game.
+
+  defp fence(%State{} = state, room_code) do
+    case state.epochs[room_code] do
+      nil -> []
+      epoch -> [fence: {state.boot_id, epoch}]
+    end
+  end
+
+  defp delete_row(%State{} = state, room_code) do
+    case state.epochs[room_code] do
+      nil -> :ok
+      epoch -> RoomStore.delete(room_code, state.boot_id, epoch)
+    end
+  end
+
+  # Saves each held room that changed since it was last saved. An unchanged
+  # room is the very term saved, so the comparison costs nothing.
+  defp save_rooms(%State{} = state) do
+    if RoomStore.enabled?() do
+      Enum.reduce(state.epochs, state, fn {code, epoch}, acc ->
+        case {acc.rooms[code], acc.saved[code]} do
+          {nil, _} -> acc
+          {room, {room, _json}} -> acc
+          {room, saved} -> save_room(acc, code, epoch, room, saved)
+        end
+      end)
+    else
+      state
+    end
+  end
+
+  defp save_room(state, code, epoch, room, saved) do
+    json = RoomStore.encode(room)
+
+    result =
+      case saved do
+        {_room, ^json} -> :ok
+        _ -> RoomStore.save(code, state.boot_id, epoch, json)
+      end
+
+    case result do
+      :ok -> %{state | saved: Map.put(state.saved, code, {room, json})}
+      :fenced -> give_up(state, code)
+      :error -> state
+    end
+  rescue
+    # A room that cannot be stored must not stop every other room.
+    error ->
+      Logger.error("Room #{code} could not be saved: #{Exception.message(error)}")
+      %{state | saved: Map.put(state.saved, code, {room, nil})}
+  end
+
+  # Another node took this room over, or its game can no longer save here.
+  # Stop serving it, without closing it or telling anyone it closed, and send
+  # its players to reconnect: they land on whichever node restores it, which
+  # is this one again for a room nobody else took.
+  defp give_up(%State{} = state, room_code) do
+    case state.rooms[room_code] do
+      nil ->
+        %{state | epochs: Map.delete(state.epochs, room_code)}
+
+      room ->
+        Logger.warning("Room #{room_code} is owned by another node now; giving it up")
+        RoomStore.release(state.boot_id, Map.take(state.epochs, [room_code]))
+        state = drop_room(state, room_code)
+        disconnect_players(room)
+        state
+    end
+  end
+
+  # Forgets a room this node no longer serves; its game and bots stop with it.
+  defp drop_room(%State{} = state, room_code) do
+    room = state.rooms[room_code]
+    maybe_cancel_turn_timer(room)
+    cancel_all_phase_timers(room)
+    terminate_room_bots(room)
+    _ = GameSupervisor.drop_game(room_code)
+
+    spectators =
+      for {ref, {^room_code, _user_id, _pid}} <- state.spectator_monitors do
+        Process.demonitor(ref, [:flush])
+        ref
+      end
+
+    for {{^room_code, _user_id}, ref} <- state.spectator_timers, do: :erlang.cancel_timer(ref)
+
+    state =
+      state
+      |> unsubscribe_from_game_topic(room_code)
+      |> drop_room_channel_registrations(room_code)
+
+    %State{
+      state
+      | rooms: Map.delete(state.rooms, room_code),
+        player_rooms: Map.reject(state.player_rooms, fn {_id, code} -> code == room_code end),
+        spectator_rooms:
+          Map.reject(state.spectator_rooms, fn {_id, code} -> code == room_code end),
+        spectator_monitors: Map.drop(state.spectator_monitors, spectators),
+        spectator_timers:
+          Map.reject(state.spectator_timers, fn {{code, _}, _} -> code == room_code end),
+        game_snapshot_cursors: Map.delete(state.game_snapshot_cursors, room_code),
+        active_game_instances: Map.delete(state.active_game_instances, room_code),
+        finished_absences:
+          Map.reject(state.finished_absences, fn {{code, _}, _} -> code == room_code end),
+        epochs: Map.delete(state.epochs, room_code),
+        saved: Map.delete(state.saved, room_code)
+    }
+  end
+
+  # Closing a player's socket is what makes their app reconnect and rejoin.
+  defp disconnect_players(%Room{} = room) do
+    seated = for {_position, seat} <- room.seats, id = seat.user_id || seat.reserved_for, do: id
+
+    for user_id <- Enum.uniq(seated ++ room.spectator_ids) do
+      PidroServerWeb.Endpoint.broadcast(
+        PidroServerWeb.UserSocket.topic(user_id),
+        "disconnect",
+        %{}
+      )
+    end
+
+    :ok
+  end
+
+  # Takes a room over from `live_rooms` and brings it back with its game.
+  defp restore_room(%State{releasing?: true} = state, _room_code, _mode),
+    do: {{:error, :room_moving}, state}
+
+  defp restore_room(%State{} = state, room_code, mode) do
+    case RoomStore.claim(room_code, state.boot_id, mode) do
+      # A row whose room was never saved. Taken from a live owner, it may be
+      # about to save it, so it is handed back; released or stale, nobody will.
+      {:ok, %{room: nil, epoch: epoch}} when mode == :force ->
+        RoomStore.release(state.boot_id, %{room_code => epoch})
+        {{:error, :room_moving}, state}
+
+      {:ok, %{room: nil, epoch: epoch}} ->
+        RoomStore.delete(room_code, state.boot_id, epoch)
+        {{:error, :room_not_found}, state}
+
+      {:ok, claimed} ->
+        resume_room(state, room_code, claimed)
+
+      :none ->
+        {{:error, :room_not_found}, state}
+
+      # Another node serves it, or the store did not answer: it is still there.
+      _held_or_error ->
+        {{:error, :room_moving}, state}
+    end
+  end
+
+  defp resume_room(%State{} = state, room_code, %{epoch: epoch, game_instance_id: id} = claimed) do
+    state = %{state | epochs: Map.put(state.epochs, room_code, epoch)}
+
+    with {:ok, room} <- decode_room(claimed.room),
+         {:ok, snapshot} <- resume_game(state, room, id) do
+      Logger.info(
+        "Restored room #{room_code} at epoch #{epoch}, status #{room.status}" <>
+          if(snapshot,
+            do: ", game #{snapshot.game_instance_id} at revision #{snapshot.state_revision}",
+            else: ""
+          )
+      )
+
+      state = install_room(state, restore_seats(room), snapshot)
+      {{:ok, state.rooms[room_code]}, state}
+    else
+      {:error, reason} ->
+        _ = GameSupervisor.drop_game(room_code)
+        state = %{state | epochs: Map.delete(state.epochs, room_code)}
+        {lost?, reply} = restore_failure(reason)
+        Logger.error("Room #{room_code} could not be restored: #{inspect(reason)}")
+
+        if lost? do
+          if id, do: GameArchive.finalize(id, "interrupted", "restore_failed")
+          RoomStore.delete(room_code, state.boot_id, epoch)
+        else
+          # Maybe the database blinked: the room stays for the next try.
+          RoomStore.release(state.boot_id, %{room_code => epoch})
+        end
+
+        {{:error, reply}, state}
+    end
+  end
+
+  # Only a room or game that cannot be read back, or whose game is over, is
+  # gone for good.
+  defp restore_failure({:undecodable_room, _}), do: {true, :room_not_found}
+  defp restore_failure({:undecodable_game, _}), do: {true, :room_not_found}
+  defp restore_failure(:no_game), do: {true, :room_not_found}
+  defp restore_failure(:not_found), do: {true, :room_not_found}
+  defp restore_failure(:not_active), do: {true, :room_not_found}
+  defp restore_failure(_transient), do: {false, :room_moving}
+
+  defp decode_room(json) do
+    {:ok, RoomStore.decode(json)}
+  rescue
+    error -> {:error, {:undecodable_room, Exception.message(error)}}
+  end
+
+  # A room between games has no game to bring back.
+  defp resume_game(_state, %Room{status: status}, _id) when status not in [:playing, :finished],
+    do: {:ok, nil}
+
+  defp resume_game(_state, %Room{}, nil), do: {:error, :no_game}
+
+  defp resume_game(%State{} = state, %Room{code: code} = room, id) do
+    # A game left here by an earlier manager on this node cannot save anymore.
+    _ = GameSupervisor.drop_game(code)
+
+    statuses = if room.status == :finished, do: ["active", "complete"], else: ["active"]
+
+    with {:ok, saved} <- GameArchive.resume(id, code, statuses),
+         {:ok, _pid} <-
+           GameSupervisor.start_game(
+             code,
+             room.config.rule_set,
+             room.pace,
+             GameArchive.participants(room.seats),
+             fence(state, code) ++
+               [
+                 initial_state: saved.state,
+                 game_instance_id: id,
+                 state_revision: saved.state_revision
+               ]
+           ) do
+      GameAdapter.get_snapshot(code)
+    end
+  rescue
+    error in [DBConnection.ConnectionError, Postgrex.Error] ->
+      {:error, {:unavailable, Exception.message(error)}}
+
+    error ->
+      {:error, {:undecodable_game, Exception.message(error)}}
+  end
+
+  # Nobody is connected to a room this node just took over. Its humans come
+  # back held, as if they had just dropped but without the drop counting
+  # against them: a fresh hiccup window, no seat event. Bots and substitutes
+  # take their seats again.
+  defp restore_seats(%Room{} = room) do
+    room = if room.status in [:waiting, :ready], do: reset_readiness(room), else: room
+    # Idle time on the old node does not count toward closing the room here.
+    room = %{room | last_activity: DateTime.utc_now()}
+
+    room.seats
+    |> Enum.reduce(room, fn {position, seat}, room -> restore_seat(room, position, seat) end)
+    |> bump_seat_lifecycle_revision()
+  end
+
+  defp restore_seat(%Room{status: status} = room, position, %Seat{occupant_type: :human} = seat)
+       when status in [:waiting, :ready, :playing] do
+    seat = %{seat | status: :reconnecting, disconnected_at: DateTime.utc_now()}
+    room = %{room | seats: Map.put(room.seats, position, seat)}
+
+    if room.status == :playing and room.pace == :quick and not room.config.solo do
+      phase_timer(room, position, Lifecycle.config(:hiccup_timeout_ms), :phase2_start)
+    else
+      room
+    end
+  end
+
+  defp restore_seat(
+         %Room{status: :playing} = room,
+         position,
+         %Seat{status: :bot_substitute} = seat
+       ) do
+    seat =
+      case start_substitute_bot(room, position) do
+        {:ok, pid} -> %{seat | bot_pid: pid}
+        {:error, _reason} -> seat
+      end
+
+    room = %{room | seats: Map.put(room.seats, position, seat)}
+
+    # A player still in their grace keeps what was left of it, never less
+    # than a hiccup window.
+    case seat do
+      %Seat{reserved_for: id, grace_expires_at: %DateTime{} = expires} when is_binary(id) ->
+        remaining = DateTime.diff(expires, DateTime.utc_now(), :millisecond)
+        ms = max(remaining, Lifecycle.config(:hiccup_timeout_ms))
+        phase_timer(room, position, ms, :phase3_gone)
+
+      _ ->
+        room
+    end
+  end
+
+  # The table's own bots come back through the bot manager, which calls back
+  # into this process, so they start once this message is done.
+  defp restore_seat(%Room{} = room, position, %Seat{occupant_type: :bot, status: :connected}) do
+    {:ok, _} =
+      Task.start(fn -> BotManager.start_bot(room.code, position, room.config.bot_difficulty) end)
+
+    room
+  end
+
+  defp restore_seat(%Room{} = room, _position, _seat), do: room
+
+  defp phase_timer(%Room{} = room, position, ms, phase) do
+    ref = :erlang.start_timer(ms, self(), {phase, room.code, position})
+    %{room | phase_timers: Map.put(room.phase_timers, position, ref)}
+  end
+
+  defp install_room(%State{} = state, %Room{code: code} = room, snapshot) do
+    room = if snapshot, do: %{room | game: game_summary(snapshot.state)}, else: room
+    spectators = Map.new(room.spectator_ids, &{&1, code})
+
+    state =
+      %State{
+        state
+        | rooms: Map.put(state.rooms, code, room),
+          player_rooms:
+            Map.merge(state.player_rooms, Map.new(Positions.player_ids(room), &{&1, code})),
+          spectator_rooms: Map.merge(state.spectator_rooms, spectators)
+      }
+
+    state = Enum.reduce(room.spectator_ids, state, &schedule_spectator_expiry(&2, code, &1))
+    broadcast_lobby_event({:room_created, room})
+
+    case {room.status, snapshot} do
+      {_, nil} ->
+        state
+
+      {:finished, snapshot} ->
+        schedule_finished_room_close(room)
+
+        state
+        |> subscribe_to_game_topic(code)
+        |> put_active_game_instance(code, snapshot)
+        |> note_absences_at_game_over(room)
+
+      {:playing, snapshot} ->
+        state = state |> subscribe_to_game_topic(code) |> put_active_game_instance(code, snapshot)
+        # The room's own update handler starts the turn timer and pacing, and
+        # the bots look for their move.
+        broadcast_initial_game_state(code, snapshot)
+        state
     end
   end
 
@@ -4940,7 +5427,13 @@ defmodule PidroServer.Games.RoomManager do
     participants = PidroServer.GameArchive.participants(room.seats)
 
     started =
-      case GameSupervisor.start_game(room.code, room.config.rule_set, room.pace, participants) do
+      case GameSupervisor.start_game(
+             room.code,
+             room.config.rule_set,
+             room.pace,
+             participants,
+             fence(state, room.code)
+           ) do
         {:error, {:already_started, pid}} -> {:ok, pid}
         result -> result
       end
@@ -4989,7 +5482,8 @@ defmodule PidroServer.Games.RoomManager do
     broadcast_lobby_event({:room_updated, updated_room})
     broadcast_seat_lifecycle(updated_room)
     broadcast_initial_game_state(room.code, snapshot)
-    new_state
+    # Saved at once: a room that comes back waiting would lose its game.
+    save_rooms(new_state)
   end
 
   defp game_summary(state) do
@@ -5379,7 +5873,7 @@ defmodule PidroServer.Games.RoomManager do
       GameAdapter.unsubscribe(room_code)
     end)
 
-    %State{}
+    %State{boot_id: state.boot_id}
   end
 
   defp subscribe_to_game_topic(%State{} = state, room_code) do
@@ -5845,6 +6339,7 @@ defmodule PidroServer.Games.RoomManager do
        when status in [:playing, :finished] do
     case GameAdapter.set_pace(code, pace) do
       {:ok, :ok} -> :ok
+      {:ok, {:error, _} = unsaved} -> unsaved
       error -> error
     end
   end
