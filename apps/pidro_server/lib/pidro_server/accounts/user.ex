@@ -102,6 +102,7 @@ defmodule PidroServer.Accounts.User do
     field(:age_declared_at, :utc_datetime_usec)
     field(:terms_version, :string)
     field(:terms_accepted_at, :utc_datetime_usec)
+    field(:news_seen_at, :utc_datetime)
     field(:avatar_url, :string, virtual: true)
     field(:linked_friend, :map, virtual: true)
     field(:level, :integer, virtual: true)

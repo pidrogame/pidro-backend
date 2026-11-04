@@ -198,6 +198,8 @@ defmodule PidroServerWeb.Router do
     # User routes with authentication
     get "/users/me/stats", UserController, :stats
     get "/feedback/ask", FeedbackController, :ask
+    get "/news", NewsController, :index
+    post "/news/seen", NewsController, :seen
     get "/users/search", FriendController, :search, private: %{rate_limit: [:user_search]}
 
     get "/friends", FriendController, :index

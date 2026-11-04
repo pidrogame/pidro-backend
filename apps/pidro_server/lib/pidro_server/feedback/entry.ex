@@ -10,6 +10,7 @@ defmodule PidroServer.Feedback.Entry do
 
   alias PidroServer.Accounts.User
   alias PidroServer.Mailer
+  alias PidroServer.News.Post
 
   @answers %{
     "pace" => ~w(too_slow right too_fast skipped),
@@ -31,13 +32,14 @@ defmodule PidroServer.Feedback.Entry do
     field :status, :string, default: "open"
     belongs_to :user, User, type: :binary_id
     belongs_to :reported_user, User, type: :binary_id
+    belongs_to :news_post, Post
 
     timestamps(type: :utc_datetime_usec)
   end
 
   @doc """
-  Casts what the app sends for `kind`; the server sets user, game and rule
-  set. A note without a reply address takes `account_email`; an answer needs
+  Casts what the app sends for `kind`; the server sets user, game, rule set
+  and the news post a note answers. A note without a reply address takes `account_email`; an answer needs
   a player.
   """
   def changeset(entry, params, account_email) do

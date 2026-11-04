@@ -7,6 +7,7 @@ defmodule PidroServerWeb.API.FeedbackControllerTest do
   alias PidroServer.Accounts.Token
   alias PidroServer.AccountsFixtures
   alias PidroServer.Feedback.Entry
+  alias PidroServer.News.Post
   alias PidroServer.Repo
   alias PidroServer.Stats.GameStats
 
@@ -82,6 +83,64 @@ defmodule PidroServerWeb.API.FeedbackControllerTest do
         assert email.text_body =~ "Reply to: No reply address"
         assert email.text_body =~ "Last game: None"
       end)
+    end
+
+    test "a note written back to a news post names it; a draft's, unknown or bad id is dropped",
+         %{conn: conn, user: user} do
+      news =
+        Repo.insert!(%Post{
+          title_en: "Bigger cards",
+          body_en: "x",
+          published_at: ~U[2026-11-01 10:00:00Z]
+        })
+
+      note = Map.put(@note, "news_post_id", news.id)
+
+      conn = conn |> auth(user) |> post(~p"/api/v1/feedback", note)
+      assert %{"data" => %{"id" => id}} = json_response(conn, 201)
+      assert %Entry{news_post_id: post_id} = Repo.get!(Entry, id)
+      assert post_id == news.id
+
+      assert_email_sent(fn email ->
+        assert email.subject ==
+                 "Re: Bigger cards · Pidro ##{id}: Trumps are hard to see in dark mode"
+      end)
+
+      draft = Repo.insert!(%Post{title_en: "Not out yet", body_en: "x"})
+
+      for bad <- [
+            draft.id,
+            news.id + 1_000,
+            "#{news.id}",
+            -1,
+            99_999_999_999_999_999_999,
+            %{"a" => 1}
+          ] do
+        conn =
+          build_conn()
+          |> auth(user)
+          |> post(~p"/api/v1/feedback", %{note | "news_post_id" => bad})
+
+        assert %{"data" => %{"id" => id}} = json_response(conn, 201)
+        assert %Entry{news_post_id: nil} = Repo.get!(Entry, id)
+        assert_email_sent(fn email -> assert email.subject =~ ~r/\APidro #/ end)
+      end
+
+      conn = build_conn() |> post(~p"/api/v1/feedback", @note)
+      assert %{"data" => %{"id" => id}} = json_response(conn, 201)
+      assert %Entry{news_post_id: nil} = Repo.get!(Entry, id)
+
+      conn =
+        build_conn()
+        |> auth(user)
+        |> post(~p"/api/v1/feedback", %{
+          "kind" => "pace",
+          "answer" => "right",
+          "news_post_id" => news.id
+        })
+
+      assert %{"data" => %{"id" => id}} = json_response(conn, 201)
+      assert %Entry{news_post_id: nil} = Repo.get!(Entry, id)
     end
 
     test "a note with null details is saved", %{conn: conn} do

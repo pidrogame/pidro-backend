@@ -9,6 +9,9 @@ defmodule PidroServer.Feedback do
 
   A report (PID-329) is a note about a player, sent from the table: the
   server quotes what it saw, and it counts in no answers and lists apart.
+
+  A note written back to a news post (PID-346) names it in `news_post_id`;
+  an unknown id or a draft's is dropped, never refused.
   """
 
   import Ecto.Query
@@ -17,6 +20,7 @@ defmodule PidroServer.Feedback do
   alias PidroServer.Emails
   alias PidroServer.Feedback.Entry
   alias PidroServer.Mailer
+  alias PidroServer.News
   alias PidroServer.Repo
   alias PidroServer.Stats.GameStats
 
@@ -29,17 +33,19 @@ defmodule PidroServer.Feedback do
   @spec create(map(), map() | nil) :: {:ok, Entry.t()} | {:error, Ecto.Changeset.t()}
   def create(params, user) do
     game = game(user, params["game_id"])
+    post = if params["kind"] == "note", do: News.get_published(params["news_post_id"])
 
     entry = %Entry{
       user_id: user && user.id,
       game_id: game && game.id,
-      rule_set: game && game.rule_set
+      rule_set: game && game.rule_set,
+      news_post_id: post && post.id
     }
 
     with {:ok, entry} <-
            entry |> Entry.changeset(params, user && user.email) |> Repo.insert(log: false) do
       if entry.kind == "note",
-        do: entry |> note_email(user, game) |> Mailer.deliver_logged("Feedback")
+        do: entry |> note_email(user, game, post) |> Mailer.deliver_logged("Feedback")
 
       {:ok, entry}
     end
@@ -122,7 +128,12 @@ defmodule PidroServer.Feedback do
   end
 
   def list(status) do
-    from(f in Entry, where: f.kind == "note", order_by: [desc: f.id], limit: 200, preload: :user)
+    from(f in Entry,
+      where: f.kind == "note",
+      order_by: [desc: f.id],
+      limit: 200,
+      preload: [:user, :news_post]
+    )
     |> where_status(status)
     |> Repo.all()
   end
@@ -206,7 +217,7 @@ defmodule PidroServer.Feedback do
     |> Repo.exists?()
   end
 
-  defp note_email(entry, user, game) do
+  defp note_email(entry, user, game, post) do
     details = entry.details
 
     body = """
@@ -227,7 +238,7 @@ defmodule PidroServer.Feedback do
     |> to(@inbox)
     |> Swoosh.Email.from({"Pidro", Emails.delivery_setup().from_address})
     |> subject(
-      "Pidro ##{entry.id}: #{entry.body |> String.replace(~r/[\s[:cntrl:]]+/u, " ") |> String.trim() |> String.slice(0, 60)}"
+      "#{if post, do: "Re: #{post.title_en} · "}Pidro ##{entry.id}: #{entry.body |> String.replace(~r/[\s[:cntrl:]]+/u, " ") |> String.trim() |> String.slice(0, 60)}"
     )
     |> text_body(body)
     |> then(fn email ->
