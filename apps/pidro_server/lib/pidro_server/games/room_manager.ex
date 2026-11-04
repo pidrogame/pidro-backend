@@ -5280,11 +5280,13 @@ defmodule PidroServer.Games.RoomManager do
     end
   end
 
-  # :playing rooms with no game process
+  # :playing rooms with no game process. The registry can still name a game
+  # for a moment after it exits, so a registered game must also be alive.
   defp missing_game_process(%Room{status: :playing}, room_code) do
-    case GameSupervisor.get_game(room_code) do
-      {:ok, _pid} -> []
-      {:error, :not_found} -> ["Health check: :playing room #{room_code} has no game process"]
+    with {:ok, pid} <- GameSupervisor.get_game(room_code), true <- Process.alive?(pid) do
+      []
+    else
+      _ -> ["Health check: :playing room #{room_code} has no game process"]
     end
   end
 
