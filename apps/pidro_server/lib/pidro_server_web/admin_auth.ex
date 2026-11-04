@@ -92,7 +92,7 @@ defmodule PidroServerWeb.AdminAuth do
 
   def redirect_if_admin_is_authenticated(conn, _opts) do
     if local_bypass?() or conn.assigns[:current_admin] do
-      redirect(conn, to: ~p"/admin/games") |> halt()
+      redirect(conn, to: ~p"/admin/dashboard") |> halt()
     else
       conn
     end
@@ -196,7 +196,7 @@ defmodule PidroServerWeb.AdminAuth do
 
   defp login_redirect(%{force_password_change: true}, _return_to), do: ~p"/admin/admins"
   defp login_redirect(_admin, return_to) when is_binary(return_to), do: return_to
-  defp login_redirect(_admin, _return_to), do: ~p"/admin/games"
+  defp login_redirect(_admin, _return_to), do: ~p"/admin/dashboard"
 
   defp maybe_store_return_to(%{method: "GET"} = conn) do
     put_session(conn, :admin_return_to, current_path(conn))

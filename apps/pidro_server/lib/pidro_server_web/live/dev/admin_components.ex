@@ -156,6 +156,9 @@ defmodule PidroServerWeb.Dev.AdminComponents do
           class="flex min-w-0 flex-1 flex-wrap items-center gap-1 p-1.5 text-sm font-medium"
           aria-label="Development admin"
         >
+          <.link navigate={~p"/admin/dashboard"} class={nav_item_class(@active == "dashboard")}>
+            <.icon name="hero-squares-2x2" class="size-4" /> Overview
+          </.link>
           <.link navigate={~p"/admin/games"} class={nav_item_class(@active == "games")}>
             <.icon name="hero-rectangle-stack" class="size-4" /> Games
           </.link>

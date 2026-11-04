@@ -292,6 +292,7 @@ defmodule PidroServerWeb.Router do
     live_session :ops,
       root_layout: {PidroServerWeb.Layouts, :dev_root},
       on_mount: [{PidroServerWeb.AdminAuth, :ensure_authenticated_and_password_changed}] do
+      live "/dashboard", DashboardLive
       live "/games", GameListLive
       live "/games/:code", GameDetailLive
       live "/game-settings", GameSettingsLive

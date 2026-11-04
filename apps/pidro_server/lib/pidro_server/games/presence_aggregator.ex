@@ -75,6 +75,9 @@ defmodule PidroServer.Games.PresenceAggregator do
     GenServer.call(__MODULE__, :get_breakdown)
   end
 
+  @doc "Returns unique connected human IDs with their primary activity for admin monitoring."
+  def online_users, do: GenServer.call(__MODULE__, :online_users)
+
   @doc false
   def reset_for_test do
     GenServer.call(__MODULE__, :reset_for_test)
@@ -107,6 +110,11 @@ defmodule PidroServer.Games.PresenceAggregator do
   end
 
   @impl true
+  def handle_call(:online_users, _from, state) do
+    users = Map.new(state.user_pids, fn {id, pids} -> {id, primary_activity(state, pids)} end)
+    {:reply, users, state}
+  end
+
   def handle_call(:get_count, _from, state) do
     {:reply, count_unique_users(state), state}
   end
