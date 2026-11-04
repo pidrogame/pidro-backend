@@ -57,12 +57,14 @@ defmodule PidroServer.Games.Lifecycle do
     turn_timer_bid_ms: 45_000,
     turn_timer_play_ms: 30_000,
     consecutive_timeout_threshold: 3,
-    bot_delay_ms: 1_500,
+    # Classic's beat: each bot action 2 s after the one before, straight
+    # across tricks, so a finished trick adds no pause of its own.
+    bot_delay_ms: 2_000,
     own_bot_delay_ms: 2_500,
-    bot_delay_variance_ms: 800,
+    bot_delay_variance_ms: 0,
     bot_min_delay_ms: 300,
     dealer_selection_delay_ms: 3_000,
-    trick_transition_delay_ms: 1_500,
+    trick_transition_delay_ms: 0,
     own_trick_transition_delay_ms: 2_500,
     sweep_trick_delay_ms: 500,
     # The hand's result stays ~6 s with no button; the next hand's deal then

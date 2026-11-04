@@ -15,6 +15,21 @@ defmodule PidroServer.Games.Bots.BotBrainTest do
         assert delay <= 50
       end)
     end
+
+    test "at the shipped quick pace a bot acts exactly 2000 ms after the action before it" do
+      path = Path.expand("../../../../../../config/config.exs", __DIR__)
+
+      lifecycle =
+        Config.Reader.read!(path, env: :prod)[:pidro_server][PidroServer.Games.Lifecycle]
+
+      Enum.each(1..50, fn _ ->
+        assert BotBrain.compute_delay(
+                 lifecycle[:bot_delay_ms],
+                 lifecycle[:bot_delay_variance_ms],
+                 lifecycle[:bot_min_delay_ms]
+               ) == 2_000
+      end)
+    end
   end
 
   describe "schedule_move_once/3" do

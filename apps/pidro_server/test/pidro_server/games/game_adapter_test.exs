@@ -1,5 +1,5 @@
 defmodule PidroServer.Games.GameAdapterTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   alias PidroServer.Games.{GameAdapter, Lifecycle}
 
@@ -30,6 +30,34 @@ defmodule PidroServer.Games.GameAdapterTest do
 
       assert GameAdapter.transition_delay_ms(old_state, new_state) ==
                Lifecycle.config(:trick_transition_delay_ms)
+    end
+
+    test "at the shipped pacing a finished trick adds no pause at quick pace and 2.5 s at own pace" do
+      original = Application.get_env(:pidro_server, Lifecycle)
+      on_exit(fn -> Application.put_env(:pidro_server, Lifecycle, original) end)
+
+      Config.Reader.read!(Path.expand("../../../../../config/config.exs", __DIR__), env: :prod)
+      |> get_in([:pidro_server, Lifecycle])
+      |> then(&Application.put_env(:pidro_server, Lifecycle, &1))
+
+      old_state = %{
+        phase: :playing,
+        hand_number: 1,
+        tricks: [],
+        current_trick: %{plays: [1, 2, 3]}
+      }
+
+      new_state = %{
+        phase: :playing,
+        hand_number: 1,
+        tricks: [%{winner: :north}],
+        current_trick: nil
+      }
+
+      assert GameAdapter.transition_delay_ms(old_state, new_state) == 0
+
+      assert GameAdapter.transition_delay_ms(old_state, put_in(new_state[:config], %{pace: :own})) ==
+               2_500
     end
 
     test "holds play for the second deal once trump is named" do

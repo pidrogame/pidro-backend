@@ -82,7 +82,7 @@ defmodule PidroServerWeb.Dev.GameListLiveTest do
     _ = render_click(view, "reset_pacing")
 
     defaults = Lifecycle.defaults()
-    assert render(view) =~ "Bots will act between 700ms and 2300ms"
+    assert render(view) =~ "Bots will act between 2000ms and 2000ms"
     assert Lifecycle.config(:bot_delay_ms) == defaults.bot_delay_ms
     assert Lifecycle.config(:trick_transition_delay_ms) == defaults.trick_transition_delay_ms
   end

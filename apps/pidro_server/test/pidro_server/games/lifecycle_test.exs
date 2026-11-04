@@ -42,12 +42,12 @@ defmodule PidroServer.Games.LifecycleTest do
     turn_timer_bid_ms: 45_000,
     turn_timer_play_ms: 30_000,
     consecutive_timeout_threshold: 3,
-    bot_delay_ms: 1_500,
+    bot_delay_ms: 2_000,
     own_bot_delay_ms: 2_500,
-    bot_delay_variance_ms: 800,
+    bot_delay_variance_ms: 0,
     bot_min_delay_ms: 300,
     dealer_selection_delay_ms: 3_000,
-    trick_transition_delay_ms: 1_500,
+    trick_transition_delay_ms: 0,
     own_trick_transition_delay_ms: 2_500,
     sweep_trick_delay_ms: 500,
     hand_transition_delay_ms: 6_000,
@@ -119,8 +119,13 @@ defmodule PidroServer.Games.LifecycleTest do
       assert Lifecycle.defaults() == @expected_defaults
     end
 
-    test "all values are positive integers" do
-      for {key, value} <- Lifecycle.defaults() do
+    test "all values are positive integers, but for the two zeros of Classic's even beat" do
+      {zeros, rest} =
+        Map.split(Lifecycle.defaults(), [:bot_delay_variance_ms, :trick_transition_delay_ms])
+
+      assert zeros == %{bot_delay_variance_ms: 0, trick_transition_delay_ms: 0}
+
+      for {key, value} <- rest do
         assert is_integer(value) and value > 0,
                "expected #{key} to be a positive integer, got #{inspect(value)}"
       end
