@@ -211,7 +211,7 @@ defmodule PidroServerWeb.Dev.UserDetailLive do
                 Veteran
               </p>
               <span class="rounded-md bg-stone-950 px-2 py-1 text-xs font-black text-white">
-                Lvl {@profile.veteran_level}
+                {level_label(@profile.veteran_level, @profile.veteran_prestige)}
               </span>
             </div>
             <p class="mt-2 text-lg font-black text-stone-950">{@profile.veteran_title}</p>

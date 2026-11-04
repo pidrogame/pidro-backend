@@ -15,6 +15,38 @@ defmodule PidroServerWeb.API.ProfileControllerTest do
     put_req_header(conn, "authorization", "Bearer #{Token.generate(user)}")
   end
 
+  defp put_profile(user, fields) do
+    {:ok, _profile} = Profiles.get_or_create_profile(user.id)
+
+    from(p in PidroServer.Profiles.PlayerProfile, where: p.user_id == ^user.id)
+    |> Repo.update_all(set: fields)
+  end
+
+  defp shared_game(seats, winner) do
+    results =
+      Map.new(seats, fn seat ->
+        {user, position, participation} =
+          case seat do
+            {user, position} -> {user, position, :played}
+            seat -> seat
+          end
+
+        team = if position in [:north, :south], do: :north_south, else: :east_west
+        result = if team == winner, do: :win, else: :loss
+        {user.id, %{participation: participation, result: result, team: team, position: position}}
+      end)
+
+    %PidroServer.Stats.GameStats{}
+    |> PidroServer.Stats.GameStats.changeset(%{
+      room_code: "TOGE",
+      completed_at: DateTime.utc_now(),
+      winner: winner,
+      player_ids: Map.keys(results),
+      player_results: results
+    })
+    |> Repo.insert!()
+  end
+
   describe "show/2" do
     test "authed request returns all profile sections", %{conn: conn} do
       user = AccountsFixtures.user_fixture()
@@ -299,7 +331,7 @@ defmodule PidroServerWeb.API.ProfileControllerTest do
           |> Map.fetch!("data")
 
         assert Map.keys(data) |> Enum.sort() ==
-                 ~w(avatar_url bio display_name user_id username)a
+                 ~w(avatar_url bio classic display_name level medals pin prestige record title together user_id username)a
                  |> Enum.map(&Atom.to_string/1)
                  |> Enum.sort()
 
@@ -310,6 +342,179 @@ defmodule PidroServerWeb.API.ProfileControllerTest do
         refute Map.has_key?(data, "email")
         refute Map.has_key?(data, "token")
       end
+    end
+
+    test "the player sheet: a Legend, a level-12 player, a Classic claimer and a guest" do
+      viewer = AccountsFixtures.user_fixture()
+      legend = AccountsFixtures.user_fixture()
+      regular = AccountsFixtures.user_fixture()
+      classic = AccountsFixtures.user_fixture()
+      guest = AccountsFixtures.guest_fixture()
+
+      put_profile(legend, veteran_xp: 2_800_000)
+      put_profile(regular, veteran_xp: 11_520, games_played: 8, wins: 6, losses: 2)
+      :awarded = Profiles.award_achievement(legend.id, :player)
+      :awarded = Profiles.award_achievement(legend.id, :winner)
+
+      {:ok, _} =
+        Profiles.import_legacy_progression(classic, %{
+          xp: 9_999,
+          classic_username: "Veteran",
+          classic_name_allowed: true,
+          legacy_played_games: 100,
+          legacy_victories: 61,
+          legacy_losses: 39,
+          games_played_counter: 20,
+          wins: 12,
+          losses: 8,
+          member_since: "2013-04-12T09:30:00Z"
+        })
+
+      put_profile(classic, games_played: 5, wins: 2, losses: 3)
+
+      sheet = fn user ->
+        response =
+          build_conn()
+          |> auth(viewer)
+          |> get(~p"/api/v1/profiles/#{user.id}")
+          |> json_response(200)
+
+        OpenApiSpex.TestAssertions.assert_schema(
+          response,
+          "Public Profile Response",
+          PidroServerWeb.ApiSpec.spec()
+        )
+
+        Map.drop(response["data"], ~w(user_id username display_name avatar_url bio))
+      end
+
+      no_games = %{"games" => 0, "won_as_partners" => 0, "against_games" => 0, "against_won" => 0}
+
+      assert sheet.(legend) == %{
+               "level" => 100,
+               "prestige" => 4,
+               "title" => "Legend",
+               "pin" => nil,
+               "classic" => nil,
+               "record" => %{"games" => 0, "win_rate" => 0.0},
+               "medals" => 2,
+               "together" => no_games
+             }
+
+      assert sheet.(regular) == %{
+               "level" => 12,
+               "prestige" => 0,
+               "title" => "Journeyman",
+               "pin" => nil,
+               "classic" => nil,
+               "record" => %{"games" => 8, "win_rate" => 0.75},
+               "medals" => 0,
+               "together" => no_games
+             }
+
+      # Classic 100 old + 20 counted games (61 + 12 won) plus 5 Pidro 2 games (2 won).
+      assert sheet.(classic) == %{
+               "level" => PidroServer.Progression.level_for_xp(9_999),
+               "prestige" => 0,
+               "title" =>
+                 PidroServer.Progression.title_for_level(
+                   PidroServer.Progression.level_for_xp(9_999)
+                 ),
+               "pin" => "classic",
+               "classic" => %{
+                 "username" => "Veteran",
+                 "member_since" => "2013-04-12T09:30:00Z",
+                 "games_played" => 120
+               },
+               "record" => %{"games" => 125, "win_rate" => 0.6},
+               "medals" => 0,
+               "together" => no_games
+             }
+
+      assert sheet.(guest) == %{
+               "level" => 1,
+               "prestige" => 0,
+               "title" => "Rookie",
+               "pin" => nil,
+               "classic" => nil,
+               "record" => %{"games" => 0, "win_rate" => 0.0},
+               "medals" => 0,
+               "together" => no_games
+             }
+
+      # Reading a sheet creates no profile row for a player who has none.
+      refute Repo.get_by(PidroServer.Profiles.PlayerProfile, user_id: guest.id)
+    end
+
+    test "together counts shared Pidro 2 games from the viewer's side, in one query" do
+      [me, them, other, fourth] = for _ <- 1..4, do: AccountsFixtures.user_fixture()
+      guest = AccountsFixtures.guest_fixture()
+
+      # Partners won, partners lost, then three against each other: I win two, they win one.
+      shared_game([{me, :north}, {them, :south}, {other, :east}, {fourth, :west}], :north_south)
+      shared_game([{me, :east}, {them, :west}, {other, :north}], :north_south)
+      shared_game([{me, :north}, {them, :east}], :north_south)
+      shared_game([{me, :west}, {them, :south}, {other, :north}], :east_west)
+      shared_game([{me, :north}, {them, :west}, {fourth, :south}], :east_west)
+      # Not together: each with someone else.
+      shared_game([{me, :north}, {other, :south}], :north_south)
+      shared_game([{them, :north}, {fourth, :east}], :north_south)
+      # They took over my seat after I left: we never sat together.
+      shared_game([{me, :north, :abandoned}, {them, :north, :substitute}], :north_south)
+      # A guest viewer partnered them once and won.
+      shared_game([{guest, :east}, {them, :west}], :east_west)
+
+      together = fn viewer, user ->
+        build_conn()
+        |> auth(viewer)
+        |> get(~p"/api/v1/profiles/#{user.id}")
+        |> json_response(200)
+        |> get_in(["data", "together"])
+      end
+
+      handler = {__MODULE__, make_ref()}
+
+      :telemetry.attach(
+        handler,
+        [:pidro_server, :repo, :query],
+        fn _, _, meta, owner ->
+          if meta.source == "game_stats", do: send(owner, :game_stats_query)
+        end,
+        self()
+      )
+
+      on_exit(fn -> :telemetry.detach(handler) end)
+
+      assert together.(me, them) == %{
+               "games" => 5,
+               "won_as_partners" => 1,
+               "against_games" => 3,
+               "against_won" => 2
+             }
+
+      assert_received :game_stats_query
+      refute_received :game_stats_query
+
+      assert together.(them, me) == %{
+               "games" => 5,
+               "won_as_partners" => 1,
+               "against_games" => 3,
+               "against_won" => 1
+             }
+
+      assert together.(me, me) == %{
+               "games" => 0,
+               "won_as_partners" => 0,
+               "against_games" => 0,
+               "against_won" => 0
+             }
+
+      assert together.(guest, them) == %{
+               "games" => 1,
+               "won_as_partners" => 1,
+               "against_games" => 0,
+               "against_won" => 0
+             }
     end
 
     test "missing and malformed UUIDs are 404 and authentication is required", %{conn: conn} do

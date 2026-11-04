@@ -1,6 +1,7 @@
 defmodule PidroServerWeb.Dev.UserManagementLiveTest do
   use PidroServerWeb.ConnCase, async: false
 
+  import Ecto.Query, only: [from: 2]
   import Phoenix.LiveViewTest
 
   alias PidroServer.Accounts.Auth
@@ -158,6 +159,36 @@ defmodule PidroServerWeb.Dev.UserManagementLiveTest do
     assert html =~ "Skill tier"
     assert html =~ "Lvl "
     assert html =~ "Provisional"
+  end
+
+  test "Legends show their stars in the list and on the detail page", %{conn: conn} do
+    legend = AccountsFixtures.user_fixture(%{username: "list_legend"})
+    capped = AccountsFixtures.user_fixture(%{username: "list_capped"})
+    regular = AccountsFixtures.user_fixture(%{username: "list_regular"})
+
+    for {user, xp} <- [{legend, 2_800_000}, {capped, 800_000}, {regular, 11_520}] do
+      {:ok, _profile} = Profiles.get_or_create_profile(user.id)
+
+      PidroServer.Repo.update_all(
+        from(p in PidroServer.Profiles.PlayerProfile, where: p.user_id == ^user.id),
+        set: [veteran_xp: xp]
+      )
+    end
+
+    {:ok, _view, html} = live(conn, ~p"/admin/users")
+
+    assert html =~ "Legend ★4"
+    assert html =~ "Lvl 100 · Legend"
+    assert html =~ "Lvl 12"
+
+    for {user, label} <- [
+          {legend, "Legend ★4"},
+          {capped, "Lvl 100 · Legend"},
+          {regular, "Lvl 12"}
+        ] do
+      {:ok, _view, html} = live(conn, ~p"/admin/users/#{user.id}")
+      assert html =~ label
+    end
   end
 
   defp save_game(user, room_code, result) do

@@ -128,6 +128,8 @@ defmodule PidroServerWeb.API.AuthControllerTest do
       user_id: owner_id,
       display_name: owner.display_name || owner.username,
       avatar_url: nil,
+      level: 1,
+      prestige: 0,
       presence: "offline",
       join_as: nil
     }
@@ -136,6 +138,8 @@ defmodule PidroServerWeb.API.AuthControllerTest do
       user_id: id,
       display_name: data["user"]["display_name"] || data["user"]["username"],
       avatar_url: nil,
+      level: 1,
+      prestige: 0,
       presence: "offline"
     }
 

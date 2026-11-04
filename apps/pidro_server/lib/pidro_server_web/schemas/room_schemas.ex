@@ -94,6 +94,13 @@ defmodule PidroServerWeb.Schemas.RoomSchemas do
           description:
             "Occupant's all-time level; null for bots, vacant seats and ids that resolve to nobody"
         },
+        prestige: %Schema{
+          type: :integer,
+          nullable: true,
+          minimum: 0,
+          description:
+            "Occupant's Legend stars, one per 500,000 XP past level 100 (0 below that); null when level is null"
+        },
         pin: %Schema{
           type: :string,
           enum: ["classic"],

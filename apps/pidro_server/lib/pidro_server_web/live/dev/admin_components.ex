@@ -252,6 +252,13 @@ defmodule PidroServerWeb.Dev.AdminComponents do
     """
   end
 
+  @doc "A player's level as admin screens show it, with Legend stars past level 100."
+  def level_label(_level, prestige) when is_integer(prestige) and prestige >= 1,
+    do: "Legend ★#{prestige}"
+
+  def level_label(100, _prestige), do: "Lvl 100 · Legend"
+  def level_label(level, _prestige), do: "Lvl #{level}"
+
   defp nav_item_class(true) do
     "inline-flex items-center gap-2 rounded-md bg-stone-100 px-3 py-2 text-stone-950 transition active:translate-y-px"
   end

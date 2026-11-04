@@ -37,6 +37,7 @@ defmodule PidroServer.Games.SeatLifecycle do
               |> Map.put(:display_name, name)
               |> Map.put(:avatar_url, if(profile, do: BotCatalogue.avatar_url(profile)))
               |> Map.put(:level, nil)
+              |> Map.put(:prestige, nil)
               |> Map.put(:pin, nil)
 
             seat.player_id ->
@@ -45,6 +46,7 @@ defmodule PidroServer.Games.SeatLifecycle do
               |> Map.put(:display_name, display_name(users, seat.player_id))
               |> Map.put(:avatar_url, avatar_url(users, seat.player_id))
               |> Map.put(:level, user_field(users, seat.player_id, :level))
+              |> Map.put(:prestige, user_field(users, seat.player_id, :prestige))
               |> Map.put(:pin, user_field(users, seat.player_id, :pin))
 
             true ->
@@ -52,6 +54,7 @@ defmodule PidroServer.Games.SeatLifecycle do
               |> Map.put(:display_name, seat.username)
               |> Map.put(:avatar_url, nil)
               |> Map.put(:level, nil)
+              |> Map.put(:prestige, nil)
               |> Map.put(:pin, nil)
           end
 

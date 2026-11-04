@@ -252,10 +252,11 @@ defmodule PidroServer.Profiles do
   @doc """
   Bulk progression summaries for a list of user ids, in ONE query.
 
-  Returns `%{user_id => %{veteran_level: pos_integer(), tier: Rating.Tier.tier(),
-  provisional: boolean(), pin: "classic" | nil}}`. Each value carries the
-  canonical level (recomputed from stored XP, so a stale `veteran_level` cache
-  can never surface), the skill tier classified in memory via
+  Returns `%{user_id => %{veteran_level: pos_integer(), prestige:
+  non_neg_integer(), tier: Rating.Tier.tier(), provisional: boolean(), pin:
+  "classic" | nil}}`. Each value carries the canonical level and Legend stars
+  (both recomputed from stored XP, so a stale `veteran_level` cache can never
+  surface), the skill tier classified in memory via
   `Rating.Tier.classify/1`, and the pin shown on a seat (`"classic"` for a
   claimed Classic account). Users without a `player_profiles` row are simply
   absent from the map; the caller renders sane defaults (level 1 / provisional)
@@ -268,6 +269,7 @@ defmodule PidroServer.Profiles do
           %{
             optional(Ecto.UUID.t()) => %{
               veteran_level: pos_integer(),
+              prestige: non_neg_integer(),
               tier: atom(),
               provisional: boolean(),
               pin: String.t() | nil
@@ -289,10 +291,90 @@ defmodule PidroServer.Profiles do
       {user_id,
        %{
          veteran_level: Progression.level_for_xp(veteran_xp),
+         prestige: Progression.prestige_for_xp(veteran_xp),
          tier: tier,
          provisional: provisional,
-         pin: if(heritage_value(heritage_flags, :played_pidro_one) == true, do: "classic")
+         pin: pin(heritage_flags)
        }}
+    end)
+  end
+
+  defp pin(heritage_flags),
+    do: if(heritage_value(heritage_flags, :played_pidro_one) == true, do: "classic")
+
+  @doc """
+  What another player's sheet shows about `user_id` to `viewer_id`: level,
+  Legend stars, title and pin, the Classic years, the combined record, the
+  medal count, and the games the two have played `together`. Reads only; a
+  user without a profile row reads as a new player.
+  """
+  @spec player_sheet(Ecto.UUID.t(), Ecto.UUID.t()) :: map()
+  def player_sheet(user_id, viewer_id) do
+    profile = Repo.get_by(PlayerProfile, user_id: user_id) || %PlayerProfile{}
+    level = Progression.level_for_xp(profile.veteran_xp)
+    classic = classic_profile(profile.heritage_flags, nil)
+
+    %{
+      level: level,
+      prestige: Progression.prestige_for_xp(profile.veteran_xp),
+      title: Progression.title_for_level(level),
+      pin: pin(profile.heritage_flags),
+      classic:
+        classic &&
+          %{
+            username: classic[:name],
+            member_since: classic[:member_since],
+            games_played: classic[:games_played]
+          },
+      record: profile |> record(classic || %{}) |> Map.take([:games, :win_rate]),
+      medals: user_id |> list_achievements() |> screen_achievements() |> length(),
+      together: together(viewer_id, user_id)
+    }
+  end
+
+  @no_games_together %{games: 0, won_as_partners: 0, against_games: 0, against_won: 0}
+
+  # Completed Pidro 2 games both played, from the viewer's side: on the same
+  # team they were partners, otherwise opponents. `against_won` counts the
+  # viewer's wins. Two players recorded at one seat (one left, the other took
+  # it over) never sat together, so that game does not count.
+  defp together(user_id, user_id), do: @no_games_together
+
+  defp together(viewer_id, user_id) do
+    from(gs in GameStats,
+      # `@>` lets the GIN index on player_ids find the shared games.
+      where: fragment("? @> ?", gs.player_ids, type(^[viewer_id, user_id], {:array, Ecto.UUID})),
+      select: gs.player_results
+    )
+    |> Repo.all()
+    |> Enum.reduce(@no_games_together, fn results, acc ->
+      viewer = get_player_result(%{player_results: results}, viewer_id)
+      other = get_player_result(%{player_results: results}, user_id)
+      won = if win_from_result?(viewer), do: 1, else: 0
+
+      seat = position_of(viewer)
+
+      case {team_of(viewer), team_of(other), seat != nil and seat == position_of(other)} do
+        {nil, _, _} ->
+          acc
+
+        {_, nil, _} ->
+          acc
+
+        {_, _, true} ->
+          acc
+
+        {team, team, false} ->
+          %{acc | games: acc.games + 1, won_as_partners: acc.won_as_partners + won}
+
+        _ ->
+          %{
+            acc
+            | games: acc.games + 1,
+              against_games: acc.against_games + 1,
+              against_won: acc.against_won + won
+          }
+      end
     end)
   end
 
@@ -1136,6 +1218,10 @@ defmodule PidroServer.Profiles do
   defp team_of(%{team: team}), do: normalize_team(team)
   defp team_of(%{"team" => team}), do: normalize_team(team)
   defp team_of(_result), do: nil
+
+  defp position_of(%{position: position}), do: to_string(position)
+  defp position_of(%{"position" => position}), do: to_string(position)
+  defp position_of(_result), do: nil
 
   defp normalize_team(team) when is_atom(team) and not is_nil(team), do: Atom.to_string(team)
   defp normalize_team(team), do: team

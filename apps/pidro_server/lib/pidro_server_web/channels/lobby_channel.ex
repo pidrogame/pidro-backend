@@ -365,6 +365,7 @@ defmodule PidroServerWeb.LobbyChannel do
       bot_profile: profile,
       avatar_url: profile && profile.avatar_url,
       level: nil,
+      prestige: nil,
       pin: nil
     }
   end
@@ -380,6 +381,7 @@ defmodule PidroServerWeb.LobbyChannel do
           bot_persona: nil,
           avatar_url: user.avatar_url,
           level: user.level,
+          prestige: user.prestige,
           pin: user.pin
         }
 
@@ -393,6 +395,7 @@ defmodule PidroServerWeb.LobbyChannel do
           bot_persona: nil,
           avatar_url: nil,
           level: nil,
+          prestige: nil,
           pin: nil
         }
     end

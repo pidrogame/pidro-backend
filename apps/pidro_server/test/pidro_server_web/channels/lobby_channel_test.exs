@@ -916,6 +916,23 @@ defmodule PidroServerWeb.LobbyChannelTest do
       refute north.player.display_name == guest.username
     end
 
+    test "lobby rows carry level and Legend stars; bot seats carry neither", %{socket: socket} do
+      host = PidroServer.AccountsFixtures.user_fixture()
+      {:ok, _} = PidroServer.Profiles.import_legacy_progression(host.id, %{xp: 2_800_000})
+      {:ok, room} = RoomManager.create_room(host.id, %{name: "Legend table"})
+
+      assert {:ok, _, :east} =
+               RoomManager.join_bot(room.code, "bot_#{room.code}_east", self(), :east)
+
+      {:ok, reply, _socket} = subscribe_and_join(socket, LobbyChannel, "lobby", %{})
+
+      seats = Enum.find(reply.rooms, &(&1.code == room.code)).seats
+      player = &Enum.find(seats, fn seat -> seat.position == &1 end).player
+
+      assert %{level: 100, prestige: 4, pin: "classic"} = player.(:north)
+      assert %{level: nil, prestige: nil, pin: nil} = player.(:east)
+    end
+
     test "a bot seat carries its persona; a human seat carries none", %{socket: socket} do
       host = PidroServer.AccountsFixtures.user_fixture()
       {:ok, room} = RoomManager.create_room(host.id, %{name: "Crew table"}, seed: 1)

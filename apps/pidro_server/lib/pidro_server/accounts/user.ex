@@ -105,6 +105,7 @@ defmodule PidroServer.Accounts.User do
     field(:avatar_url, :string, virtual: true)
     field(:linked_friend, :map, virtual: true)
     field(:level, :integer, virtual: true)
+    field(:prestige, :integer, virtual: true)
     field(:pin, :string, virtual: true)
 
     timestamps(type: :utc_datetime_usec)

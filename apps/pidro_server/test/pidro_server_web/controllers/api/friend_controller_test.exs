@@ -497,6 +497,8 @@ defmodule PidroServerWeb.API.FriendControllerTest do
       "user_id" => user.id,
       "display_name" => user.display_name || user.username,
       "avatar_url" => nil,
+      "level" => 1,
+      "prestige" => 0,
       "presence" => "offline"
     }
 

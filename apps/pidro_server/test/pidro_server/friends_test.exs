@@ -382,6 +382,50 @@ defmodule PidroServer.FriendsTest do
            }
   end
 
+  test "friend rows carry level and Legend stars from one batched profile read" do
+    caller = user_fixture()
+    [legend, regular, newcomer] = friends = for _ <- 1..3, do: user_fixture()
+    level_12_xp = Enum.at(PidroServer.Progression.thresholds(), 10)
+    assert PidroServer.Progression.level_for_xp(level_12_xp) == 12
+
+    for user <- friends do
+      {:ok, _} = Friends.add(caller.id, user.id)
+      {:ok, _} = Friends.add(user.id, caller.id)
+    end
+
+    for {user, xp} <- [{legend, 2_800_000}, {regular, level_12_xp}] do
+      {:ok, _} = PidroServer.Profiles.get_or_create_profile(user.id)
+
+      Repo.update_all(
+        from(p in PidroServer.Profiles.PlayerProfile, where: p.user_id == ^user.id),
+        set: [veteran_xp: xp]
+      )
+    end
+
+    handler = {__MODULE__, make_ref()}
+
+    :telemetry.attach(
+      handler,
+      [:pidro_server, :repo, :query],
+      fn _, _, meta, owner ->
+        if meta.source == "player_profiles", do: send(owner, :profile_query)
+      end,
+      self()
+    )
+
+    on_exit(fn -> :telemetry.detach(handler) end)
+
+    rows = Friends.list(caller.id).friends
+    assert_received :profile_query
+    refute_received :profile_query
+
+    assert Map.new(rows, &{&1.user_id, {&1.level, &1.prestige}}) == %{
+             legend.id => {100, 4},
+             regular.id => {12, 0},
+             newcomer.id => {1, 0}
+           }
+  end
+
   test "only a started game is with bots; a table that has not started is with people" do
     caller = user_fixture()
 

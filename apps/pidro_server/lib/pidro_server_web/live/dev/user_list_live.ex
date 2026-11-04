@@ -313,7 +313,8 @@ defmodule PidroServerWeb.Dev.UserListLive do
                     {format_percent(row_stats(@stats_by_user, user.id).win_rate)}
                   </td>
                   <td class="px-4 py-3 text-sm font-semibold text-stone-700">
-                    Lvl {row_summary(@summaries_by_user, user.id).veteran_level}
+                    <% summary = row_summary(@summaries_by_user, user.id) %>
+                    {level_label(summary.veteran_level, summary.prestige)}
                   </td>
                   <td class="px-4 py-3 text-sm">
                     <% summary = row_summary(@summaries_by_user, user.id) %>
@@ -484,7 +485,12 @@ defmodule PidroServerWeb.Dev.UserListLive do
   end
 
   defp row_summary(summaries_by_user, user_id) do
-    Map.get(summaries_by_user, user_id, %{veteran_level: 1, tier: :provisional, provisional: true})
+    Map.get(summaries_by_user, user_id, %{
+      veteran_level: 1,
+      prestige: 0,
+      tier: :provisional,
+      provisional: true
+    })
   end
 
   defp tier_label(tier) when is_atom(tier), do: tier |> Atom.to_string() |> String.capitalize()

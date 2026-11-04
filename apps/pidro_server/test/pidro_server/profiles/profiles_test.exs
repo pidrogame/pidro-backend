@@ -689,6 +689,7 @@ defmodule PidroServer.ProfilesTest do
 
       assert summaries[rookie.id] == %{
                veteran_level: 1,
+               prestige: 0,
                tier: :provisional,
                provisional: true,
                pin: nil

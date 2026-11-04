@@ -89,7 +89,7 @@ defmodule PidroServerWeb.API.ProfileController do
     security: [%{"bearer" => []}],
     parameters: [id: [in: :path, type: :string, required: true]],
     responses: [
-      ok: {"Public profile", "application/json", %OpenApiSpex.Schema{type: :object}},
+      ok: {"Public profile", "application/json", ProfileSchemas.PublicProfileResponse},
       not_found: {"User not found", "application/json", ErrorSchemas.not_found_error()}
     ]
   )
@@ -99,7 +99,7 @@ defmodule PidroServerWeb.API.ProfileController do
     security: [%{"bearer" => []}],
     parameters: [slug: [in: :path, type: :string, required: true]],
     responses: [
-      ok: {"Public profile", "application/json", %OpenApiSpex.Schema{type: :object}},
+      ok: {"Public profile", "application/json", ProfileSchemas.PublicProfileResponse},
       not_found: {"User not found", "application/json", ErrorSchemas.not_found_error()}
     ]
   )
@@ -138,13 +138,16 @@ defmodule PidroServerWeb.API.ProfileController do
 
   def public(conn, %{"id" => id}) do
     with {:ok, profile} <- Auth.public_profile(id) do
-      json(conn, %{data: profile})
+      json(conn, %{data: with_player_sheet(profile, conn)})
     end
   end
 
   def by_slug(conn, %{"slug" => slug}) do
     with {:ok, profile} <- Auth.public_profile_by_slug(slug) do
-      json(conn, %{data: profile})
+      json(conn, %{data: with_player_sheet(profile, conn)})
     end
   end
+
+  defp with_player_sheet(profile, conn),
+    do: Map.merge(profile, Profiles.player_sheet(profile.user_id, conn.assigns.current_user.id))
 end

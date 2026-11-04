@@ -470,6 +470,7 @@ defmodule PidroServerWeb.GameChannelTest do
                display_name: nil,
                avatar_url: nil,
                level: nil,
+               prestige: nil,
                pin: nil,
                decision: nil
              }
@@ -518,6 +519,30 @@ defmodule PidroServerWeb.GameChannelTest do
         assert %{level: ^veteran_level, pin: "classic"} = seats.north
         # A player who has not finished a game yet has no profile row.
         assert %{level: 1, pin: nil} = seats.east
+      end
+    end
+
+    test "every seat payload carries Legend stars: 0 at level 100, one per 500k XP past it",
+         context do
+      for {user, xp} <- [{context.user1, 800_000}, {context.user2, 2_800_000}] do
+        {:ok, _profile} = Profiles.get_or_create_profile(user.id)
+
+        from(p in PlayerProfile, where: p.user_id == ^user.id)
+        |> PidroServer.Repo.update_all(set: [veteran_xp: xp])
+      end
+
+      {:ok, join_reply, _socket} =
+        subscribe_and_join(
+          context.sockets[context.user1.id],
+          GameChannel,
+          "game:#{context.room_code}"
+        )
+
+      for seats <- [join_reply.seat_lifecycle.seats, join_reply.readiness.seats] do
+        assert %{level: 100, prestige: 0, pin: nil} = seats.north
+        assert %{level: 100, prestige: 4, pin: nil} = seats.east
+        # No profile row yet: a new player.
+        assert %{level: 1, prestige: 0, pin: nil} = seats.south
       end
     end
 

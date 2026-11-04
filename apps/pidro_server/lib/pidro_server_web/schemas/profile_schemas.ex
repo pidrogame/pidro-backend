@@ -398,4 +398,106 @@ defmodule PidroServerWeb.Schemas.ProfileSchemas do
       }
     })
   end
+
+  defmodule PublicProfileResponse do
+    @moduledoc """
+    Another player's sheet: public identity, level and Legend stars, the
+    Classic years, the combined record, the medal count, and the viewer's
+    games with this player.
+    """
+
+    OpenApiSpex.schema(%{
+      type: :object,
+      title: "Public Profile Response",
+      required: [:data],
+      properties: %{
+        data: %Schema{
+          type: :object,
+          required: [
+            :user_id,
+            :username,
+            :display_name,
+            :avatar_url,
+            :bio,
+            :level,
+            :prestige,
+            :title,
+            :pin,
+            :classic,
+            :record,
+            :medals,
+            :together
+          ],
+          properties: %{
+            user_id: %Schema{type: :string, format: :uuid},
+            username: %Schema{type: :string, nullable: true},
+            display_name: %Schema{type: :string, nullable: true},
+            avatar_url: %Schema{type: :string, nullable: true},
+            bio: %Schema{type: :string, nullable: true},
+            level: %Schema{type: :integer, minimum: 1, maximum: 100, example: 100},
+            prestige: %Schema{
+              type: :integer,
+              minimum: 0,
+              description: "Legend stars, one per 500,000 XP past level 100 (0 below that)",
+              example: 4
+            },
+            title: %Schema{type: :string, example: "Legend"},
+            pin: %Schema{
+              type: :string,
+              enum: ["classic"],
+              nullable: true,
+              description: "\"classic\" for a claimed Classic account, else null"
+            },
+            classic: %Schema{
+              type: :object,
+              nullable: true,
+              description: "The Classic years, or null for a player who never played Classic",
+              required: [:username, :member_since, :games_played],
+              properties: %{
+                username: %Schema{
+                  type: :string,
+                  nullable: true,
+                  description: "Classic name, null unless approved for display"
+                },
+                member_since: %Schema{type: :string, format: "date-time", nullable: true},
+                games_played: %Schema{type: :integer, minimum: 0, nullable: true}
+              }
+            },
+            record: %Schema{
+              type: :object,
+              description: "Pidro 2 and Classic games added up, as on the player's own profile",
+              required: [:games, :win_rate],
+              properties: %{
+                games: %Schema{type: :integer, minimum: 0, example: 10_420},
+                win_rate: %Schema{
+                  type: :number,
+                  format: :double,
+                  minimum: 0.0,
+                  maximum: 1.0,
+                  example: 0.53
+                }
+              }
+            },
+            medals: %Schema{type: :integer, minimum: 0, description: "Achievements earned"},
+            together: %Schema{
+              type: :object,
+              description:
+                "Completed Pidro 2 games the viewer played with this player; all zeros on your own sheet",
+              required: [:games, :won_as_partners, :against_games, :against_won],
+              properties: %{
+                games: %Schema{type: :integer, minimum: 0, description: "Every game together"},
+                won_as_partners: %Schema{type: :integer, minimum: 0},
+                against_games: %Schema{type: :integer, minimum: 0},
+                against_won: %Schema{
+                  type: :integer,
+                  minimum: 0,
+                  description: "Games against this player that the viewer won"
+                }
+              }
+            }
+          }
+        }
+      }
+    })
+  end
 end

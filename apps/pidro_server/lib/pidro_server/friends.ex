@@ -385,6 +385,8 @@ defmodule PidroServer.Friends do
         user_id: id,
         display_name: User.public_name(user),
         avatar_url: user.avatar_url,
+        level: user.level,
+        prestige: user.prestige,
         presence: "offline"
       }
 

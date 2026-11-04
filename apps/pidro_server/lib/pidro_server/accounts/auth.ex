@@ -598,8 +598,8 @@ defmodule PidroServer.Accounts.Auth do
 
   Returns a map where keys are user IDs and values are user structs.
   Only returns users that exist. Each user carries the seat badges: `level`
-  (all-time, from XP) and `pin` (`"classic"` or nil), looked up for all users
-  in one more query.
+  (all-time, from XP), `prestige` (Legend stars past level 100, from XP) and
+  `pin` (`"classic"` or nil), looked up for all users in one more query.
 
   ## Examples
 
@@ -639,8 +639,11 @@ defmodule PidroServer.Accounts.Auth do
 
     Enum.map(users, fn user ->
       case Map.get(summaries, user.id) do
-        %{veteran_level: level, pin: pin} -> %{user | level: level, pin: pin}
-        nil -> %{user | level: Progression.level_for_xp(0), pin: nil}
+        %{veteran_level: level, prestige: prestige, pin: pin} ->
+          %{user | level: level, prestige: prestige, pin: pin}
+
+        nil ->
+          %{user | level: Progression.level_for_xp(0), prestige: 0, pin: nil}
       end
     end)
   end

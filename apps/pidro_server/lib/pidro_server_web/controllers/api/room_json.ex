@@ -214,6 +214,7 @@ defmodule PidroServerWeb.API.RoomJSON do
     |> Map.put(:display_name, seat_display_name(seat, user))
     |> Map.put(:avatar_url, if(user, do: user.avatar_url, else: bot_avatar(seat)))
     |> Map.put(:level, if(user, do: user.level, else: nil))
+    |> Map.put(:prestige, if(user, do: user.prestige, else: nil))
     |> Map.put(:pin, if(user, do: user.pin, else: nil))
     |> with_held_user(users)
   end

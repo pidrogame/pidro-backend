@@ -8,11 +8,17 @@ defmodule PidroServerWeb.Schemas.FriendSchemas do
     OpenApiSpex.schema(%{
       title: "FriendPlayer",
       type: :object,
-      required: [:user_id, :display_name, :avatar_url, :presence],
+      required: [:user_id, :display_name, :avatar_url, :level, :prestige, :presence],
       properties: %{
         user_id: %Schema{type: :string, format: :uuid},
         display_name: %Schema{type: :string, nullable: true},
         avatar_url: %Schema{type: :string, nullable: true},
+        level: %Schema{type: :integer, minimum: 1, description: "All-time level, 1 to 100"},
+        prestige: %Schema{
+          type: :integer,
+          minimum: 0,
+          description: "Legend stars, one per 500,000 XP past level 100 (0 below that)"
+        },
         presence: %Schema{type: :string, enum: ["online", "at_table", "offline"]},
         table_company: %Schema{
           type: :string,
@@ -57,11 +63,25 @@ defmodule PidroServerWeb.Schemas.FriendSchemas do
     OpenApiSpex.schema(%{
       title: "RequestedFriendPlayer",
       type: :object,
-      required: [:user_id, :display_name, :avatar_url, :presence, :requested_at],
+      required: [
+        :user_id,
+        :display_name,
+        :avatar_url,
+        :level,
+        :prestige,
+        :presence,
+        :requested_at
+      ],
       properties: %{
         user_id: %Schema{type: :string, format: :uuid},
         display_name: %Schema{type: :string, nullable: true},
         avatar_url: %Schema{type: :string, nullable: true},
+        level: %Schema{type: :integer, minimum: 1, description: "All-time level, 1 to 100"},
+        prestige: %Schema{
+          type: :integer,
+          minimum: 0,
+          description: "Legend stars, one per 500,000 XP past level 100 (0 below that)"
+        },
         presence: %Schema{type: :string, enum: ["online", "at_table", "offline"]},
         table_company: %Schema{
           type: :string,
@@ -93,11 +113,17 @@ defmodule PidroServerWeb.Schemas.FriendSchemas do
     OpenApiSpex.schema(%{
       title: "DiscoveryPlayer",
       type: :object,
-      required: [:user_id, :display_name, :avatar_url, :presence, :relation],
+      required: [:user_id, :display_name, :avatar_url, :level, :prestige, :presence, :relation],
       properties: %{
         user_id: %Schema{type: :string, format: :uuid},
         display_name: %Schema{type: :string, nullable: true},
         avatar_url: %Schema{type: :string, nullable: true},
+        level: %Schema{type: :integer, minimum: 1, description: "All-time level, 1 to 100"},
+        prestige: %Schema{
+          type: :integer,
+          minimum: 0,
+          description: "Legend stars, one per 500,000 XP past level 100 (0 below that)"
+        },
         presence: %Schema{type: :string, enum: ["online", "at_table", "offline"]},
         table_company: %Schema{
           type: :string,
