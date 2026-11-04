@@ -197,6 +197,9 @@ defmodule PidroServerWeb.Dev.FeedbackLive do
             </p>
             <p>{note.reply_email || "No reply address"}</p>
             <p>App {note.details["app_version"] || "?"} · {device(note.details)}</p>
+            <p :if={note.news_post} class="font-medium text-stone-900">
+              About the post: {note.news_post.title_en}
+            </p>
             <p :if={note.game_id}>
               <.link navigate={~p"/admin/history/summaries/#{note.game_id}"} class="underline">
                 Last game · {note.rule_set}
