@@ -3,6 +3,21 @@ defmodule PidroServerWeb.Dev.AdminComponents do
 
   use PidroServerWeb, :html
 
+  @doc """
+  Reloads an admin page that mounts with the CSS and JS of an earlier
+  release, as a tab left open across a deploy does on its next navigation or
+  reconnect. Only production keeps a static manifest to compare against.
+  """
+  def on_mount(:reload_on_new_assets, _params, _session, socket) do
+    if Phoenix.LiveView.static_changed?(socket) do
+      {:cont, Phoenix.LiveView.attach_hook(socket, :reload, :handle_params, &reload/3)}
+    else
+      {:cont, socket}
+    end
+  end
+
+  defp reload(_params, uri, socket), do: {:halt, Phoenix.LiveView.redirect(socket, external: uri)}
+
   attr :seats, :map, required: true
 
   def participant_teams(assigns) do

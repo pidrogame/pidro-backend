@@ -273,7 +273,10 @@ defmodule PidroServerWeb.Router do
 
     live_session :admin_settings,
       root_layout: {PidroServerWeb.Layouts, :dev_root},
-      on_mount: [{PidroServerWeb.AdminAuth, :ensure_authenticated}] do
+      on_mount: [
+        {PidroServerWeb.AdminAuth, :ensure_authenticated},
+        {PidroServerWeb.Dev.AdminComponents, :reload_on_new_assets}
+      ] do
       live "/admins", Dev.AdminSettingsLive
     end
   end
@@ -292,7 +295,10 @@ defmodule PidroServerWeb.Router do
 
     live_session :ops,
       root_layout: {PidroServerWeb.Layouts, :dev_root},
-      on_mount: [{PidroServerWeb.AdminAuth, :ensure_authenticated_and_password_changed}] do
+      on_mount: [
+        {PidroServerWeb.AdminAuth, :ensure_authenticated_and_password_changed},
+        {PidroServerWeb.Dev.AdminComponents, :reload_on_new_assets}
+      ] do
       live "/dashboard", DashboardLive
       live "/games", GameListLive
       live "/games/:code", GameDetailLive
