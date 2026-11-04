@@ -90,8 +90,17 @@ defmodule Pidro.Server do
   - `:telemetry` - Whether to emit telemetry events (default: true)
   - `:initial_state` - Optional initial game state (default: new game)
   - `:checkpoint` - Optional bounded `(snapshot, cause) -> :ok | {:error, term}`
-    persistence boundary. Failures never reject gameplay. The engine retains
-    the initial snapshot and failure counts, not an unbounded retry queue.
+    persistence boundary. Failures never reject gameplay unless `:durable` is
+    set. The engine retains the initial snapshot and failure counts, not an
+    unbounded retry queue.
+  - `:durable` - When true, a transition is committed only once its
+    checkpoint returns `:ok`: a refused action replies `{:error, :not_saved}`
+    and leaves the game as it was, and a refused timed transition is tried
+    again a second later. A refused start checkpoint stops the game with
+    `:not_saved`. Default false.
+  - `:game_instance_id` and `:state_revision` - Resume a saved game under its
+    own identity, from `:initial_state`. A resumed game is already archived,
+    so it writes no start checkpoint.
   - `:state_observer` - Optional `{module, function}` called synchronously with
     the game ID and state after changes. Keep observers local and bounded;
     no observer is installed by default.
@@ -234,7 +243,7 @@ defmodule Pidro.Server do
 
       :ok = Pidro.Server.set_pace(pid, :own)
   """
-  @spec set_pace(GenServer.server(), :quick | :own) :: :ok
+  @spec set_pace(GenServer.server(), :quick | :own) :: :ok | {:error, :not_saved}
   def set_pace(server, pace) when pace in [:quick, :own],
     do: GenServer.call(server, {:set_pace, pace})
 
@@ -243,7 +252,7 @@ defmodule Pidro.Server do
 
       :ok = Pidro.Server.continue_hand(pid)
   """
-  @spec continue_hand(GenServer.server()) :: :ok
+  @spec continue_hand(GenServer.server()) :: :ok | {:error, :not_saved}
   def continue_hand(server), do: GenServer.call(server, :continue_hand)
 
   @doc """
@@ -361,6 +370,7 @@ defmodule Pidro.Server do
     deal_transition_delay_ms = Keyword.get(opts, :deal_transition_delay_ms, 0)
     dealer_rob_presentation_ms = Keyword.get(opts, :dealer_rob_presentation_ms, 5_000)
     pubsub = Keyword.get(opts, :pubsub)
+    resumed? = Keyword.has_key?(opts, :game_instance_id)
 
     state =
       %{
@@ -369,12 +379,14 @@ defmodule Pidro.Server do
         seed: seed,
         telemetry_enabled?: telemetry_enabled?,
         checkpoint: Keyword.get(opts, :checkpoint),
-        checkpoint_event_count: 0,
+        durable?: Keyword.get(opts, :durable, false),
+        checkpoint_event_count: length(initial_state.events),
         checkpoint_initial: nil,
         checkpoint_initial_deal: nil,
         checkpoint_last_cause: nil,
         checkpoint_failures: 0,
-        checkpoint_last_ack: nil,
+        # A resumed game's revision is the one its archive holds.
+        checkpoint_last_ack: if(resumed?, do: Keyword.get(opts, :state_revision, 0)),
         checkpoint_status: :healthy,
         checkpoint_users: Keyword.get(opts, :archive_user_ids, []),
         checkpoint_participation_truncated: false,
@@ -382,8 +394,11 @@ defmodule Pidro.Server do
         deal_transition_delay_ms: deal_transition_delay_ms,
         pubsub: pubsub,
         state_observer: Keyword.get(opts, :state_observer),
-        game_instance_id: Base.url_encode64(:crypto.strong_rand_bytes(12), padding: false),
-        state_revision: 0,
+        game_instance_id:
+          Keyword.get_lazy(opts, :game_instance_id, fn ->
+            Base.url_encode64(:crypto.strong_rand_bytes(12), padding: false)
+          end),
+        state_revision: Keyword.get(opts, :state_revision, 0),
         dealer_selection_presentation: nil,
         dealer_selection_timer_ref: nil,
         dealer_selection_token: nil,
@@ -393,10 +408,10 @@ defmodule Pidro.Server do
         dealer_rob_token: nil
       }
       |> maybe_schedule_dealer_selection_advance()
-      |> checkpoint(%{kind: :start})
-      |> observe_state()
+      |> then(&if(resumed?, do: &1, else: checkpoint(&1, %{kind: :start})))
 
-    {:ok, state}
+    # A durable game that cannot save its start never starts.
+    if saved?(state), do: {:ok, observe_state(state)}, else: {:stop, :not_saved}
   end
 
   @impl true
@@ -431,11 +446,16 @@ defmodule Pidro.Server do
       %{state | game_state: game, state_revision: state.state_revision + 1}
       |> checkpoint(%{kind: :pace, pace: pace})
 
-    if pace == :quick and game.phase == :hand_complete do
-      continue_held_hand(new_state)
-    else
-      broadcast_state_change(new_state)
-      {:reply, :ok, new_state}
+    cond do
+      not saved?(new_state) ->
+        {:reply, {:error, :not_saved}, state}
+
+      pace == :quick and game.phase == :hand_complete ->
+        continue_held_hand(new_state)
+
+      true ->
+        broadcast_state_change(new_state)
+        {:reply, :ok, new_state}
     end
   end
 
@@ -550,15 +570,19 @@ defmodule Pidro.Server do
           |> maybe_schedule_dealer_rob_presentation(game_state, new_game_state, action)
           |> maybe_schedule_dealer_selection_advance()
           |> checkpoint(%{kind: :action, position: position, action: action})
-          |> observe_state()
 
-        reply =
-          case reply_kind do
-            :state -> {:ok, new_game_state}
-            :snapshot -> {:ok, game_state, snapshot(new_state)}
-          end
+        # A refused commit leaves the previous state, whose timer tokens make
+        # any timer scheduled above stale.
+        cond do
+          not saved?(new_state) ->
+            {:reply, {:error, :not_saved}, state}
 
-        {:reply, reply, new_state}
+          reply_kind == :state ->
+            {:reply, {:ok, new_game_state}, observe_state(new_state)}
+
+          true ->
+            {:reply, {:ok, game_state, snapshot(new_state)}, observe_state(new_state)}
+        end
 
       {:error, _reason} = error ->
         if telemetry? do
@@ -589,12 +613,17 @@ defmodule Pidro.Server do
           state
           |> Map.put(:game_state, new_game_state)
           |> Map.update!(:state_revision, &(&1 + 1))
-          |> clear_dealer_selection_presentation()
+          |> Map.put(:dealer_selection_presentation, nil)
           |> checkpoint(%{kind: :initial_deal})
 
-        # The first hand is dealt: hold the bots while clients deal it out.
-        broadcast_state_change(new_state, state.deal_transition_delay_ms)
-        {:noreply, new_state}
+        if saved?(new_state) do
+          new_state = clear_dealer_selection_presentation(new_state)
+          # The first hand is dealt: hold the bots while clients deal it out.
+          broadcast_state_change(new_state, state.deal_transition_delay_ms)
+          {:noreply, new_state}
+        else
+          {:noreply, retry_later(state, {:advance_from_dealer_selection, token})}
+        end
 
       {:error, _reason} ->
         # Already advanced (e.g., by a concurrent action) — ignore
@@ -608,12 +637,17 @@ defmodule Pidro.Server do
       when not is_nil(token) do
     new_state =
       state
-      |> clear_dealer_rob_presentation()
+      |> Map.put(:dealer_rob_presentation, nil)
       |> Map.update!(:state_revision, &(&1 + 1))
       |> checkpoint(%{kind: :presentation_cleared})
 
-    broadcast_state_change(new_state)
-    {:noreply, new_state}
+    if saved?(new_state) do
+      new_state = clear_dealer_rob_presentation(new_state)
+      broadcast_state_change(new_state)
+      {:noreply, new_state}
+    else
+      {:noreply, retry_later(state, {:clear_dealer_rob_presentation, token})}
+    end
   end
 
   def handle_info({:clear_dealer_rob_presentation, _stale_token}, state), do: {:noreply, state}
@@ -627,8 +661,23 @@ defmodule Pidro.Server do
       %{state | game_state: game, state_revision: state.state_revision + 1}
       |> checkpoint(%{kind: :continue_hand})
 
-    broadcast_state_change(new_state, state.deal_transition_delay_ms)
-    {:reply, :ok, new_state}
+    if saved?(new_state) do
+      broadcast_state_change(new_state, state.deal_transition_delay_ms)
+      {:reply, :ok, new_state}
+    else
+      {:reply, {:error, :not_saved}, state}
+    end
+  end
+
+  # Whether a durable game may commit this state: its checkpoint was saved.
+  defp saved?(%{durable?: true, checkpoint: checkpoint} = state) when checkpoint != nil,
+    do: state.checkpoint_last_ack == state.state_revision
+
+  defp saved?(_state), do: true
+
+  defp retry_later(state, message) do
+    Process.send_after(self(), message, 1_000)
+    state
   end
 
   defp checkpoint(%{checkpoint: nil} = state, _cause), do: state
@@ -645,6 +694,8 @@ defmodule Pidro.Server do
   end
 
   defp persist_checkpoint(%{checkpoint: nil} = state, _cause), do: state
+  # A resumed game has written nothing yet; its next transition carries the users.
+  defp persist_checkpoint(state, nil), do: state
 
   defp persist_checkpoint(state, cause) do
     current = snapshot(state)
@@ -688,7 +739,8 @@ defmodule Pidro.Server do
          } = state
        )
        when not is_nil(cuts) do
-    state = clear_dealer_selection_presentation(state)
+    # A timer already running is left to fire under its stale token: a
+    # transition its commit refuses keeps the state that timer belongs to.
     token = make_ref()
     started_at_ms = System.system_time(:millisecond)
     timer_ref = Process.send_after(self(), {:advance_from_dealer_selection, token}, delay_ms)
@@ -723,9 +775,8 @@ defmodule Pidro.Server do
         pool = kept ++ robbed_discards
         delay_ms = state.dealer_rob_presentation_ms
         started_at_ms = System.system_time(:millisecond)
+        # As above, a running timer fires under its stale token.
         token = make_ref()
-
-        state = clear_dealer_rob_presentation(state)
 
         %{
           state
