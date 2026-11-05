@@ -366,6 +366,31 @@ defmodule PidroServer.Games.RematchTest do
       refute absent in Map.values(reopened.positions)
     end
 
+    for departure <- [:leave, :absence] do
+      test "a finished host absence still hands on a table reopened by another player's #{departure}" do
+        {room, [host, departing | remaining]} = four_player_game()
+        finish_game(room.code)
+
+        if unquote(departure) == :absence do
+          RoomManager.unregister_game_channel(room.code, departing, self())
+          Process.sleep(10)
+        end
+
+        RoomManager.unregister_game_channel(room.code, host, self())
+        if unquote(departure) == :leave, do: RoomManager.leave_room(departing)
+        Process.sleep(Lifecycle.config(:hiccup_timeout_ms) + 100)
+
+        assert {:ok, reopened} = RoomManager.get_room(room.code)
+        assert reopened.status == :waiting
+        assert reopened.host_id in remaining
+
+        assert Enum.sort(Enum.reject(Map.values(reopened.positions), &is_nil/1)) ==
+                 Enum.sort(remaining)
+
+        assert Enum.count(reopened.seats, fn {_, seat} -> seat.is_owner end) == 1
+      end
+    end
+
     test "the host leaves while the other player's socket is mid-reconnect: the table stays" do
       host = AccountsFixtures.user_fixture(%{display_name: "Host"})
       guest = AccountsFixtures.user_fixture(%{display_name: "Guest"})

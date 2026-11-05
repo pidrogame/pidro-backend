@@ -2842,7 +2842,7 @@ defmodule PidroServer.Games.RoomManager do
   end
 
   @impl true
-  def handle_info({:finished_absence, room_code, user_id, token}, %State{} = state) do
+  def handle_info({:finished_absence, room_code, user_id, token, absent_from}, %State{} = state) do
     key = {room_code, user_id}
 
     # The room may have reopened as a waiting table since: that is no reason to stay.
@@ -2852,7 +2852,13 @@ defmodule PidroServer.Games.RoomManager do
          true <- Positions.has_player?(room, user_id),
          false <- channel_alive?(state, room_code, user_id) do
       Logger.info("Player #{user_id} did not return to #{status} room #{room_code}, leaving")
-      {:noreply, leave_finished_room(state, room, user_id)}
+
+      # A finished host still hands the table on if another absence reopened it.
+      if absent_from in [:waiting, :ready] and room.host_id == user_id do
+        {:noreply, remove_room(state, room_code)}
+      else
+        {:noreply, leave_finished_room(state, room, user_id)}
+      end
     else
       _ -> {:noreply, state}
     end
@@ -4052,8 +4058,8 @@ defmodule PidroServer.Games.RoomManager do
   defp handle_seat_reconnection(room, room_code, user_id, position, seat, %State{} = state) do
     case seat.status do
       :reconnecting ->
-        # Phase 1: Cancel timer, reclaim seat. A held seat (solo, own pace,
-        # waiting room) has no timer and so no grace to return within.
+        # Phase 1: Cancel timer, reclaim seat. Held seats have no cascade timer;
+        # registering the returning channel cancels a waiting table's absence.
         in_grace? = Map.has_key?(room.phase_timers, position)
         room = cancel_phase_timer(room, position)
 
@@ -5628,9 +5634,22 @@ defmodule PidroServer.Games.RoomManager do
       updated_room =
         if walked_away?, do: room, else: mark_disconnected(room, room_code, user_id)
 
+      absence_timeout =
+        cond do
+          room.status == :finished or walked_away? ->
+            Lifecycle.config(:hiccup_timeout_ms)
+
+          room.status in [:waiting, :ready] and
+              Enum.count(room.seats, fn {_, seat} -> seat.occupant_type == :human end) > 1 ->
+            Lifecycle.config(:waiting_disconnect_timeout_ms)
+
+          true ->
+            nil
+        end
+
       updated_state =
         %State{state | rooms: Map.put(state.rooms, room_code, updated_room)}
-        |> note_finished_absence(updated_room, user_id, walked_away?)
+        |> note_finished_absence(updated_room, user_id, absence_timeout)
 
       {:ok, updated_room, updated_state}
     else
@@ -5638,27 +5657,35 @@ defmodule PidroServer.Games.RoomManager do
     end
   end
 
-  # Nothing is at stake in a finished room, so the seat is left alone. But the
-  # others may be waiting on this player for a rematch: if they are still gone
-  # after the hiccup window, treat it as having left. The token belongs to this
+  # Waiting and finished tables must not wait forever for an absent player:
+  # after their window, treat it as having left. The token belongs to this
   # absence: coming back drops it (`register_channel_pid/4`), so the timer of an
   # earlier absence cannot cut a later one short.
-  defp note_finished_absence(state, room, user_id, walked_away? \\ false)
+  defp note_finished_absence(
+         state,
+         room,
+         user_id,
+         timeout \\ Lifecycle.config(:hiccup_timeout_ms)
+       )
 
-  defp note_finished_absence(%State{} = state, %Room{status: status, code: code}, user_id, away?)
-       when status == :finished or away? do
+  defp note_finished_absence(%State{} = state, %Room{}, _user_id, nil), do: state
+
+  defp note_finished_absence(
+         %State{} = state,
+         %Room{code: code, status: status},
+         user_id,
+         timeout
+       ) do
     token = make_ref()
 
     Process.send_after(
       self(),
-      {:finished_absence, code, user_id, token},
-      Lifecycle.config(:hiccup_timeout_ms)
+      {:finished_absence, code, user_id, token, status},
+      timeout
     )
 
     %State{state | finished_absences: Map.put(state.finished_absences, {code, user_id}, token)}
   end
-
-  defp note_finished_absence(%State{} = state, %Room{}, _user_id, _away?), do: state
 
   # A player who dropped during the game gets no disconnect in the finished
   # room to start their window, so it starts when the game ends.

@@ -21,6 +21,7 @@ defmodule PidroServer.Games.Lifecycle do
 
   @type timeout_key ::
           :hiccup_timeout_ms
+          | :waiting_disconnect_timeout_ms
           | :grace_timeout_ms
           | :empty_room_ttl_ms
           | :finished_room_ttl_ms
@@ -46,6 +47,7 @@ defmodule PidroServer.Games.Lifecycle do
 
   @defaults %{
     hiccup_timeout_ms: 20_000,
+    waiting_disconnect_timeout_ms: 30_000,
     grace_timeout_ms: 120_000,
     empty_room_ttl_ms: 30_000,
     finished_room_ttl_ms: 300_000,

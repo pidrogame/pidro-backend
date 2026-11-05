@@ -2,7 +2,8 @@ defmodule PidroServerWeb.ReadinessChannelTest do
   use PidroServerWeb.ChannelCase, async: false
 
   alias PidroServer.AccountsFixtures
-  alias PidroServer.Games.{GameSupervisor, RoomManager}
+  alias PidroServer.Games.{GameSupervisor, Lifecycle, RoomManager}
+  alias PidroServer.Games.Bots.BotManager
   alias PidroServerWeb.GameChannel
 
   setup do
@@ -93,6 +94,146 @@ defmodule PidroServerWeb.ReadinessChannelTest do
     ref = push(socket, "ready", params)
     assert_reply ref, :ok, %{readiness: %{status: :playing}}
     assert {:ok, ^pid} = GameSupervisor.get_game(room.code)
+  end
+
+  describe "waiting table connection loss" do
+    setup do
+      original = Application.get_env(:pidro_server, Lifecycle)
+
+      Application.put_env(
+        :pidro_server,
+        Lifecycle,
+        Keyword.put(original, :waiting_disconnect_timeout_ms, 400)
+      )
+
+      on_exit(fn -> Application.put_env(:pidro_server, Lifecycle, original) end)
+      :ok
+    end
+
+    test "ZIB3: a lost connection frees the seat and a replacement can start with four fresh readies",
+         %{room: room, channels: channels, last_user: last_user} do
+      [{_host, %{readiness: initial}, host_socket}, {away, _, away_socket}, third] = channels
+      {:ok, socket} = create_socket(last_user)
+      {:ok, _, fourth_socket} = subscribe_and_join(socket, GameChannel, "game:#{room.code}")
+      params = %{"room_id" => room.id, "ready_epoch" => initial.ready_epoch}
+      ref = push(host_socket, "ready", params)
+      assert_reply ref, :ok, %{readiness: %{ready_players: [:north]}}
+
+      close(away_socket)
+      assert_push "player_disconnected", %{user_id: away_id, reason: "connection_lost"}
+      assert away_id == away.id
+      assert_push "readiness_updated", %{seats: %{east: %{status: :reconnecting}}} = dropped
+      assert dropped.room_id == initial.room_id
+      assert dropped.snapshot_revision > initial.snapshot_revision
+      {:ok, held} = RoomManager.get_room(room.code)
+      assert held.seats.east.status == :reconnecting
+      assert held.positions.east == away.id
+      assert Enum.count(held.positions, fn {_, id} -> id != nil end) == 4
+      Process.sleep(150)
+      assert {:ok, ^held} = RoomManager.get_room(room.code)
+      params = %{"room_id" => room.id, "ready_epoch" => held.ready_epoch}
+      {_, _, third_socket} = third
+
+      for socket <- [host_socket, third_socket, fourth_socket] do
+        ref = push(socket, "ready", params)
+        assert_reply ref, :error, %{reason: "table_not_full"}
+      end
+
+      assert_push "readiness_updated",
+                  %{
+                    seats: %{east: %{occupant_type: :vacant, status: nil, user_id: nil}},
+                    positions: %{east: nil}
+                  } =
+                    expired,
+                  1_500
+
+      assert expired.room_id == dropped.room_id
+      assert expired.snapshot_revision > dropped.snapshot_revision
+      assert expired.ready_players == []
+      {:ok, open} = RoomManager.get_room(room.code)
+      assert open.status == :waiting
+      assert open.positions.east == nil
+      assert Enum.count(open.positions, fn {_, id} -> id != nil end) == 3
+      assert open.ready_player_ids == MapSet.new()
+      assert open.ready_epoch > held.ready_epoch
+      assert {:error, :not_found} = GameSupervisor.get_game(room.code)
+
+      replacement = AccountsFixtures.user_fixture(%{display_name: "Replacement"})
+      assert {:ok, _, :east} = RoomManager.join_room(room.code, replacement.id)
+      {:ok, socket} = create_socket(replacement)
+
+      {:ok, %{readiness: current}, replacement_socket} =
+        subscribe_and_join(socket, GameChannel, "game:#{room.code}")
+
+      assert current.ready_players == []
+      params = %{"room_id" => room.id, "ready_epoch" => current.ready_epoch}
+
+      for socket <- [host_socket, third_socket, fourth_socket, replacement_socket] do
+        assert {:error, :not_found} = GameSupervisor.get_game(room.code)
+        ref = push(socket, "ready", params)
+        assert_reply ref, :ok, %{}
+      end
+
+      assert {:ok, %{status: :playing}} = RoomManager.get_room(room.code)
+      assert {:ok, _pid} = GameSupervisor.get_game(room.code)
+    end
+
+    test "return inside the window keeps the same seat past the old deadline",
+         %{room: room, channels: [_, {away, _, socket} | _]} do
+      close(socket)
+      {:ok, held} = RoomManager.get_room(room.code)
+      assert held.seats.east.status == :reconnecting
+      assert_push "readiness_updated", %{seats: %{east: %{status: :reconnecting}}} = dropped
+      {:ok, socket} = create_socket(away)
+      assert {:ok, _, _} = subscribe_and_join(socket, GameChannel, "game:#{room.code}")
+      assert_push "readiness_updated", %{seats: %{east: %{status: :connected}}} = reconnected
+      assert reconnected.room_id == dropped.room_id
+      assert reconnected.snapshot_revision > dropped.snapshot_revision
+      assert reconnected.ready_epoch == dropped.ready_epoch
+      {:ok, returned} = RoomManager.get_room(room.code)
+
+      Process.sleep(500)
+      assert {:ok, ^returned} = RoomManager.get_room(room.code)
+      assert returned.positions == held.positions
+      assert returned.seats.east.status == :connected
+      assert returned.ready_epoch == held.ready_epoch
+    end
+
+    test "a host lost past the window closes the waiting table",
+         %{room: room, channels: [{_, _, socket} | _]} do
+      close(socket)
+
+      assert {:ok, %{seats: %{north: %{status: :reconnecting}}}} =
+               RoomManager.get_room(room.code)
+
+      Process.sleep(500)
+      assert {:error, :room_not_found} = RoomManager.get_room(room.code)
+    end
+
+    for solo <- [true, false] do
+      test "one human with three bots holds the waiting seat without a deadline (solo: #{solo})",
+           %{channels: channels} do
+        for {_, _, socket} <- channels, do: close(socket)
+        RoomManager.reset_for_test()
+        user = AccountsFixtures.user_fixture()
+        {:ok, room} = RoomManager.create_room(user.id, %{solo: unquote(solo)})
+
+        for position <- [:east, :south, :west] do
+          assert {:ok, _} = BotManager.start_bot(room.code, position, :basic)
+        end
+
+        {:ok, socket} = create_socket(user)
+        {:ok, _, socket} = subscribe_and_join(socket, GameChannel, "game:#{room.code}")
+        close(socket)
+        {:ok, held} = RoomManager.get_room(room.code)
+        assert held.status == :waiting
+        assert held.seats.north.status == :reconnecting
+
+        Process.sleep(500)
+        assert {:ok, ^held} = RoomManager.get_room(room.code)
+        assert held.phase_timers == %{}
+      end
+    end
   end
 
   test "late player joins at the authoritative snapshot position after a seat move", %{
