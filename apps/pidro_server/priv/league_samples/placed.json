@@ -20,7 +20,8 @@
         "avatar": {
           "url": null
         },
-        "me": false
+        "me": false,
+        "friend": false
       },
       {
         "level": 8,
@@ -33,7 +34,8 @@
         "avatar": {
           "url": null
         },
-        "me": false
+        "me": false,
+        "friend": false
       },
       {
         "level": 8,
@@ -46,7 +48,8 @@
         "avatar": {
           "url": null
         },
-        "me": false
+        "me": false,
+        "friend": false
       },
       {
         "level": 8,
@@ -59,7 +62,8 @@
         "avatar": {
           "url": null
         },
-        "me": false
+        "me": false,
+        "friend": false
       },
       {
         "level": 8,
@@ -72,7 +76,8 @@
         "avatar": {
           "url": null
         },
-        "me": false
+        "me": false,
+        "friend": false
       },
       {
         "level": 8,
@@ -85,7 +90,8 @@
         "avatar": {
           "url": null
         },
-        "me": true
+        "me": true,
+        "friend": false
       },
       {
         "level": 8,
@@ -98,7 +104,8 @@
         "avatar": {
           "url": null
         },
-        "me": false
+        "me": false,
+        "friend": false
       },
       {
         "level": 8,
@@ -111,7 +118,8 @@
         "avatar": {
           "url": null
         },
-        "me": false
+        "me": false,
+        "friend": false
       },
       {
         "level": 7,
@@ -124,7 +132,8 @@
         "avatar": {
           "url": null
         },
-        "me": false
+        "me": false,
+        "friend": false
       },
       {
         "level": 7,
@@ -137,7 +146,8 @@
         "avatar": {
           "url": null
         },
-        "me": false
+        "me": false,
+        "friend": false
       },
       {
         "level": 7,
@@ -150,7 +160,8 @@
         "avatar": {
           "url": null
         },
-        "me": false
+        "me": false,
+        "friend": false
       },
       {
         "level": 7,
@@ -163,7 +174,8 @@
         "avatar": {
           "url": null
         },
-        "me": false
+        "me": false,
+        "friend": false
       },
       {
         "level": 7,
@@ -176,7 +188,8 @@
         "avatar": {
           "url": null
         },
-        "me": false
+        "me": false,
+        "friend": false
       },
       {
         "level": 7,
@@ -189,7 +202,8 @@
         "avatar": {
           "url": null
         },
-        "me": false
+        "me": false,
+        "friend": false
       },
       {
         "level": 7,
@@ -202,7 +216,8 @@
         "avatar": {
           "url": null
         },
-        "me": false
+        "me": false,
+        "friend": false
       },
       {
         "level": 7,
@@ -215,7 +230,8 @@
         "avatar": {
           "url": null
         },
-        "me": false
+        "me": false,
+        "friend": false
       },
       {
         "level": 7,
@@ -228,7 +244,8 @@
         "avatar": {
           "url": null
         },
-        "me": false
+        "me": false,
+        "friend": false
       },
       {
         "level": 7,
@@ -241,7 +258,8 @@
         "avatar": {
           "url": null
         },
-        "me": false
+        "me": false,
+        "friend": false
       },
       {
         "level": 6,
@@ -254,7 +272,8 @@
         "avatar": {
           "url": null
         },
-        "me": false
+        "me": false,
+        "friend": false
       },
       {
         "level": 6,
@@ -267,7 +286,8 @@
         "avatar": {
           "url": null
         },
-        "me": false
+        "me": false,
+        "friend": false
       },
       {
         "level": 6,
@@ -280,7 +300,8 @@
         "avatar": {
           "url": null
         },
-        "me": false
+        "me": false,
+        "friend": false
       },
       {
         "level": 6,
@@ -293,7 +314,8 @@
         "avatar": {
           "url": null
         },
-        "me": false
+        "me": false,
+        "friend": false
       },
       {
         "level": 6,
@@ -306,7 +328,8 @@
         "avatar": {
           "url": null
         },
-        "me": false
+        "me": false,
+        "friend": false
       },
       {
         "level": 6,
@@ -319,7 +342,8 @@
         "avatar": {
           "url": null
         },
-        "me": false
+        "me": false,
+        "friend": false
       },
       {
         "level": 6,
@@ -332,7 +356,8 @@
         "avatar": {
           "url": null
         },
-        "me": false
+        "me": false,
+        "friend": false
       },
       {
         "level": 6,
@@ -345,7 +370,8 @@
         "avatar": {
           "url": null
         },
-        "me": false
+        "me": false,
+        "friend": false
       },
       {
         "level": 6,
@@ -358,7 +384,8 @@
         "avatar": {
           "url": null
         },
-        "me": false
+        "me": false,
+        "friend": false
       },
       {
         "level": 5,
@@ -371,7 +398,8 @@
         "avatar": {
           "url": null
         },
-        "me": false
+        "me": false,
+        "friend": false
       },
       {
         "level": 5,
@@ -384,7 +412,8 @@
         "avatar": {
           "url": null
         },
-        "me": false
+        "me": false,
+        "friend": false
       },
       {
         "level": 5,
@@ -397,7 +426,8 @@
         "avatar": {
           "url": null
         },
-        "me": false
+        "me": false,
+        "friend": false
       }
     ]
   },
@@ -452,7 +482,7 @@
     ]
   },
   "pending_result": {
-    "id": "a2325c62-ac19-4eed-ad46-80cafbef59fe",
+    "id": "2e5ab18f-e62b-4a95-af97-a29863fce992",
     "move": "up",
     "points": 3000,
     "place": 1,
@@ -488,6 +518,7 @@
       "level": 8,
       "user_id": "832b064e-9ec5-4588-b38b-4049e53d0f74",
       "username": "league41",
+      "points": 3000,
       "prestige": 0,
       "place": 1,
       "league": "ten",
@@ -499,6 +530,7 @@
       "level": 8,
       "user_id": "7d637dbb-bd6d-4a59-aa2d-7d77ed4ea211",
       "username": "league42",
+      "points": 2940,
       "prestige": 0,
       "place": 2,
       "league": "ten",

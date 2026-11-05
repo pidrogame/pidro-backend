@@ -20,7 +20,8 @@
         "avatar": {
           "url": null
         },
-        "me": false
+        "me": false,
+        "friend": false
       },
       {
         "level": 8,
@@ -33,7 +34,8 @@
         "avatar": {
           "url": null
         },
-        "me": false
+        "me": false,
+        "friend": false
       },
       {
         "level": 8,
@@ -46,7 +48,8 @@
         "avatar": {
           "url": null
         },
-        "me": false
+        "me": false,
+        "friend": false
       },
       {
         "level": 8,
@@ -59,7 +62,8 @@
         "avatar": {
           "url": null
         },
-        "me": false
+        "me": false,
+        "friend": false
       },
       {
         "level": 8,
@@ -72,7 +76,8 @@
         "avatar": {
           "url": null
         },
-        "me": true
+        "me": true,
+        "friend": false
       },
       {
         "level": 8,
@@ -85,7 +90,8 @@
         "avatar": {
           "url": null
         },
-        "me": false
+        "me": false,
+        "friend": false
       },
       {
         "level": 8,
@@ -98,7 +104,8 @@
         "avatar": {
           "url": null
         },
-        "me": false
+        "me": false,
+        "friend": false
       },
       {
         "level": 8,
@@ -111,7 +118,8 @@
         "avatar": {
           "url": null
         },
-        "me": false
+        "me": false,
+        "friend": false
       },
       {
         "level": 7,
@@ -124,7 +132,8 @@
         "avatar": {
           "url": null
         },
-        "me": false
+        "me": false,
+        "friend": false
       },
       {
         "level": 7,
@@ -137,7 +146,8 @@
         "avatar": {
           "url": null
         },
-        "me": false
+        "me": false,
+        "friend": false
       }
     ]
   },
@@ -155,7 +165,7 @@
     "past": []
   },
   "pending_result": {
-    "id": "52e8ce53-656c-402c-b842-5578cf5ca221",
+    "id": "27ff4b41-6604-4fb0-9ac4-ed8d34d9f75e",
     "move": "stayed",
     "points": 2760,
     "place": 5,
