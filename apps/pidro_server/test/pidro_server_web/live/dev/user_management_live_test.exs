@@ -4,7 +4,7 @@ defmodule PidroServerWeb.Dev.UserManagementLiveTest do
   import Ecto.Query, only: [from: 2]
   import Phoenix.LiveViewTest
 
-  alias PidroServer.Accounts.Auth
+  alias PidroServer.Accounts.{Auth, ClassicNameReservations, User}
   alias PidroServer.AccountsFixtures
   alias PidroServer.Games.RoomManager
   alias PidroServer.Profiles
@@ -13,7 +13,9 @@ defmodule PidroServerWeb.Dev.UserManagementLiveTest do
   setup :register_and_log_in_admin
 
   test "lists players with search filters and summary stats", %{conn: conn} do
-    alpha = AccountsFixtures.user_fixture(%{username: "admin_alpha"})
+    alpha =
+      AccountsFixtures.user_fixture(%{username: "admin_alpha", display_name: "Alpha Player"})
+
     beta = AccountsFixtures.user_fixture(%{username: "admin_beta", guest: true})
 
     save_game(alpha, "ALFA1", "win")
@@ -22,7 +24,8 @@ defmodule PidroServerWeb.Dev.UserManagementLiveTest do
 
     assert html =~ "Pidro Ops"
     assert html =~ "Players"
-    assert html =~ "admin_alpha"
+    assert has_element?(view, "a[href='/admin/users/#{alpha.id}']", "Alpha Player")
+    assert html =~ "@admin_alpha"
     assert html =~ "admin_beta"
     assert html =~ "1 wins"
 
@@ -50,12 +53,15 @@ defmodule PidroServerWeb.Dev.UserManagementLiveTest do
   end
 
   test "shows player detail, history, and allows profile edits", %{conn: conn} do
-    user = AccountsFixtures.user_fixture(%{username: "detail_player"})
+    user =
+      AccountsFixtures.user_fixture(%{username: "detail_player", display_name: "Old Public Name"})
+
     save_game(user, "DETL1", "win")
 
     {:ok, view, html} = live(conn, ~p"/admin/users/#{user.id}")
 
-    assert html =~ "detail_player"
+    assert has_element?(view, "h1", "Old Public Name")
+    assert html =~ "@detail_player"
     assert html =~ "Completed games"
     assert html =~ "DETL1"
     assert html =~ "WIN"
@@ -63,6 +69,7 @@ defmodule PidroServerWeb.Dev.UserManagementLiveTest do
     render_submit(view, "save", %{
       "user" => %{
         "username" => "detail_renamed",
+        "display_name" => "  New   Public Name  ",
         "email" => "renamed@example.com",
         "guest" => "false"
       }
@@ -72,8 +79,62 @@ defmodule PidroServerWeb.Dev.UserManagementLiveTest do
     assert updated.username == "detail_renamed"
     assert updated.email == "renamed@example.com"
     refute updated.guest
+    assert User.public_name(updated) == "New Public Name"
+    assert has_element?(view, "h1", "New Public Name")
+    assert page_title(view) =~ "New Public Name"
+    assert render(view) =~ "@detail_renamed"
 
-    assert render(view) =~ "detail_renamed"
+    view |> form("#player-form", user: %{display_name: ""}) |> render_submit()
+    cleared = Auth.get_user(user.id)
+    assert is_nil(cleared.display_name)
+    assert User.public_name(cleared) == "detail_renamed"
+    assert has_element?(view, "h1", "detail_renamed")
+  end
+
+  test "admin name edits enforce the same policy and reservation errors as registration", %{
+    conn: conn
+  } do
+    user = AccountsFixtures.user_fixture(%{display_name: "Original Name"})
+    taken = AccountsFixtures.user_fixture()
+    {:ok, _} = ClassicNameReservations.import([%{id: 601, username: "Classic Hero"}])
+    {:ok, view, _} = live(conn, ~p"/admin/users/#{user.id}")
+
+    for {field, name} <- [
+          {:display_name, " classic   HERO "},
+          {:display_name, "Fuckface"},
+          {:display_name, "line\nbreak"},
+          {:display_name, "x"},
+          {:display_name, String.duplicate("x", 21)},
+          {:username, taken.username}
+        ] do
+      attrs = %{field => name}
+
+      {:error, player_error} =
+        Auth.register_user(
+          Map.merge(
+            %{
+              username: AccountsFixtures.unique_username(),
+              email: AccountsFixtures.unique_user_email(),
+              password: AccountsFixtures.valid_user_password()
+            },
+            attrs
+          )
+        )
+
+      assert {:error, admin_error} = Auth.update_user(user, attrs)
+      assert admin_error.errors[field] == player_error.errors[field]
+
+      assert render_submit(view, "save", %{"user" => %{Atom.to_string(field) => name}}) =~
+               "Fix the highlighted fields"
+
+      assert User.public_name(Auth.get_user(user.id)) == "Original Name"
+    end
+
+    assert render_submit(view, "save", %{"user" => %{"display_name" => "Classic Hero"}}) =~
+             "This name belongs to a Classic player. Claim your Classic profile or choose another name."
+
+    assert render_submit(view, "save", %{"user" => %{"username" => taken.username}}) =~
+             "has already been taken"
   end
 
   test "deletes a player from the detail screen", %{conn: conn} do

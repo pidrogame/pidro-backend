@@ -712,7 +712,7 @@ defmodule PidroServer.Accounts.Auth do
   def change_user(%User{} = user, attrs \\ %{}) do
     user
     |> User.admin_changeset(admin_user_attrs(attrs))
-    |> Accounts.validate_public_name_changes([:username])
+    |> Accounts.validate_public_name_changes([:username, :display_name])
   end
 
   @doc """
@@ -723,7 +723,7 @@ defmodule PidroServer.Accounts.Auth do
   def update_user(%User{} = user, attrs) do
     user
     |> User.admin_changeset(admin_user_attrs(attrs))
-    |> Accounts.validate_public_name_changes([:username])
+    |> Accounts.validate_public_name_changes([:username, :display_name])
     |> ClassicNameReservations.validate_changes(user.classic_user_id)
     |> Repo.update()
   end
@@ -1176,6 +1176,7 @@ defmodule PidroServer.Accounts.Auth do
   defp admin_user_attrs(attrs) when is_map(attrs) do
     %{}
     |> maybe_put_attr(:username, fetch_attr(attrs, :username))
+    |> maybe_put_attr(:display_name, fetch_attr(attrs, :display_name))
     |> maybe_put_attr(:email, fetch_attr(attrs, :email))
     |> maybe_put_attr(:guest, fetch_attr(attrs, :guest))
   end

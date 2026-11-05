@@ -7,7 +7,7 @@ defmodule PidroServerWeb.Dev.UserDetailLive do
 
   import PidroServerWeb.Dev.AdminComponents
 
-  alias PidroServer.Accounts.Auth
+  alias PidroServer.Accounts.{Auth, User}
   alias PidroServer.Games.Room.Positions
   alias PidroServer.Games.Room.Seat
   alias PidroServer.Games.RoomManager
@@ -31,7 +31,7 @@ defmodule PidroServerWeb.Dev.UserDetailLive do
       user ->
         {:ok,
          socket
-         |> assign(:page_title, "#{user.username} · Players")
+         |> assign(:page_title, "#{User.public_name(user)} · Players")
          |> assign(:user, user)
          |> assign(:show_delete_modal, false)
          |> assign_form(Auth.change_user(user))
@@ -65,7 +65,7 @@ defmodule PidroServerWeb.Dev.UserDetailLive do
         {:noreply,
          socket
          |> assign(:user, user)
-         |> assign(:page_title, "#{user.username} · Players")
+         |> assign(:page_title, "#{User.public_name(user)} · Players")
          |> assign_form(Auth.change_user(user))
          |> load_user_context()
          |> put_flash(:info, "Player saved. Profile card is up to date.")}
@@ -115,8 +115,8 @@ defmodule PidroServerWeb.Dev.UserDetailLive do
     ~H"""
     <.admin_shell
       active="players"
-      title={@user.username}
-      subtitle={"Player profile, live table presence, completed game history, and account controls for #{short_id(@user.id)}."}
+      title={User.public_name(@user)}
+      subtitle={"@#{@user.username}"}
       flash={@flash}
     >
       <:actions>
@@ -138,7 +138,7 @@ defmodule PidroServerWeb.Dev.UserDetailLive do
         <div class="grid gap-4 p-4 lg:grid-cols-[minmax(0,1fr)_24rem] lg:items-center">
           <div class="flex flex-col gap-5 sm:flex-row sm:items-center">
             <div class="flex size-14 shrink-0 items-center justify-center rounded-sm bg-stone-950 text-xl font-black text-white shadow-sm">
-              {initials(@user.username)}
+              {initials(User.public_name(@user))}
             </div>
             <div>
               <div class="flex flex-wrap items-center gap-2">
@@ -492,7 +492,18 @@ defmodule PidroServerWeb.Dev.UserDetailLive do
               phx-submit="save"
               class="mt-5 space-y-4"
             >
-              <.input field={@form[:username]} label="Username" required />
+              <div class="grid gap-4 sm:grid-cols-2">
+                <.input field={@form[:username]} label="Username" required />
+                <.input
+                  field={@form[:display_name]}
+                  label="Name players see"
+                  placeholder={@user.username}
+                />
+              </div>
+              <p class="text-xs leading-5 text-stone-500">
+                Players see the name; the username is for signing in.
+                Leave the name empty to show the username.
+              </p>
               <.input
                 field={@form[:email]}
                 type="email"

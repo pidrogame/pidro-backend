@@ -7,7 +7,7 @@ defmodule PidroServerWeb.Dev.UserListLive do
 
   import PidroServerWeb.Dev.AdminComponents
 
-  alias PidroServer.Accounts.Auth
+  alias PidroServer.Accounts.{Auth, User}
   alias PidroServer.Games.Room.Positions
   alias PidroServer.Games.RoomManager
   alias PidroServer.Profiles
@@ -271,15 +271,16 @@ defmodule PidroServerWeb.Dev.UserListLive do
                   <td class="px-4 py-3">
                     <div class="flex items-center gap-3">
                       <div class="flex size-10 shrink-0 items-center justify-center rounded-md bg-stone-950 text-sm font-black text-white shadow-sm">
-                        {initials(user.username)}
+                        {initials(User.public_name(user))}
                       </div>
                       <div>
                         <.link
                           navigate={~p"/admin/users/#{user.id}"}
                           class="font-bold text-stone-950 hover:text-orange-700"
                         >
-                          {user.username}
+                          {User.public_name(user)}
                         </.link>
+                        <div class="text-xs text-stone-500">@{user.username}</div>
                         <div class="mt-1 flex flex-wrap items-center gap-2">
                           <span class={account_badge_class(user)}>
                             {account_label(user)}
