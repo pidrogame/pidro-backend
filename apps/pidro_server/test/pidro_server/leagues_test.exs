@@ -2,6 +2,7 @@ defmodule PidroServer.LeaguesTest do
   use PidroServer.DataCase, async: false
   import PidroServer.AccountsFixtures
   alias PidroServer.{Leagues, Profiles, Stats}
+  alias PidroServer.Friends.Friendship
   alias PidroServer.Leagues.{Membership, Player, Result, Room}
   alias PidroServer.Profiles.GameXp
 
@@ -69,6 +70,95 @@ defmodule PidroServer.LeaguesTest do
              )
              |> Enum.sort() == sizes
     end
+  end
+
+  test "first placement prefers most mutual friends, then the fullest room" do
+    {smaller, [a, b]} = seed_room("deuce", 2, @thursday)
+    {fuller, [c, d | _]} = seed_room("deuce", 5, @thursday)
+    seed_room("deuce", 1, @thursday)
+    first = user_fixture()
+    second = user_fixture()
+
+    for {user, friends} <- [{first, [a, b, c]}, {second, [a, b, c, d]}],
+        friend <- friends,
+        {u, v} <- [{user, friend}, {friend, user}],
+        do: Repo.insert!(%Friendship{user_id: u.id, friend_id: v.id})
+
+    complete([first, guest_fixture()], @thursday)
+    assert Repo.get_by!(Membership, user_id: first.id).room_id == smaller.id
+    complete([second, guest_fixture()], @thursday)
+    assert Repo.get_by!(Membership, user_id: second.id).room_id == fuller.id
+
+    for {u, v} <- [{first, d}, {d, first}],
+        do: Repo.insert!(%Friendship{user_id: u.id, friend_id: v.id})
+
+    complete([first, guest_fixture()], @thursday)
+    assert Repo.get_by!(Membership, user_id: first.id).room_id == smaller.id
+  end
+
+  test "ineligible friend rooms fall back to normal placement" do
+    for reason <- [
+          :full,
+          :other_league,
+          :incoming,
+          :outgoing,
+          :hidden,
+          :blocked,
+          :blocked_by,
+          :closed,
+          :other_week
+        ] do
+      league = if reason == :other_league, do: "ten", else: "deuce"
+      at = if reason == :other_week, do: DateTime.add(@thursday, -604_800), else: @thursday
+      {candidate, [friend | _]} = seed_room(league, if(reason == :full, do: 30, else: 1), at)
+      {normal, _} = seed_room("deuce", 1, @thursday)
+      user = user_fixture()
+
+      unless reason == :incoming,
+        do: Repo.insert!(%Friendship{user_id: user.id, friend_id: friend.id})
+
+      unless reason == :outgoing,
+        do: Repo.insert!(%Friendship{user_id: friend.id, friend_id: user.id})
+
+      case reason do
+        :hidden ->
+          Repo.get!(Player, friend.id) |> Ecto.Changeset.change(hidden: true) |> Repo.update!()
+
+        :blocked ->
+          Repo.insert!(%PidroServer.Blocks.Block{user_id: user.id, blocked_id: friend.id})
+
+        :blocked_by ->
+          Repo.insert!(%PidroServer.Blocks.Block{user_id: friend.id, blocked_id: user.id})
+
+        :closed ->
+          candidate |> Ecto.Changeset.change(closed_at: DateTime.utc_now()) |> Repo.update!()
+
+        _ ->
+          :ok
+      end
+
+      complete([user, guest_fixture()], @thursday)
+      assert Repo.get_by!(Membership, user_id: user.id).room_id == normal.id, inspect(reason)
+    end
+  end
+
+  test "friend placement preserves the last-room-only 40-seat late allowance" do
+    at = DateTime.add(@close, -23 * 3600)
+    {older, [a | _]} = seed_room("deuce", 30, at)
+    {latest, [b | _]} = seed_room("deuce", 39, at)
+    [first, second] = for _ <- 1..2, do: user_fixture()
+
+    for user <- [first, second],
+        friend <- [a, b],
+        {u, v} <- [{user, friend}, {friend, user}],
+        do: Repo.insert!(%Friendship{user_id: u.id, friend_id: v.id})
+
+    complete([first, guest_fixture()], at)
+    assert Repo.get_by!(Membership, user_id: first.id).room_id == latest.id
+    complete([second, guest_fixture()], at)
+    refute Repo.get_by!(Membership, user_id: second.id).room_id in [older.id, latest.id]
+    assert Repo.aggregate(from(m in Membership, where: m.room_id == ^older.id), :count) == 30
+    assert Repo.aggregate(from(m in Membership, where: m.room_id == ^latest.id), :count) == 40
   end
 
   test "off and future gates do no league SQL but still pay XP" do

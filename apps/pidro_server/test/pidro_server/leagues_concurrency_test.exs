@@ -31,6 +31,29 @@ defmodule PidroServer.LeaguesConcurrencyTest do
     assert Repo.aggregate(from(r in Result, where: r.move == "up"), :count) == 10
   end
 
+  test "concurrent arrivals compete for the last seat in their friend's older room" do
+    [friend | _] = users = for _ <- 1..29, do: user_fixture()
+    for pair <- Enum.chunk_every(users, 2, 1, :discard), do: save(pair)
+    preferred = Repo.get_by!(Membership, user_id: friend.id).room_id
+    {starts, closes} = Leagues.week(~U[2026-10-29 12:00:00Z])
+    normal = Repo.insert!(%Room{league: "deuce", starts_at: starts, closes_at: closes})
+    [a, b] = newcomers = for _ <- 1..2, do: user_fixture()
+
+    for user <- newcomers,
+        {u, v} <- [{user, friend}, {friend, user}],
+        do: Repo.insert!(%PidroServer.Friends.Friendship{user_id: u.id, friend_id: v.id})
+
+    guest_a = guest_fixture()
+    guest_b = guest_fixture()
+    race([fn -> save([a, guest_a]) end, fn -> save([b, guest_b]) end])
+
+    assert Repo.aggregate(from(m in Membership, where: m.room_id == ^preferred), :count) == 30
+    assert Repo.aggregate(from(m in Membership, where: m.room_id == ^normal.id), :count) == 1
+
+    assert MapSet.new(newcomers, &Repo.get_by!(Membership, user_id: &1.id).room_id) ==
+             MapSet.new([preferred, normal.id])
+  end
+
   test "close races new-week credit and grace hiding without stale rooms or resurrection" do
     for action <- [:credit, :hide] do
       a = user_fixture()

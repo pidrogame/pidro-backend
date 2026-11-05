@@ -205,21 +205,28 @@ defmodule PidroServerWeb.API.LeagueControllerTest do
              nil
   end
 
-  test "friends are mutual, ranked against the whole room and blocked in either direction", %{
+  test "friends compare points across leagues; standings mark only visible mutual friends", %{
     conn: conn
   } do
     a = user_fixture()
     b = user_fixture()
+    c = user_fixture()
     outsider = user_fixture()
     {starts, closes} = Leagues.week(DateTime.utc_now())
     now = DateTime.utc_now()
     room = Repo.insert!(%Room{league: "ace", starts_at: starts, closes_at: closes})
+    lower = Repo.insert!(%Room{league: "deuce", starts_at: starts, closes_at: closes})
 
-    for {u, points} <- [{b, 50}, {outsider, 100}] do
-      Repo.insert!(%Player{user_id: u.id, league: "ace"})
+    for {u, points, placed} <- [
+          {a, 20, room},
+          {b, 50, room},
+          {outsider, 100, room},
+          {c, 200, lower}
+        ] do
+      Repo.insert!(%Player{user_id: u.id, league: placed.league})
 
       Repo.insert!(%Membership{
-        room_id: room.id,
+        room_id: placed.id,
         user_id: u.id,
         closes_at: closes,
         points: points,
@@ -228,17 +235,41 @@ defmodule PidroServerWeb.API.LeagueControllerTest do
       })
     end
 
-    for {u, v} <- [{a, b}, {b, a}],
+    for {u, v} <- [{a, b}, {b, a}, {a, c}, {c, a}, {outsider, a}],
         do: Repo.insert!(%PidroServer.Friends.Friendship{user_id: u.id, friend_id: v.id})
 
     data = conn |> auth(a) |> get("/api/v1/league") |> json_response(200)
-    assert [%{"user_id" => id, "place" => 2, "avatar" => %{"url" => nil}}] = data["friends"]
+
+    assert [
+             %{"user_id" => lower_id, "league" => "deuce", "points" => 200, "place" => 1},
+             %{
+               "user_id" => id,
+               "league" => "ace",
+               "points" => 50,
+               "place" => 2,
+               "avatar" => %{"url" => nil}
+             }
+           ] = data["friends"]
+
+    assert lower_id == c.id
     assert id == b.id
+
+    assert Enum.map(data["room"]["standings"], &{&1["user_id"], &1["friend"]}) ==
+             [{outsider.id, false}, {b.id, true}, {a.id, false}]
+
     assert_schema(data, "LeagueResponse")
+
+    Repo.get!(Player, b.id) |> Ecto.Changeset.change(hidden: true) |> Repo.update!()
+    hidden = conn |> auth(a) |> get("/api/v1/league") |> json_response(200)
+    assert Enum.map(hidden["friends"], & &1["user_id"]) == [c.id]
+    refute Enum.find(hidden["room"]["standings"], &(&1["user_id"] == b.id))["friend"]
+    Repo.get!(Player, b.id) |> Ecto.Changeset.change(hidden: false) |> Repo.update!()
 
     for {u, v} <- [{a, b}, {b, a}] do
       Repo.insert!(%PidroServer.Blocks.Block{user_id: u.id, blocked_id: v.id})
-      assert (conn |> auth(a) |> get("/api/v1/league") |> json_response(200))["friends"] == []
+      blocked = conn |> auth(a) |> get("/api/v1/league") |> json_response(200)
+      assert Enum.map(blocked["friends"], & &1["user_id"]) == [c.id]
+      refute Enum.find(blocked["room"]["standings"], &(&1["user_id"] == b.id))["friend"]
       Repo.delete_all(PidroServer.Blocks.Block)
     end
   end

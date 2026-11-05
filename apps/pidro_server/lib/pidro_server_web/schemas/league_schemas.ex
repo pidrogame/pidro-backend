@@ -60,7 +60,18 @@ defmodule PidroServerWeb.Schemas.LeagueSchemas do
     OpenApiSpex.schema(%{
       title: "LeagueStanding",
       type: :object,
-      required: [:place, :user_id, :username, :avatar, :level, :prestige, :pin, :points, :me],
+      required: [
+        :place,
+        :user_id,
+        :username,
+        :avatar,
+        :level,
+        :prestige,
+        :pin,
+        :points,
+        :me,
+        :friend
+      ],
       properties: %{
         place: %Schema{type: :integer},
         user_id: %Schema{type: :string, format: :uuid},
@@ -74,7 +85,8 @@ defmodule PidroServerWeb.Schemas.LeagueSchemas do
         prestige: %Schema{type: :integer},
         pin: %Schema{type: :string, nullable: true},
         points: %Schema{type: :integer},
-        me: %Schema{type: :boolean}
+        me: %Schema{type: :boolean},
+        friend: %Schema{type: :boolean}
       }
     })
   end
@@ -84,7 +96,7 @@ defmodule PidroServerWeb.Schemas.LeagueSchemas do
     OpenApiSpex.schema(%{
       title: "LeagueFriend",
       type: :object,
-      required: [:user_id, :username, :avatar, :level, :prestige, :league, :place],
+      required: [:user_id, :username, :avatar, :level, :prestige, :league, :place, :points],
       properties: %{
         user_id: %Schema{type: :string, format: :uuid},
         username: %Schema{type: :string},
@@ -96,7 +108,8 @@ defmodule PidroServerWeb.Schemas.LeagueSchemas do
         level: %Schema{type: :integer},
         prestige: %Schema{type: :integer},
         league: %Schema{type: :string, enum: ~w(deuce ten jack ace pidro)},
-        place: %Schema{type: :integer}
+        place: %Schema{type: :integer},
+        points: %Schema{type: :integer}
       }
     })
   end

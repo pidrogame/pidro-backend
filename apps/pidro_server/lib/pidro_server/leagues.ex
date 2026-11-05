@@ -17,6 +17,7 @@ defmodule PidroServer.Leagues do
     "pidro" => {0, 8}
   }
   @week_seconds 7 * 86_400
+  @room_capacity 30
 
   @doc "League order, from bottom to top."
   def leagues, do: @leagues
@@ -91,7 +92,7 @@ defmodule PidroServer.Leagues do
 
         unless player.hidden do
           Repo.insert!(%Player{user_id: user_id}, on_conflict: :nothing)
-          room = placement_room(player.league, {starts, closes}, completed_at)
+          room = placement_room(player.league, {starts, closes}, completed_at, user_id)
           now = DateTime.utc_now()
 
           Repo.insert!(
@@ -113,14 +114,14 @@ defmodule PidroServer.Leagues do
     end
   end
 
-  defp placement_room(league, {starts, closes}, at) do
+  defp placement_room(league, {starts, closes}, at, user_id \\ nil) do
     Repo.query!(
       "SELECT pg_advisory_xact_lock($1::integer, $2::integer)",
       [351 + Enum.find_index(@leagues, &(&1 == league)), DateTime.to_unix(closes)]
     )
 
     # In the final 24 hours the last room grows to 40; otherwise rooms hold 30.
-    capacity = if DateTime.diff(closes, at) <= 86_400, do: 40, else: 30
+    capacity = if DateTime.diff(closes, at) <= 86_400, do: 40, else: @room_capacity
 
     room =
       Repo.one(
@@ -130,12 +131,35 @@ defmodule PidroServer.Leagues do
           limit: 1
       )
 
+    preferred = if user_id && room, do: friend_room(user_id, room, capacity)
+    room = preferred || room
+
     if room &&
          Repo.aggregate(from(m in Membership, where: m.room_id == ^room.id), :count) < capacity do
       room
     else
       Repo.insert!(%Room{league: league, starts_at: starts, closes_at: closes})
     end
+  end
+
+  defp friend_room(user_id, latest, capacity) do
+    Repo.one(
+      from r in Room,
+        join: m in Membership,
+        on: m.room_id == r.id,
+        left_join: f in subquery(eligible_friends(user_id)),
+        on: f.user_id == m.user_id,
+        where:
+          r.league == ^latest.league and r.closes_at == ^latest.closes_at and is_nil(r.closed_at),
+        group_by: r.id,
+        having:
+          count(f.user_id) > 0 and
+            (count(m.id) < @room_capacity or
+               (r.id == ^latest.id and count(m.id) < ^capacity)),
+        order_by: [desc: count(f.user_id), desc: count(m.id), asc: r.id],
+        limit: 1,
+        select: r
+    )
   end
 
   @doc "One ordered query per room; UUID is the stable final tie-break."
@@ -366,6 +390,7 @@ defmodule PidroServer.Leagues do
     room = member && Repo.get!(Room, member.room_id)
     ranked = if room, do: standings(room.id), else: []
     friends = if player.hidden, do: [], else: friends(user.id, closes)
+    friend_ids = MapSet.new(friends, & &1.user_id)
     users = Auth.get_users_map(Enum.uniq([user.id | Enum.map(ranked ++ friends, & &1.user_id)]))
 
     history =
@@ -400,7 +425,8 @@ defmodule PidroServer.Leagues do
                   Map.merge(identity(users[m.user_id]), %{
                     place: m.place,
                     points: m.points,
-                    me: m.user_id == user.id
+                    me: m.user_id == user.id,
+                    friend: MapSet.member?(friend_ids, m.user_id)
                   })
                 end)
             }
@@ -420,7 +446,7 @@ defmodule PidroServer.Leagues do
           Enum.map(friends, fn f ->
             identity(users[f.user_id])
             |> Map.delete(:pin)
-            |> Map.merge(Map.take(f, [:league, :place]))
+            |> Map.merge(Map.take(f, [:league, :place, :points]))
           end),
         ribbons: Ribbons.list(history, now, running)
     }
@@ -472,9 +498,7 @@ defmodule PidroServer.Leagues do
   defp friends(user_id, closes) do
     friend_rooms =
       from m in Membership,
-        join: f in Friendship,
-        on: f.friend_id == m.user_id and f.user_id == ^user_id,
-        where: m.closes_at == ^closes,
+        where: m.closes_at == ^closes and m.user_id in subquery(eligible_friends(user_id)),
         select: m.room_id
 
     ranked =
@@ -485,6 +509,7 @@ defmodule PidroServer.Leagues do
         select: %{
           user_id: m.user_id,
           league: r.league,
+          points: m.points,
           place:
             over(row_number(),
               partition_by: m.room_id,
@@ -494,26 +519,28 @@ defmodule PidroServer.Leagues do
 
     Repo.all(
       from m in subquery(ranked),
-        as: :friend,
-        join: f in Friendship,
-        on: f.user_id == ^user_id and f.friend_id == m.user_id,
-        join: reverse in Friendship,
-        on: reverse.user_id == m.user_id and reverse.friend_id == ^user_id,
-        left_join: p in Player,
-        on: p.user_id == m.user_id,
-        where: is_nil(p.user_id) or not p.hidden,
-        where:
-          not exists(
-            from b in Block,
-              where:
-                (b.user_id == ^user_id and b.blocked_id == parent_as(:friend).user_id) or
-                  (b.blocked_id == ^user_id and b.user_id == parent_as(:friend).user_id)
-          ),
+        where: m.user_id in subquery(eligible_friends(user_id)),
+        order_by: [desc: m.points, asc: m.user_id],
         select: m
     )
-    |> Enum.sort_by(
-      &{-Enum.find_index(@leagues, fn league -> league == &1.league end), &1.place, &1.user_id}
-    )
+  end
+
+  defp eligible_friends(user_id) do
+    from f in Friendship,
+      as: :eligible_friend,
+      join: reverse in Friendship,
+      on: reverse.user_id == f.friend_id and reverse.friend_id == f.user_id,
+      left_join: p in Player,
+      on: p.user_id == f.friend_id,
+      where: f.user_id == ^user_id and (is_nil(p.user_id) or not p.hidden),
+      where:
+        not exists(
+          from b in Block,
+            where:
+              (b.user_id == ^user_id and b.blocked_id == parent_as(:eligible_friend).friend_id) or
+                (b.blocked_id == ^user_id and b.user_id == parent_as(:eligible_friend).friend_id)
+        ),
+      select: %{user_id: f.friend_id}
   end
 
   defp membership(user_id, closes),
