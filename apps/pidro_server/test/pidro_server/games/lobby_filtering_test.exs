@@ -224,7 +224,12 @@ defmodule PidroServer.Games.LobbyFilteringTest do
       trigger_full_cascade(room.code, "user1")
       trigger_full_cascade(room.code, "user1_p2")
       trigger_full_cascade(room.code, "user1_p3")
-      trigger_full_cascade(room.code, "user1_p4")
+      :ok = RoomManager.handle_player_disconnect(room.code, "user1_p4")
+      position = position_for(room, "user1_p4")
+      {:ok, _} = RoomManagerCase.expire_phase(room.code, position, :phase2_start)
+
+      assert {:error, :room_not_found} =
+               RoomManagerCase.expire_phase(room.code, position, :phase3_gone)
 
       lobby = RoomManager.list_lobby("user1")
 

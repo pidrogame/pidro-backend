@@ -324,9 +324,8 @@ defmodule PidroServer.Stats.ScoreProtectionTest do
       assert :ok = RoomManager.leave_room(player.id)
       assert Stats.list_abandonments_for_room(room.code) == []
 
-      saved = finish(room.code)
-      assert saved.player_results == %{}
-      assert saved.player_ids == []
+      assert {:error, :room_not_found} = RoomManager.get_room(room.code)
+      refute Repo.get_by(PidroServer.Stats.GameStats, room_code: room.code)
       assert_uncounted(player.id)
     end
 

@@ -66,27 +66,25 @@ defmodule PidroServer.Games.RoomCleanupTest do
     {updated_room, position}
   end
 
+  defp disconnect_into_grace(room, user_id) do
+    :ok = RoomManager.handle_player_disconnect(room.code, user_id)
+    {:ok, _} = RoomManagerCase.expire_phase(room.code, position_for(room, user_id), :phase2_start)
+  end
+
   describe "zero-human room auto-close" do
-    test "playing room does not auto-close before the game finishes" do
+    test "playing room closes when its last human's grace expires" do
       room = create_playing_room()
 
       # Disconnect all 4 players through full cascade
       trigger_full_cascade(room.code, @user1)
       trigger_full_cascade(room.code, @user2)
       trigger_full_cascade(room.code, @user3)
-      trigger_full_cascade(room.code, @user4)
+      disconnect_into_grace(room, @user4)
 
-      # Room should still exist (auto-close timer not yet fired)
-      {:ok, _} = RoomManager.get_room(room.code)
+      assert {:error, :room_not_found} =
+               RoomManagerCase.expire_phase(room.code, position_for(room, @user4), :phase3_gone)
 
-      # Manually send the auto-close message (bypasses TTL timer)
-      send(GenServer.whereis(RoomManager), {:auto_close_empty_room, room.code, 1})
-
-      # Synchronize with GenServer
-      _ = RoomManager.list_rooms()
-
-      # Room should still exist because :playing rooms must be allowed to finish.
-      assert {:ok, _} = RoomManager.get_room(room.code)
+      assert {:error, :room_not_found} = RoomManager.get_room(room.code)
     end
 
     test "an empty-room close scheduled by an earlier game in the room does nothing" do
@@ -95,7 +93,7 @@ defmodule PidroServer.Games.RoomCleanupTest do
       trigger_full_cascade(room.code, @user1)
       trigger_full_cascade(room.code, @user2)
       trigger_full_cascade(room.code, @user3)
-      trigger_full_cascade(room.code, @user4)
+      disconnect_into_grace(room, @user4)
 
       send(
         GenServer.whereis(RoomManager),
@@ -115,7 +113,7 @@ defmodule PidroServer.Games.RoomCleanupTest do
       trigger_full_cascade(room.code, @user1)
       trigger_full_cascade(room.code, @user2)
       trigger_full_cascade(room.code, @user3)
-      trigger_full_cascade(room.code, @user4)
+      disconnect_into_grace(room, @user4)
 
       send(
         GenServer.whereis(RoomManager),
@@ -132,48 +130,30 @@ defmodule PidroServer.Games.RoomCleanupTest do
     test "auto-close is cancelled if a human joins before TTL" do
       room = create_playing_room()
 
-      # Disconnect all 4 players through full cascade
       trigger_full_cascade(room.code, @user1)
       trigger_full_cascade(room.code, @user2)
       trigger_full_cascade(room.code, @user3)
-      trigger_full_cascade(room.code, @user4)
-
-      {:ok, _existing_room} = RoomManager.get_room(room.code)
-
-      # Simulate a human reconnecting before the TTL fires.
-      # We need a seat that's still reclaimable — but all are permanently botted.
-      # Instead, we'll test the guard: has_connected_human? check in the handler.
-      # Let's set up a different scenario: 3 cascade, 1 stays connected.
-
-      # Actually, let's restart: create a new room and only cascade 3 out of 4
-      RoomManager.reset_for_test()
-
-      room2 = create_playing_room()
-
-      trigger_full_cascade(room2.code, @user2)
-      trigger_full_cascade(room2.code, @user3)
-      trigger_full_cascade(room2.code, @user4)
-
-      # user1 is still connected — auto_close should be a no-op
-      send(GenServer.whereis(RoomManager), {:auto_close_empty_room, room2.code, 1})
+      disconnect_into_grace(room, @user4)
+      send(RoomManager, {:game_over, room.code, :north_south, %{north_south: 62, east_west: 45}})
+      {:ok, _} = RoomManager.handle_player_reconnect(room.code, @user4)
+      send(GenServer.whereis(RoomManager), {:auto_close_empty_room, room.code, 1})
 
       # Synchronize
       _ = RoomManager.list_rooms()
 
-      # Room should still exist because user1 is connected
-      assert {:ok, _} = RoomManager.get_room(room2.code)
+      assert {:ok, %{status: :finished}} = RoomManager.get_room(room.code)
     end
   end
 
   describe "startup sweep" do
-    test "keeps :playing rooms with zero connected humans while the game is still alive" do
+    test "keeps :playing rooms while the last human can still reclaim" do
       room = create_playing_room()
 
       # Disconnect all players through full cascade
       trigger_full_cascade(room.code, @user1)
       trigger_full_cascade(room.code, @user2)
       trigger_full_cascade(room.code, @user3)
-      trigger_full_cascade(room.code, @user4)
+      disconnect_into_grace(room, @user4)
 
       # Room exists but has zero connected humans
       {:ok, _} = RoomManager.get_room(room.code)
@@ -194,7 +174,7 @@ defmodule PidroServer.Games.RoomCleanupTest do
       trigger_full_cascade(room.code, @user1)
       trigger_full_cascade(room.code, @user2)
       trigger_full_cascade(room.code, @user3)
-      trigger_full_cascade(room.code, @user4)
+      disconnect_into_grace(room, @user4)
 
       send(
         GenServer.whereis(RoomManager),

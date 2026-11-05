@@ -27,6 +27,41 @@ defmodule PidroServerWeb.Dev.GameListLiveTest do
     :ok
   end
 
+  test "away bot-game players show their absence and deadline, not a process fault", %{conn: conn} do
+    user = PidroServer.AccountsFixtures.user_fixture()
+    {:ok, room} = RoomManager.create_room(user.id, %{solo: true})
+
+    for position <- [:east, :south, :west],
+        do:
+          {:ok, _} =
+            PidroServer.Games.Bots.BotManager.start_bot(room.code, position, :basic, 5_000)
+
+    RoomFixtures.ready_room(room.code)
+    :ok = RoomManager.handle_player_disconnect(room.code, user.id)
+
+    :sys.replace_state(RoomManager, fn state ->
+      put_in(
+        state.rooms[room.code].seats.north.disconnected_at,
+        DateTime.add(DateTime.utc_now(), -27 * 60, :second)
+      )
+    end)
+
+    {:ok, view, _} = live(conn, ~p"/admin/games")
+    assert has_element?(view, "#room-#{room.code}", "Away 27m")
+    assert has_element?(view, "#room-#{room.code}", "closes in 3m")
+    assert has_element?(view, "#room-#{room.code}", "vs bots")
+    assert has_element?(view, "#room-#{room.code}", "Player away")
+    refute has_element?(view, "#room-#{room.code}", "Connection / process issue")
+    assert has_element?(view, "#room-#{room.code} button", "Delete")
+
+    :ok = GameSupervisor.stop_game(room.code)
+
+    eventually(fn ->
+      send(view.pid, :sample)
+      assert has_element?(view, "#room-#{room.code}", "Connection / process issue")
+    end)
+  end
+
   test "developer controls stay open across live samples", %{conn: conn} do
     {:ok, view, _} = live(conn, ~p"/admin/games")
     refute has_element?(view, "#developer-controls[open]")

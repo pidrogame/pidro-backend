@@ -189,6 +189,40 @@ defmodule PidroServer.Games.RoomHandoverTest do
     refute Map.has_key?(back.phase_timers, :north)
   end
 
+  for phase <- [:hiccup, :grace] do
+    test "restore does not restart an expired multiplayer #{phase} window" do
+      {code, [_north, east | _]} = table()
+      :ok = RoomManager.handle_player_disconnect(code, east)
+
+      if unquote(phase) == :grace,
+        do: {:ok, _} = RoomManagerCase.expire_phase(code, :east, :phase2_start)
+
+      :sys.replace_state(RoomManager, fn state ->
+        past = DateTime.add(DateTime.utc_now(), -300, :second)
+
+        state
+        |> put_in(
+          [Access.key(:rooms), code, Access.key(:seats), :east, Access.key(:disconnected_at)],
+          past
+        )
+        |> put_in(
+          [Access.key(:rooms), code, Access.key(:seats), :east, Access.key(:grace_expires_at)],
+          past
+        )
+      end)
+
+      :ok = RoomManager.release_rooms()
+      new_node()
+      {:ok, _} = RoomManager.find_room(code)
+      wait(fn -> event_count(AbandonmentEvent) == 1 end)
+      assert {:ok, restored} = RoomManager.get_room(code)
+      assert restored.seats.east.status == :bot_substitute
+      assert restored.seats.east.reserved_for == nil
+      refute Map.has_key?(restored.phase_timers, :east)
+      assert restored.seats.north.status == :reconnecting
+    end
+  end
+
   test "a finished room comes back with its game over, its summary and its players" do
     {code, users} = table()
     final = play_until(code, &(&1.phase == :complete))

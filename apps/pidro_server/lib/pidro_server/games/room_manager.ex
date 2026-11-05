@@ -567,6 +567,18 @@ defmodule PidroServer.Games.RoomManager do
   def single_player_room?(%Room{config: %Config{solo: solo}}), do: solo
   def single_player_room?(%Room{}), do: false
 
+  @doc "True for a solo table or one human playing three original bots, not departed humans."
+  @spec game_against_bots?(Room.t()) :: boolean()
+  def game_against_bots?(%Room{} = room) do
+    single_player_room?(room) or
+      (Enum.count(room.seats, fn {_, seat} ->
+         seat.occupant_type == :bot and seat.status == :connected
+       end) == 3 and
+         Enum.any?(room.seats, fn {_, seat} ->
+           seat.occupant_type == :human or is_binary(seat.reserved_for)
+         end))
+  end
+
   @doc """
   Returns true when the room should appear in lobby browsing surfaces.
   """
@@ -905,8 +917,9 @@ defmodule PidroServer.Games.RoomManager do
 
   When a player disconnects during a multiplayer :playing game, the seat-based
   disconnect cascade is started (hiccup -> grace -> permanent bot). The player
-  can reconnect during the hiccup or grace phases to reclaim their seat. A
-  solo game's only human seat is held without a deadline until they reconnect.
+  can reconnect during the hiccup or grace phases to reclaim their seat.
+  A bot game's only human seat is held until the solo absence timeout closes
+  the room, without a substitute or abandonment.
 
   In a `:waiting` or `:ready` room the seat is held instead: it becomes
   `:reconnecting` with no timer and no bot, the room cannot start until the
@@ -1396,6 +1409,13 @@ defmodule PidroServer.Games.RoomManager do
           {:ok, map()} | {:error, term()}
   def apply_substitute_action(room_code, position, action) do
     GenServer.call(__MODULE__, {:apply_substitute_action, room_code, position, action})
+  end
+
+  @doc "Applies a table bot's action unless its only human is away."
+  @spec apply_bot_action(String.t(), Positions.position(), term()) ::
+          {:ok, map()} | {:error, term()}
+  def apply_bot_action(room_code, position, action) do
+    GenServer.call(__MODULE__, {:apply_bot_action, room_code, position, action})
   end
 
   @doc "Sets pace for the sole human seated with three bots."
@@ -1990,11 +2010,14 @@ defmodule PidroServer.Games.RoomManager do
   end
 
   @impl true
-  def handle_call({:apply_substitute_action, room_code, position, action}, {caller, _}, state) do
+  def handle_call({operation, room_code, position, action}, {caller, _}, state)
+      when operation in [:apply_substitute_action, :apply_bot_action] do
     result =
       with {:ok, %Room{status: :playing} = room} <- fetch_room(state, room_code),
-           %Seat{status: :bot_substitute, occupant_type: :bot, bot_pid: ^caller} <-
-             Map.get(room.seats, position) do
+           %Seat{status: status, occupant_type: :bot, bot_pid: ^caller} <-
+             Map.get(room.seats, position),
+           true <- status == :bot_substitute or operation == :apply_bot_action,
+           false <- solo_player_away?(room) do
         # Keep admission and engine application serialized with seat transitions.
         # Never retry an ambiguous engine timeout: its action may have committed.
         GameAdapter.apply_action(room_code, position, action, @player_action_call_timeout_ms)
@@ -2286,6 +2309,9 @@ defmodule PidroServer.Games.RoomManager do
         seat_entry = find_seat_for_user(room, user_id)
 
         cond do
+          solo_absence_expired?(room, DateTime.utc_now()) ->
+            {:reply, {:error, :room_not_found}, remove_room(state, room_code)}
+
           # Phase 1 or Phase 2: seat found via user_id or reserved_for
           seat_entry != nil ->
             {position, seat} = seat_entry
@@ -2523,9 +2549,8 @@ defmodule PidroServer.Games.RoomManager do
     now = DateTime.utc_now()
     grace_period_minutes = 5
 
-    # Check based on internal state only (no Presence dependency)
-    # Abandoned = :waiting status + NO connected human or spectator + idle for
-    # 5 mins, or for invited_waiting_ttl_ms while an invite is live (R21)
+    # Playing bot games expire from the human's absence, never bot activity.
+    # Waiting rooms retain their existing idle and invitation windows.
     updated_state =
       state.rooms
       |> Enum.filter(fn {_code, room} ->
@@ -2551,13 +2576,14 @@ defmodule PidroServer.Games.RoomManager do
         seat = Map.get(room.seats, position)
 
         if is_reference(ref) && room.phase_timers[position] == ref && seat &&
-             seat.status == :reconnecting do
+             seat.status == :reconnecting && not game_against_bots?(room) do
           with {:ok, bot_pid} <- start_substitute_bot(room, position) do
-            # Calculate remaining grace duration (total grace minus hiccup already elapsed)
+            # Restore/retry must not restart the total absence window.
             grace_ms = Lifecycle.config(:grace_timeout_ms)
-            hiccup_ms = Lifecycle.config(:hiccup_timeout_ms)
-            remaining_grace_ms = grace_ms - hiccup_ms
-            grace_expires_at = DateTime.add(DateTime.utc_now(), remaining_grace_ms, :millisecond)
+            grace_expires_at = DateTime.add(seat.disconnected_at, grace_ms, :millisecond)
+
+            remaining_grace_ms =
+              max(0, DateTime.diff(grace_expires_at, DateTime.utc_now(), :millisecond))
 
             # Transition seat: reconnecting -> grace -> bot_substitute
             {:ok, grace_seat} = Seat.start_grace(seat, grace_expires_at)
@@ -2669,10 +2695,10 @@ defmodule PidroServer.Games.RoomManager do
           maybe_notify_owner_decision(updated_room, room_code, position)
           broadcast_seat_lifecycle(updated_room)
 
-          # Check if zero connected humans remain — schedule auto-close
+          # Finished tables keep their TTL; playing tables end after the last reclaim window.
           maybe_schedule_empty_room_close(updated_room, room_code)
 
-          {:noreply, updated_state}
+          {:noreply, close_unattended_game(updated_state, updated_room)}
         else
           # Player already reclaimed or seat state changed, skip
           {:noreply, state}
@@ -2946,7 +2972,8 @@ defmodule PidroServer.Games.RoomManager do
   # so a game that did not answer is asked again a few times.
   @impl true
   def handle_info({:sweep_play, room_code, event_seq, retries}, %State{} = state) do
-    with %Room{status: :playing, pace: :quick} <- Map.get(state.rooms, room_code),
+    with %Room{status: :playing, pace: :quick} = room <- Map.get(state.rooms, room_code),
+         false <- solo_player_away?(room),
          {:ok, game_state} <- GameAdapter.get_state(room_code),
          ^event_seq <- length(game_state.events),
          {position, card} <- Play.settled_play(game_state),
@@ -4103,6 +4130,14 @@ defmodule PidroServer.Games.RoomManager do
             broadcast_lobby_event({:room_updated, updated_room})
 
             broadcast_seat_lifecycle(updated_room)
+
+            if game_against_bots?(updated_room) do
+              with {:ok, snapshot} <- GameAdapter.get_snapshot(room_code) do
+                broadcast_initial_game_state(room_code, snapshot)
+                maybe_schedule_sweep(updated_room, room_code, snapshot.state, 0)
+              end
+            end
+
             # Reclaim restores connectivity, never pre-disconnect readiness.
             {:reply, {:ok, updated_room}, updated_state}
 
@@ -4228,7 +4263,7 @@ defmodule PidroServer.Games.RoomManager do
       if bot_pid, do: maybe_notify_owner_decision(updated_room, room.code, position)
       broadcast_seat_lifecycle(updated_room)
 
-      {:reply, :ok, new_state}
+      {:reply, :ok, close_unattended_game(new_state, updated_room)}
     else
       {:error, reason} ->
         Logger.error("Bot takeover failed in room #{room.code}: #{inspect(reason)}")
@@ -4722,12 +4757,8 @@ defmodule PidroServer.Games.RoomManager do
         # Remove room and all player/spectator mappings
         new_rooms = Map.delete(state.rooms, room_code)
 
-        player_ids = Positions.player_ids(room)
-
         new_player_rooms =
-          Enum.reduce(player_ids, state.player_rooms, fn player_id, acc ->
-            Map.delete(acc, player_id)
-          end)
+          Map.reject(state.player_rooms, fn {_player_id, code} -> code == room_code end)
 
         new_spectator_rooms =
           Enum.reduce(room.spectator_ids, state.spectator_rooms, fn spectator_id, acc ->
@@ -5094,7 +5125,11 @@ defmodule PidroServer.Games.RoomManager do
       )
 
       state = install_room(state, restore_seats(room), snapshot)
-      {{:ok, state.rooms[room_code]}, state}
+
+      case state.rooms[room_code] do
+        nil -> {{:error, :room_not_found}, state}
+        restored -> {{:ok, restored}, state}
+      end
     else
       {:error, reason} ->
         _ = GameSupervisor.drop_game(room_code)
@@ -5166,13 +5201,31 @@ defmodule PidroServer.Games.RoomManager do
   end
 
   # Nobody is connected to a room this node just took over. Its humans come
-  # back held, as if they had just dropped but without the drop counting
-  # against them: a fresh hiccup window, no seat event. Bots and substitutes
-  # take their seats again.
+  # back held without recording a drop. An existing absence keeps its clock;
+  # a previously connected human starts at boot. Bots take their seats again.
   defp restore_seats(%Room{} = room) do
     room = if room.status in [:waiting, :ready], do: reset_readiness(room), else: room
     # Idle time on the old node does not count toward closing the room here.
     room = %{room | last_activity: DateTime.utc_now()}
+
+    # Old versions could substitute the only human at a non-solo bot table.
+    room =
+      if game_against_bots?(room) do
+        seats =
+          Map.new(room.seats, fn
+            {position, %Seat{status: :bot_substitute, reserved_for: id} = seat}
+            when is_binary(id) ->
+              {:ok, human} = Seat.reclaim(seat, id)
+              {position, %{human | status: :reconnecting, disconnected_at: seat.disconnected_at}}
+
+            entry ->
+              entry
+          end)
+
+        %{room | seats: seats}
+      else
+        room
+      end
 
     room.seats
     |> Enum.reduce(room, fn {position, seat}, room -> restore_seat(room, position, seat) end)
@@ -5181,11 +5234,23 @@ defmodule PidroServer.Games.RoomManager do
 
   defp restore_seat(%Room{status: status} = room, position, %Seat{occupant_type: :human} = seat)
        when status in [:waiting, :ready, :playing] do
-    seat = %{seat | status: :reconnecting, disconnected_at: DateTime.utc_now()}
+    seat = %{
+      seat
+      | status: :reconnecting,
+        disconnected_at: seat.disconnected_at || DateTime.utc_now()
+    }
+
     room = %{room | seats: Map.put(room.seats, position, seat)}
 
-    if room.status == :playing and room.pace == :quick and not room.config.solo do
-      phase_timer(room, position, Lifecycle.config(:hiccup_timeout_ms), :phase2_start)
+    if room.status == :playing and not game_against_bots?(room) do
+      elapsed = DateTime.diff(DateTime.utc_now(), seat.disconnected_at, :millisecond)
+
+      phase_timer(
+        room,
+        position,
+        max(0, Lifecycle.config(:hiccup_timeout_ms) - elapsed),
+        :phase2_start
+      )
     else
       room
     end
@@ -5204,12 +5269,11 @@ defmodule PidroServer.Games.RoomManager do
 
     room = %{room | seats: Map.put(room.seats, position, seat)}
 
-    # A player still in their grace keeps what was left of it, never less
-    # than a hiccup window.
+    # A deploy must not extend an existing grace window.
     case seat do
       %Seat{reserved_for: id, grace_expires_at: %DateTime{} = expires} when is_binary(id) ->
         remaining = DateTime.diff(expires, DateTime.utc_now(), :millisecond)
-        ms = max(remaining, Lifecycle.config(:hiccup_timeout_ms))
+        ms = max(remaining, 0)
         phase_timer(room, position, ms, :phase3_gone)
 
       _ ->
@@ -5267,7 +5331,7 @@ defmodule PidroServer.Games.RoomManager do
         # The room's own update handler starts the turn timer and pacing, and
         # the bots look for their move.
         broadcast_initial_game_state(code, snapshot)
-        state
+        close_unattended_game(state, room)
     end
   end
 
@@ -5357,6 +5421,9 @@ defmodule PidroServer.Games.RoomManager do
 
   defp missing_game_process(_room, _room_code), do: []
 
+  defp abandoned?(%Room{status: :playing} = room, now, _grace_period_minutes),
+    do: solo_absence_expired?(room, now) or unattended_game?(room)
+
   defp abandoned?(room, now, grace_period_minutes) do
     idle_threshold_ms = idle_threshold_ms(room, now, grace_period_minutes)
     idle? = DateTime.diff(now, room.last_activity, :millisecond) > idle_threshold_ms
@@ -5368,6 +5435,37 @@ defmodule PidroServer.Games.RoomManager do
     # missed rooms where seat status was never cleared on disconnect.
     room.status == :waiting && idle? && !has_connected_human?(room) &&
       active_spectator_count == 0
+  end
+
+  defp solo_absence_expired?(%Room{status: :playing} = room, now) do
+    game_against_bots?(room) and
+      Enum.any?(room.seats, fn {_, seat} ->
+        seat.status == :reconnecting and match?(%DateTime{}, seat.disconnected_at) and
+          DateTime.diff(now, seat.disconnected_at, :millisecond) >=
+            Lifecycle.config(:solo_absence_timeout_ms)
+      end)
+  end
+
+  defp solo_absence_expired?(_room, _now), do: false
+
+  defp solo_player_away?(room),
+    do: game_against_bots?(room) and not has_connected_human?(room)
+
+  defp unattended_game?(%Room{status: :playing} = room) do
+    not Enum.any?(room.seats, fn {_, seat} ->
+      seat.occupant_type == :human or is_binary(seat.reserved_for)
+    end)
+  end
+
+  defp unattended_game?(_room), do: false
+
+  defp close_unattended_game(state, room) do
+    if unattended_game?(room) do
+      Logger.info("Closing unattended game #{room.code}: no humans remain")
+      remove_room(state, room.code)
+    else
+      state
+    end
   end
 
   @doc false
@@ -5407,7 +5505,7 @@ defmodule PidroServer.Games.RoomManager do
   end
 
   defp single_player_human_player?(%Room{} = room, player_id) do
-    if single_player_room?(room) do
+    if game_against_bots?(room) do
       case Positions.get_position(room, player_id) do
         nil ->
           false
@@ -5703,20 +5801,13 @@ defmodule PidroServer.Games.RoomManager do
 
   @doc false
   # Multiplayer games use the disconnect cascade. A solo game holds its only
-  # human seat without a deadline so switching apps cannot surrender it. A
+  # human seat until the absence sweep closes the room. A
   # `:finished` room only records the activity.
-  defp mark_disconnected(%Room{status: :playing, pace: :own} = room, room_code, user_id),
-    do: hold_seat(room, room_code, user_id)
-
-  defp mark_disconnected(
-         %Room{status: :playing, config: %Config{solo: true}} = room,
-         room_code,
-         user_id
-       ),
-       do: hold_seat(room, room_code, user_id)
-
-  defp mark_disconnected(%Room{status: :playing} = room, room_code, user_id),
-    do: start_hiccup_cascade(room, room_code, user_id)
+  defp mark_disconnected(%Room{status: :playing} = room, room_code, user_id) do
+    if game_against_bots?(room),
+      do: hold_seat(room, room_code, user_id),
+      else: start_hiccup_cascade(room, room_code, user_id)
+  end
 
   defp mark_disconnected(%Room{status: status} = room, room_code, user_id)
        when status in [:waiting, :ready],
@@ -6066,6 +6157,7 @@ defmodule PidroServer.Games.RoomManager do
 
   defp current_action_window(%Room{} = room, game_state) do
     if room.status != :playing or room.pace == :own or single_player_room?(room) or
+         solo_player_away?(room) or
          Play.settled_play(game_state) != nil do
       :none
     else

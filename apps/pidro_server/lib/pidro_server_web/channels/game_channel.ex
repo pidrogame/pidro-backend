@@ -243,6 +243,9 @@ defmodule PidroServerWeb.GameChannel do
            :action_failed
          )}
 
+      {:error, :room_not_found} ->
+        {:error, ErrorContract.add(%{reason: "room not found"}, :room_not_found, :action_failed)}
+
       {:error, reason} ->
         Logger.warning("Reconnection failed for #{user_id}: #{inspect(reason)}")
 

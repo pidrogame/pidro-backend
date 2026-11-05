@@ -119,26 +119,18 @@ defmodule PidroServer.Games.DisconnectCascadeTest do
       end
     end
 
-    test "the last human leaves four live bots in an active multiplayer game" do
+    test "the last human leaving closes the multiplayer game and its bots" do
       {room, _positions} = create_playing_room()
 
-      for user <- ["user2", "user3", "user4", "user1"],
+      for user <- ["user2", "user3", "user4"],
           do: assert(:ok = RoomManager.leave_room(user))
 
       assert {:ok, updated} = RoomManager.get_room(room.code)
-      assert updated.status == :playing
-
-      assert Enum.all?(updated.seats, fn {_, seat} ->
-               seat.occupant_type == :bot and Process.alive?(seat.bot_pid)
-             end)
-
-      assert updated.host_id == nil
-      refute Enum.any?(updated.seats, fn {_, seat} -> seat.is_owner end)
-
-      for user <- ["user1", "user2", "user3", "user4"] do
-        assert {:error, :not_owner} = RoomManager.open_seat(room.code, :north, user)
-        assert {:error, :not_owner} = RoomManager.close_seat(room.code, :north, user)
-      end
+      bots = for {_, %{occupant_type: :bot, bot_pid: pid}} <- updated.seats, do: pid
+      assert :ok = RoomManager.leave_room("user1")
+      assert {:error, :room_not_found} = RoomManager.get_room(room.code)
+      refute Enum.any?(bots, &Process.alive?/1)
+      assert {:error, _} = GameAdapter.get_state(room.code)
     end
 
     test "a failed bot start preserves membership and its existing timer" do
@@ -709,25 +701,13 @@ defmodule PidroServer.Games.DisconnectCascadeTest do
     end
 
     # The last to leave sits with bots alone, which abandons nobody.
-    test "all bots finish the game and persist the result of everyone who left a human behind" do
+    test "all humans leaving keeps abandonments without awarding a bot-only result" do
       user_ids = Enum.map(1..4, fn _ -> Ecto.UUID.generate() end)
       {room, _} = create_playing_room(user_ids)
       for user_id <- user_ids, do: assert(:ok = RoomManager.leave_room(user_id))
 
-      saved =
-        eventually(
-          fn -> Repo.get_by(PidroServer.Stats.GameStats, room_code: room.code) end,
-          4_000
-        )
-
-      assert Enum.sort(saved.player_ids) == Enum.sort(Enum.take(user_ids, 3))
-
-      assert Enum.all?(saved.player_results, fn {_, result} ->
-               result["participation"] == "abandoned"
-             end)
-
-      {:ok, finished} = RoomManager.get_room(room.code)
-      assert finished.status == :finished
+      assert {:error, :room_not_found} = RoomManager.get_room(room.code)
+      refute Repo.get_by(PidroServer.Stats.GameStats, room_code: room.code)
       assert length(PidroServer.Stats.list_abandonments_for_room(room.code)) == 3
     end
   end

@@ -32,6 +32,26 @@ defmodule PidroServerWeb.OwnPaceTest do
     :ok
   end
 
+  test "return after the absence deadline before the sweep uses the existing closed-room error" do
+    {room, user, _socket} = solo_table(:finnish)
+    RoomFixtures.ready_room(room.code)
+    :ok = RoomManager.handle_player_disconnect(room.code, user.id)
+
+    :sys.replace_state(RoomManager, fn state ->
+      put_in(
+        state.rooms[room.code].seats.north.disconnected_at,
+        DateTime.add(DateTime.utc_now(), -30 * 60, :second)
+      )
+    end)
+
+    {:ok, fresh} = create_socket(user)
+
+    assert {:error, %{reason: "room not found", error_code: "room_not_found"}} =
+             subscribe_and_join(fresh, GameChannel, "game:#{room.code}")
+
+    assert {:error, :room_not_found} = RoomManager.get_room(room.code)
+  end
+
   for variant <- [:finnish, :louisiana] do
     @tag timeout: 90_000
     test "#{variant}: real bots wait after a hand, reconnect keeps it, Continue deals once" do

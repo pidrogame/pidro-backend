@@ -357,7 +357,7 @@ defmodule PidroServer.Games.Bots.SubstituteTakeoverTest do
 
   defp human_turn?(_game, _hands), do: false
 
-  test "four rulebook bots play a full game to a winner in a real room" do
+  test "leaving a table of rulebook bots stops it instead of playing for nobody" do
     host = Ecto.UUID.generate()
     {:ok, room} = RoomManager.create_room(host, %{name: "All bots"})
 
@@ -367,13 +367,8 @@ defmodule PidroServer.Games.Bots.SubstituteTakeoverTest do
         PidroServer.RoomFixtures.ready_room(room.code)
         assert :ok = RoomManager.leave_room(host)
 
-        {:ok, game} = GameAdapter.get_state(room.code)
-
-        if game.phase == :dealer_selection,
-          do: GameAdapter.apply_action(room.code, :north, :select_dealer)
-
-        done = eventually(fn -> match_phase(room.code, :complete) end, 6_000)
-        assert done.winner in [:north_south, :east_west]
+        assert {:error, :room_not_found} = RoomManager.get_room(room.code)
+        assert {:error, _} = GameAdapter.get_state(room.code)
       end)
 
     # Every seat-filler may try to cut for dealer at once. Only the first cut

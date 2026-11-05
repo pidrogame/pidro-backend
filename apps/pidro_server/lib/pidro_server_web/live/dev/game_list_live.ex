@@ -251,6 +251,9 @@ defmodule PidroServerWeb.Dev.GameListLive do
               title="Copy room ID"
               class="match-code"
             ><.icon name="hero-square-2-stack" class="size-3.5" />{room.code}</button>
+            <p :if={RoomManager.game_against_bots?(room)} class="mt-1 text-xs text-stone-500">
+              vs bots
+            </p>
             <details class="match-identifiers">
               <summary>Seat identifiers</summary>
               <ul>
@@ -268,7 +271,7 @@ defmodule PidroServerWeb.Dev.GameListLive do
               </ul>
             </details>
           </div>
-          <.participant_teams seats={team_seats(room, @profiles)} />
+          <.participant_teams seats={team_seats(room, @profiles, @now)} />
           <div class="match-state">
             <.match_status status={room.status} />
             <p class="mt-2 text-sm font-semibold">{phase_label(summary, room)}</p>
@@ -303,6 +306,9 @@ defmodule PidroServerWeb.Dev.GameListLive do
             <p :if={is_nil(room.host_id)} class="mt-1">No owner</p>
             <p :if={issue?(room, summary)} class="mt-1 text-amber-700">
               Connection / process issue
+            </p>
+            <p :if={Enum.any?(room.seats, fn {_, seat} -> away?(seat) end)} class="mt-1">
+              Player away
             </p>
             <p class="mt-2">Created {Calendar.strftime(room.created_at, "%d %b %H:%M UTC")}</p>
           </div>
@@ -477,12 +483,21 @@ defmodule PidroServerWeb.Dev.GameListLive do
   defp issue?(room, summary) do
     (room.status == :playing and is_nil(summary)) or
       Enum.any?(room.seats, fn {_, seat} ->
-        seat.status in [:reconnecting, :grace] or
-          (seat.status == :bot_substitute and not is_nil(seat.reserved_for))
+        (seat.status in [:reconnecting, :grace] or
+           (seat.status == :bot_substitute and not is_nil(seat.reserved_for))) and
+          not away?(seat)
       end)
   end
 
-  defp team_seats(room, profiles) do
+  defp away?(%{occupant_type: :human, status: status, disconnected_at: %DateTime{}})
+       when status in [:reconnecting, :grace], do: true
+
+  defp away?(%{status: :bot_substitute, reserved_for: id, disconnected_at: %DateTime{}})
+       when is_binary(id), do: true
+
+  defp away?(_seat), do: false
+
+  defp team_seats(room, profiles, now) do
     Map.new(room.seats, fn {position, seat} ->
       bot = if seat.occupant_type == :bot, do: PidroServer.BotCatalogue.profile(seat.bot_persona)
 
@@ -496,7 +511,7 @@ defmodule PidroServerWeb.Dev.GameListLive do
       {position,
        %{
          name: seat_name(seat, profiles[seat.user_id]),
-         detail: connection(seat),
+         detail: connection(seat, room, now),
          kind: seat.occupant_type,
          avatar_url: avatar
        }}
@@ -511,9 +526,24 @@ defmodule PidroServerWeb.Dev.GameListLive do
   defp seat_name(%{occupant_type: :vacant}, _), do: "Open seat"
   defp seat_name(_, _), do: "Unknown player"
 
-  defp connection(%{occupant_type: :vacant}), do: ""
-  defp connection(%{occupant_type: :bot, status: :connected}), do: "bot"
-  defp connection(%{status: status}), do: humanize(status)
+  defp connection(%{occupant_type: :vacant}, _room, _now), do: ""
+  defp connection(%{occupant_type: :bot, status: :connected}, _room, _now), do: "bot"
+
+  defp connection(seat, room, now) do
+    if away?(seat) do
+      elapsed_ms = max(0, DateTime.diff(now, seat.disconnected_at, :millisecond))
+      label = "Away #{div(elapsed_ms, 60_000)}m"
+
+      if room.status == :playing and RoomManager.game_against_bots?(room) do
+        remaining = max(0, Lifecycle.config(:solo_absence_timeout_ms) - elapsed_ms)
+        label <> " · closes in #{ceil(remaining / 60_000)}m"
+      else
+        label
+      end
+    else
+      humanize(seat.status)
+    end
+  end
 
   defp score(nil, _), do: "–"
   defp score(summary, team), do: summary.cumulative_scores[team] || 0

@@ -206,14 +206,20 @@ defmodule PidroServer.Games.OwnershipPromotionTest do
     test "no promotion when all humans disconnect permanently" do
       {room, _positions} = create_playing_room()
       Phoenix.PubSub.subscribe(PidroServer.PubSub, "game:#{room.code}")
+      Phoenix.PubSub.subscribe(PidroServer.PubSub, "lobby:updates")
 
       # Disconnect all 4 players through full cascade
       trigger_full_cascade(room.code, "user1")
       trigger_full_cascade(room.code, "user2")
       trigger_full_cascade(room.code, "user3")
-      trigger_full_cascade(room.code, "user4")
+      :ok = RoomManager.handle_player_disconnect(room.code, "user4")
+      position = position_for(room, "user4")
+      {:ok, _} = RoomManagerCase.expire_phase(room.code, position, :phase2_start)
 
-      {:ok, updated_room} = RoomManager.get_room(room.code)
+      assert {:error, :room_not_found} =
+               RoomManagerCase.expire_phase(room.code, position, :phase3_gone)
+
+      assert_receive {:room_updated, %{host_id: nil} = updated_room}
 
       # All seats should be bots with no reserved_for
       for {_pos, seat} <- updated_room.seats do
@@ -229,6 +235,7 @@ defmodule PidroServer.Games.OwnershipPromotionTest do
     test "all non-owner humans disconnect first, then owner — no connected owner remains" do
       {room, _positions} = create_playing_room()
       Phoenix.PubSub.subscribe(PidroServer.PubSub, "game:#{room.code}")
+      Phoenix.PubSub.subscribe(PidroServer.PubSub, "lobby:updates")
 
       # Disconnect non-owners first
       trigger_full_cascade(room.code, "user2")
@@ -242,9 +249,13 @@ defmodule PidroServer.Games.OwnershipPromotionTest do
       assert Seat.connected_human?(mid_room.seats[owner_pos])
 
       # Now disconnect owner — no one left to promote to
-      trigger_full_cascade(room.code, "user1")
+      :ok = RoomManager.handle_player_disconnect(room.code, "user1")
+      {:ok, _} = RoomManagerCase.expire_phase(room.code, owner_pos, :phase2_start)
 
-      {:ok, final_room} = RoomManager.get_room(room.code)
+      assert {:error, :room_not_found} =
+               RoomManagerCase.expire_phase(room.code, owner_pos, :phase3_gone)
+
+      assert_receive {:room_updated, %{host_id: nil} = final_room}
 
       # No connected human should be owner
       connected_humans =

@@ -49,6 +49,7 @@ lifecycle_overrides =
   [
     {:hiccup_timeout_ms, "LIFECYCLE_HICCUP_TIMEOUT_MS"},
     {:grace_timeout_ms, "LIFECYCLE_GRACE_TIMEOUT_MS"},
+    {:solo_absence_timeout_ms, "LIFECYCLE_SOLO_ABSENCE_TIMEOUT_MS"},
     {:empty_room_ttl_ms, "LIFECYCLE_EMPTY_ROOM_TTL_MS"},
     {:finished_room_ttl_ms, "LIFECYCLE_FINISHED_ROOM_TTL_MS"},
     {:idle_waiting_ttl_ms, "LIFECYCLE_IDLE_WAITING_TTL_MS"},
