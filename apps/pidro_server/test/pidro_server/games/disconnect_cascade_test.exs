@@ -448,7 +448,14 @@ defmodule PidroServer.Games.DisconnectCascadeTest do
           unquote(mode) == :leave or
             (unquote(mode) == :mixed and room.positions[bidding.current_turn] == room.host_id)
 
-        assert continued.host_id == if(host_left?, do: human_id, else: room.host_id)
+        expected_host =
+          cond do
+            not host_left? -> room.host_id
+            unquote(mode) == :mixed and unquote(host_first?) -> room.positions.south
+            true -> human_id
+          end
+
+        assert continued.host_id == expected_host
 
         for {position, _} <- departing do
           assert Process.alive?(continued.seats[position].bot_pid)
