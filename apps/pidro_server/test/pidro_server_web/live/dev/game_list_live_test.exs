@@ -27,6 +27,28 @@ defmodule PidroServerWeb.Dev.GameListLiveTest do
     :ok
   end
 
+  @tag :flaky_connections
+  test "GameListLive survives friends_changed and unknown PubSub messages", %{conn: conn} do
+    {:ok, view, _} = live(conn, ~p"/admin/games")
+    previous_level = Logger.level()
+    Logger.configure(level: :debug)
+    on_exit(fn -> Logger.configure(level: previous_level) end)
+
+    log =
+      ExUnit.CaptureLog.capture_log([level: :debug], fn ->
+        for _ <- 1..2 do
+          send(view.pid, {:friends_changed, "player"})
+          send(view.pid, {:future_broadcast, %{private: "not logged"}})
+        end
+
+        assert render(view) =~ "Game settings"
+      end)
+
+    assert length(Regex.scan(~r/tag=:friends_changed/, log)) == 1
+    assert length(Regex.scan(~r/tag=:future_broadcast/, log)) == 1
+    refute log =~ "not logged"
+  end
+
   test "away bot-game players show their absence and deadline, not a process fault", %{conn: conn} do
     user = PidroServer.AccountsFixtures.user_fixture()
     {:ok, room} = RoomManager.create_room(user.id, %{solo: true})

@@ -281,7 +281,7 @@ defmodule PidroServer.Stats.ScoreProtectionTest do
 
       :ok = RoomManager.handle_player_disconnect(room.code, user2)
       {:ok, _} = RoomManagerCase.expire_phase(room.code, position, :phase2_start)
-      {:ok, _} = RoomManagerCase.expire_phase(room.code, position, :phase3_gone)
+      :ok = RoomManager.leave_room(user2)
       {:ok, _} = RoomManager.open_seat(room.code, position, user1)
       {:ok, _, ^position} = RoomManager.join_as_substitute(room.code, substitute)
 

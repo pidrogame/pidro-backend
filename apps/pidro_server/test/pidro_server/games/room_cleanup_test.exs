@@ -72,7 +72,7 @@ defmodule PidroServer.Games.RoomCleanupTest do
   end
 
   describe "zero-human room auto-close" do
-    test "playing room closes when its last human's grace expires" do
+    test "playing room stays reclaimable after its last human's grace expires" do
       room = create_playing_room()
 
       # Disconnect all 4 players through full cascade
@@ -81,10 +81,12 @@ defmodule PidroServer.Games.RoomCleanupTest do
       trigger_full_cascade(room.code, @user3)
       disconnect_into_grace(room, @user4)
 
-      assert {:error, :room_not_found} =
+      assert {:ok, _} =
                RoomManagerCase.expire_phase(room.code, position_for(room, @user4), :phase3_gone)
 
-      assert {:error, :room_not_found} = RoomManager.get_room(room.code)
+      assert {:ok, _} = RoomManager.get_room(room.code)
+      assert {:ok, returned} = RoomManager.handle_player_reconnect(room.code, @user4)
+      assert returned.seats[position_for(room, @user4)].user_id == @user4
     end
 
     test "an empty-room close scheduled by an earlier game in the room does nothing" do

@@ -59,14 +59,15 @@ defmodule PidroServer.Games.LobbyFilteringTest do
     end)
   end
 
-  # Disconnect and trigger Phase 2 + Phase 3 (makes bot permanent).
+  # Disconnect then deliberately leave (makes bot permanent).
   defp trigger_full_cascade(room_code, user_id) do
     :ok = RoomManager.handle_player_disconnect(room_code, user_id)
     {:ok, room} = RoomManager.get_room(room_code)
     position = position_for(room, user_id)
 
     {:ok, _} = RoomManagerCase.expire_phase(room_code, position, :phase2_start)
-    {:ok, updated_room} = RoomManagerCase.expire_phase(room_code, position, :phase3_gone)
+    :ok = RoomManager.leave_room(user_id)
+    {:ok, updated_room} = RoomManager.get_room(room_code)
 
     {updated_room, position}
   end
@@ -165,7 +166,7 @@ defmodule PidroServer.Games.LobbyFilteringTest do
       assert lobby.my_rejoinable == []
     end
 
-    test "does not return rooms after Phase 3 (permanent bot)" do
+    test "does not return rooms after intentional leave (permanent bot)" do
       room = create_playing_room("user1")
 
       # Full cascade — bot becomes permanent, reserved_for cleared
@@ -228,8 +229,8 @@ defmodule PidroServer.Games.LobbyFilteringTest do
       position = position_for(room, "user1_p4")
       {:ok, _} = RoomManagerCase.expire_phase(room.code, position, :phase2_start)
 
-      assert {:error, :room_not_found} =
-               RoomManagerCase.expire_phase(room.code, position, :phase3_gone)
+      assert :ok = RoomManager.leave_room("user1_p4")
+      assert {:error, :room_not_found} = RoomManager.get_room(room.code)
 
       lobby = RoomManager.list_lobby("user1")
 

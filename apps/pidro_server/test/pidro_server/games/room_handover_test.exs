@@ -190,7 +190,7 @@ defmodule PidroServer.Games.RoomHandoverTest do
   end
 
   for phase <- [:hiccup, :grace] do
-    test "restore does not restart an expired multiplayer #{phase} window" do
+    test "restore of an expired multiplayer #{phase} window preserves reclaim" do
       {code, [_north, east | _]} = table()
       :ok = RoomManager.handle_player_disconnect(code, east)
 
@@ -214,12 +214,20 @@ defmodule PidroServer.Games.RoomHandoverTest do
       :ok = RoomManager.release_rooms()
       new_node()
       {:ok, _} = RoomManager.find_room(code)
-      wait(fn -> event_count(AbandonmentEvent) == 1 end)
+
+      wait(fn ->
+        {:ok, room} = RoomManager.get_room(code)
+        room.seats.east.status == :bot_substitute and not Map.has_key?(room.phase_timers, :east)
+      end)
+
+      assert event_count(AbandonmentEvent) == 0
       assert {:ok, restored} = RoomManager.get_room(code)
       assert restored.seats.east.status == :bot_substitute
-      assert restored.seats.east.reserved_for == nil
+      assert restored.seats.east.reserved_for == east
       refute Map.has_key?(restored.phase_timers, :east)
       assert restored.seats.north.status == :reconnecting
+      assert {:ok, returned} = RoomManager.handle_player_reconnect(code, east)
+      assert returned.seats.east.user_id == east
     end
   end
 

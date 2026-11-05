@@ -573,7 +573,7 @@ defmodule PidroServerWeb.GameChannelTest do
   end
 
   describe "disconnect cascade delivery" do
-    test "grace reclaim sends the current state and retires the bot", context do
+    test "reclaim after grace expiry sends the seated reply and retires the bot", context do
       room_code = context.room_code
       user_id = context.user2.id
 
@@ -585,6 +585,7 @@ defmodule PidroServerWeb.GameChannelTest do
       {:ok, grace} = PidroServer.RoomManagerCase.expire_phase(room_code, position, :phase2_start)
       bot = grace.seats[position].bot_pid
       assert_push "bot_substitute_active", %{user_id: ^user_id, position: ^position}
+      {:ok, _} = PidroServer.RoomManagerCase.expire_phase(room_code, position, :phase3_gone)
 
       {:ok, reply, _returned} =
         subscribe_and_join(context.sockets[user_id], GameChannel, "game:#{room_code}")
@@ -609,7 +610,7 @@ defmodule PidroServerWeb.GameChannelTest do
       end
 
       {:ok, _} = PidroServer.RoomManagerCase.expire_phase(room_code, :north, :phase2_start)
-      {:ok, _} = PidroServer.RoomManagerCase.expire_phase(room_code, :north, :phase3_gone)
+      :ok = RoomManager.leave_room(context.user1.id)
       assert_push "seat_permanently_botted", %{position: :north}
       assert_push "owner_changed", %{new_owner_id: nil, new_owner_position: nil}
 
@@ -1399,6 +1400,7 @@ defmodule PidroServerWeb.GameChannelTest do
 
       ref =
         push(returned, "play_card", %{
+          "action_id" => "flaky-card-tap",
           "card" => %{"rank" => card.rank, "suit" => to_string(card.suit)}
         })
 
@@ -1407,6 +1409,25 @@ defmodule PidroServerWeb.GameChannelTest do
       assert played.players.north.hand == [%{rank: 10, suit: :hearts}]
       assert played.players.north.card_count == 1
       assert [%{card: %{rank: 14, suit: :hearts}}] = played.current_trick
+
+      {:ok, before_retry} = GameAdapter.get_snapshot(ctx.room_code)
+      close(returned)
+
+      {:ok, reply, retried} =
+        subscribe_and_join(ctx.sockets[ctx.user1.id], GameChannel, "game:#{ctx.room_code}", %{})
+
+      assert reply.reconnected
+
+      ref =
+        push(retried, "play_card", %{
+          "action_id" => "flaky-card-tap",
+          "card" => %{"rank" => card.rank, "suit" => to_string(card.suit)}
+        })
+
+      assert_reply ref, :ok, %{}
+      {:ok, after_retry} = GameAdapter.get_snapshot(ctx.room_code)
+      assert after_retry.state_revision == before_retry.state_revision
+      assert after_retry.state == before_retry.state
 
       {:ok, watcher_reply, _} =
         subscribe_and_join(ctx.watcher_socket, GameChannel, "game:#{ctx.room_code}", %{})

@@ -12,6 +12,24 @@ defmodule PidroServerWeb.Dev.UserManagementLiveTest do
 
   setup :register_and_log_in_admin
 
+  @tag :flaky_connections
+  test "player connection summary counts only the last seven days", %{conn: conn} do
+    user = AccountsFixtures.user_fixture()
+    now = DateTime.utc_now() |> DateTime.truncate(:second)
+
+    for {kind, days} <- [{"drop", 1}, {"drop", 2}, {"timeout", 3}, {"drop", 8}, {"timeout", 8}] do
+      PidroServer.Repo.insert!(%PidroServer.Stats.SeatEvent{
+        user_id: user.id,
+        room_code: "L5V3",
+        kind: kind,
+        inserted_at: DateTime.add(now, -days, :day) |> DateTime.to_naive()
+      })
+    end
+
+    {:ok, view, _} = live(conn, ~p"/admin/users/#{user.id}")
+    assert has_element?(view, "#connection-quality", "2 drops, 1 auto-plays in the last 7 days")
+  end
+
   test "lists players with search filters and summary stats", %{conn: conn} do
     alpha =
       AccountsFixtures.user_fixture(%{username: "admin_alpha", display_name: "Alpha Player"})

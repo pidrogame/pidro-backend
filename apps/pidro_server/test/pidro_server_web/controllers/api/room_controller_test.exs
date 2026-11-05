@@ -366,7 +366,8 @@ defmodule PidroServerWeb.API.RoomControllerTest do
 
     :ok = RoomManager.handle_player_disconnect(room.code, departed.id)
     {:ok, _} = PidroServer.RoomManagerCase.expire_phase(room.code, :east, :phase2_start)
-    {:ok, gone} = PidroServer.RoomManagerCase.expire_phase(room.code, :east, :phase3_gone)
+    :ok = RoomManager.leave_room(departed.id)
+    {:ok, gone} = RoomManager.get_room(room.code)
     {:ok, _} = RoomManager.keep_bot(room.code, :east, host.id, gone.seats.east.decision_id)
     {:ok, opened} = RoomManager.open_seat(room.code, :east, host.id)
     assert PidroServerWeb.API.RoomJSON.room(opened).seats.east.vacated_by == "Player 2"

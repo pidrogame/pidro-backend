@@ -99,6 +99,43 @@ defmodule Pidro.ServerTest do
   end
 
   describe "authoritative snapshots" do
+    test "an applied action whose caller timed out is replayed, not applied again" do
+      checkpoint = fn _snapshot, cause ->
+        if cause.kind == :action, do: Process.sleep(30)
+        :ok
+      end
+
+      {:ok, pid} = Server.start_link(checkpoint: checkpoint, dealer_selection_delay_ms: 60_000)
+      key = {"player", "lost-reply"}
+      assert catch_exit(Server.apply_action_with_snapshot(pid, :north, :select_dealer, 1, key))
+      before = Server.get_snapshot(pid)
+      assert before.state_revision == 1
+
+      assert {:replayed, original} =
+               Server.apply_action_with_snapshot(pid, :north, :select_dealer, 1_000, key)
+
+      assert original == before.state
+      assert Server.get_snapshot(pid).state_revision == 1
+      :ok = Server.reset(pid)
+
+      assert {:ok, _, _} =
+               Server.apply_action_with_snapshot(pid, :north, :select_dealer, 1_000, key)
+    end
+
+    test "a rejected action_id may be applied later and IDs are scoped to players" do
+      {:ok, pid} = Server.start_link(dealer_selection_delay_ms: 60_000)
+      key = {"player", "retry"}
+      assert {:error, _} = Server.apply_action_with_snapshot(pid, :north, :pass, 1_000, key)
+
+      assert {:ok, _, _} =
+               Server.apply_action_with_snapshot(pid, :north, :select_dealer, 1_000, key)
+
+      assert {:error, _} =
+               Server.apply_action_with_snapshot(pid, :east, :pass, 1_000, {"other", "retry"})
+
+      assert Server.get_snapshot(pid).state_revision == 1
+    end
+
     test "keeps one dealer-selection window across reads and clears it on advance" do
       {:ok, pid} = Server.start_link(dealer_selection_delay_ms: 80)
 

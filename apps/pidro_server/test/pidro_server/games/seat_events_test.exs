@@ -49,6 +49,149 @@ defmodule PidroServer.Games.SeatEventsTest do
   end
 
   describe "drops and returns" do
+    test "failed abandonment persistence cannot interrupt finished or unrelated rooms" do
+      {room, user} = bidding_room()
+      position = position_of(room, user)
+      :ok = RoomManager.handle_player_disconnect(room.code, user)
+      {:ok, substituted} = expire_phase(room.code, position, :phase2_start)
+      bot = substituted.seats[position].bot_pid
+      {:ok, other} = RoomManager.create_room("unrelated", %{})
+      manager = Process.whereis(RoomManager)
+      await_tasks()
+
+      # Transactional DDL is rolled back with this test's sandbox.
+      Repo.query!("DROP TABLE abandonment_events")
+
+      assert ExUnit.CaptureLog.capture_log(fn ->
+               send(
+                 RoomManager,
+                 {:game_over, room.code, :north_south, %{north_south: 62, east_west: 20}}
+               )
+
+               assert {:ok, finished} = RoomManager.get_room(room.code)
+               assert finished.status == :finished
+               assert finished.seats[position].bot_pid == nil
+               refute Process.alive?(bot)
+               assert Process.whereis(RoomManager) == manager
+               assert {:ok, _, _} = RoomManager.join_room(other.code, "another")
+             end) =~ "Failed to persist completed game"
+    end
+
+    @tag :flaky_connections
+    test "only players still absent at game over get abandonment records" do
+      {room, user} = bidding_room()
+      position = position_of(room, user)
+      other = Enum.find(Map.values(room.positions), &(&1 != user))
+      :ok = RoomManager.handle_player_disconnect(room.code, user)
+      expire_phase(room.code, position, :phase2_start)
+      expire_phase(room.code, position, :phase3_gone)
+      assert PidroServer.Stats.list_abandonments_for_room(room.code) == []
+      {:ok, _} = RoomManager.handle_player_reconnect(room.code, user)
+      :ok = RoomManager.handle_player_disconnect(room.code, other)
+      send(RoomManager, {:game_over, room.code, :north_south, %{north_south: 62, east_west: 20}})
+      {:ok, finished} = RoomManager.get_room(room.code)
+      assert finished.status == :finished
+      assert [%{user_id: ^other}] = PidroServer.Stats.list_abandonments_for_room(room.code)
+      send(RoomManager, {:game_over, room.code, :north_south, %{north_south: 62, east_west: 20}})
+      RoomManager.get_room(room.code)
+      assert [%{user_id: ^other}] = PidroServer.Stats.list_abandonments_for_room(room.code)
+    end
+
+    @tag :flaky_connections
+    test "seat events retain the joining app version and platform" do
+      {room, user} = bidding_room()
+
+      assert :ok =
+               RoomManager.register_game_channel(room.code, user, self(), %{
+                 app_version: "3.2.3",
+                 platform: "android"
+               })
+
+      assert :ok = RoomManager.handle_player_disconnect(room.code, user)
+      assert {:ok, _} = RoomManager.handle_player_reconnect(room.code, user)
+      await_tasks()
+      events = Repo.all(from e in SeatEvent, where: e.user_id == ^user)
+      assert Enum.sort(Enum.map(events, & &1.kind)) == ["drop", "return"]
+
+      assert Enum.all?(
+               events,
+               &(Map.get(&1, :app_version) == "3.2.3" and Map.get(&1, :platform) == "android")
+             )
+    end
+
+    @tag :flaky_connections
+    test "L5V3 four short drops then a 60 second drop never forfeit the seat" do
+      {room, user} = bidding_room()
+      position = position_of(room, user)
+
+      for _ <- 1..4 do
+        assert :ok = RoomManager.handle_player_disconnect(room.code, user)
+        assert {:ok, _} = RoomManager.handle_player_reconnect(room.code, user)
+      end
+
+      assert :ok = RoomManager.handle_player_disconnect(room.code, user)
+
+      :sys.replace_state(RoomManager, fn state ->
+        put_in(
+          state.rooms[room.code].seats[position].disconnected_at,
+          DateTime.add(DateTime.utc_now(), -60, :second)
+        )
+      end)
+
+      {:ok, substituted} = expire_phase(room.code, position, :phase2_start)
+      ref = substituted.phase_timers[position] || make_ref()
+      send(RoomManager, {:timeout, ref, {:phase3_gone, room.code, position}})
+      assert {:ok, returned} = RoomManager.handle_player_reconnect(room.code, user)
+      assert returned.seats[position].user_id == user
+      assert returned.seats[position].status == :connected
+      refute user in returned.spectator_ids
+      assert PidroServer.Stats.list_abandonments_for_room(room.code) == []
+    end
+
+    @tag :flaky_connections
+    test "reconnecting pauses the turn and resumes with at least ten seconds" do
+      {room, user} = bidding_room()
+      timer = room.turn_timer
+      Phoenix.PubSub.subscribe(PidroServer.PubSub, "game:#{room.code}")
+
+      :sys.replace_state(RoomManager, fn state ->
+        put_in(
+          state.rooms[room.code].turn_timer.deadline_mono,
+          System.monotonic_time(:millisecond) + 100
+        )
+      end)
+
+      assert :ok = RoomManager.handle_player_disconnect(room.code, user)
+      assert {:ok, nil} = RoomManager.get_turn_timer(room.code)
+      assert_receive {:turn_timer_cancelled, %{reason: :disconnected}}
+      send(RoomManager, {:turn_timer_expired, room.code, timer.timer_id, timer.key})
+      assert {:ok, _} = RoomManager.get_room(room.code)
+      assert seat_events(user) == [{"drop", nil}]
+      assert {:ok, returned} = RoomManager.handle_player_reconnect(room.code, user)
+      assert returned.turn_timer.duration_ms == 10_000
+      assert_receive {:turn_timer_started, %{duration_ms: 10_000}}
+    end
+
+    @tag :flaky_connections
+    test "duplicate action_id after reconnect returns success without a second move" do
+      {room, user} = bidding_room()
+      position = position_of(room, user)
+      context = %{user_id: user, action_id: "retry-tap"}
+
+      assert {:ok, original} =
+               RoomManager.apply_player_action(room.code, user, position, :pass, context)
+
+      assert :ok = RoomManager.handle_player_disconnect(room.code, user)
+      assert {:ok, _} = RoomManager.handle_player_reconnect(room.code, user)
+
+      assert {:ok, ^original} =
+               RoomManager.apply_player_action(room.code, user, position, :pass, context)
+
+      assert {:ok, current} = GameAdapter.get_state(room.code)
+      assert current == original
+      assert Enum.count(seat_events(user), fn {kind, _} -> kind == "turn" end) == 1
+    end
+
     test "a drop mid-game and a return inside the hiccup are each recorded once" do
       {room, user} = bidding_room()
 
@@ -70,7 +213,7 @@ defmodule PidroServer.Games.SeatEventsTest do
       assert seat_events(user) == [{"drop", nil}, {"return", nil}]
     end
 
-    test "a player gone past the grace period has a drop and no return" do
+    test "a player gone past the grace period can still return" do
       {room, user} = bidding_room()
       position = position_of(room, user)
 
@@ -78,10 +221,10 @@ defmodule PidroServer.Games.SeatEventsTest do
       expire_phase(room.code, position, :phase2_start)
       expire_phase(room.code, position, :phase3_gone)
 
-      assert {:error, :seat_permanently_filled} =
+      assert {:ok, _} =
                RoomManager.handle_player_reconnect(room.code, user)
 
-      assert seat_events(user) == [{"drop", nil}]
+      assert seat_events(user) == [{"drop", nil}, {"return", nil}]
     end
 
     test "a seat held in a waiting room is neither a drop nor a return" do

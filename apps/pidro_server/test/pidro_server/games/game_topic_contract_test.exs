@@ -84,6 +84,10 @@ defmodule PidroServer.Games.GameTopicContractTest do
   end
 
   test "unknown envelopes preserve each subscriber's state and report no payload", context do
+    previous_level = Logger.level()
+    Logger.configure(level: :debug)
+    on_exit(fn -> Logger.configure(level: previous_level) end)
+
     for {subscriber, pid} <- context.subscribers,
         {message, tag, arity} <- [
           {{:future_event, %{private: "do-not-log-this"}}, :future_event, 2},
@@ -94,7 +98,7 @@ defmodule PidroServer.Games.GameTopicContractTest do
       before = :sys.get_state(pid)
 
       log =
-        capture_log(fn ->
+        capture_log([level: :debug], fn ->
           send(pid, message)
           assert :sys.get_state(pid) == before
         end)

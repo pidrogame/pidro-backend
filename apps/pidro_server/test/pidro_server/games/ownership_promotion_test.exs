@@ -1,7 +1,7 @@
 defmodule PidroServer.Games.OwnershipPromotionTest do
   @moduledoc """
-  Tests for ownership auto-promotion when the owner disconnects permanently
-  (Phase 3) or explicitly leaves a :playing room.
+  Tests for ownership auto-promotion when the owner explicitly leaves a
+  :playing room, including after a connection drop.
 
   Promotion priority: partner first (N↔S, E↔W), then remaining positions
   sorted by joined_at. If no connected humans remain, returns {:no_humans, room}.
@@ -68,15 +68,16 @@ defmodule PidroServer.Games.OwnershipPromotionTest do
   defp partner_position(:east), do: :west
   defp partner_position(:west), do: :east
 
-  # Disconnect and trigger Phase 2 + Phase 3 for a player (makes bot permanent).
+  # Disconnect, substitute, then deliberately leave (makes bot permanent).
   defp trigger_full_cascade(room_code, user_id) do
     :ok = RoomManager.handle_player_disconnect(room_code, user_id)
     {:ok, room} = RoomManager.get_room(room_code)
     position = position_for(room, user_id)
 
-    # Phase 2: bot spawns; Phase 3: bot becomes permanent.
+    # A disconnect alone never releases ownership.
     {:ok, _} = RoomManagerCase.expire_phase(room_code, position, :phase2_start)
-    {:ok, updated_room} = RoomManagerCase.expire_phase(room_code, position, :phase3_gone)
+    :ok = RoomManager.leave_room(user_id)
+    {:ok, updated_room} = RoomManager.get_room(room_code)
 
     {updated_room, position}
   end
@@ -216,8 +217,8 @@ defmodule PidroServer.Games.OwnershipPromotionTest do
       position = position_for(room, "user4")
       {:ok, _} = RoomManagerCase.expire_phase(room.code, position, :phase2_start)
 
-      assert {:error, :room_not_found} =
-               RoomManagerCase.expire_phase(room.code, position, :phase3_gone)
+      assert :ok = RoomManager.leave_room("user4")
+      assert {:error, :room_not_found} = RoomManager.get_room(room.code)
 
       assert_receive {:room_updated, %{host_id: nil} = updated_room}
 
@@ -252,8 +253,8 @@ defmodule PidroServer.Games.OwnershipPromotionTest do
       :ok = RoomManager.handle_player_disconnect(room.code, "user1")
       {:ok, _} = RoomManagerCase.expire_phase(room.code, owner_pos, :phase2_start)
 
-      assert {:error, :room_not_found} =
-               RoomManagerCase.expire_phase(room.code, owner_pos, :phase3_gone)
+      assert :ok = RoomManager.leave_room("user1")
+      assert {:error, :room_not_found} = RoomManager.get_room(room.code)
 
       assert_receive {:room_updated, %{host_id: nil} = final_room}
 
@@ -310,7 +311,7 @@ defmodule PidroServer.Games.OwnershipPromotionTest do
       refute Process.alive?(returning_bot)
 
       assert room_with_second_bot.seats[open_pos].status == :bot_substitute
-      {:ok, _} = RoomManagerCase.expire_phase(room.code, open_pos, :phase3_gone)
+      :ok = RoomManager.leave_room("user3")
       {:ok, opened_room} = RoomManager.open_seat(room.code, open_pos, "user2")
       assert opened_room.seats[open_pos].occupant_type == :vacant
       {:ok, closed_room} = RoomManager.close_seat(room.code, open_pos, "user2")
@@ -362,7 +363,8 @@ defmodule PidroServer.Games.OwnershipPromotionTest do
     phase3_ref = Map.fetch!(phase2_room.phase_timers, owner_pos)
 
     Phoenix.PubSub.subscribe(PidroServer.PubSub, "game:#{room.code}")
-    {:ok, permanent_room} = RoomManagerCase.expire_phase(room.code, owner_pos, :phase3_gone)
+    :ok = RoomManager.leave_room("user1")
+    {:ok, permanent_room} = RoomManager.get_room(room.code)
     controller = permanent_room.seats[owner_pos].bot_pid
     assert_receive {:owner_changed, _}, 500
 

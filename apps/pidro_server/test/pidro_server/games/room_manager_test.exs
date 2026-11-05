@@ -1139,7 +1139,7 @@ defmodule PidroServer.Games.RoomManagerTest do
                manager_before.rooms[room_code].turn_timer.timer_id
     end
 
-    test "disconnect extends the active deadline without pausing or topping up again on reconnect" do
+    test "disconnect pauses the active deadline and reconnect resumes its remaining time" do
       room_code = create_playing_room()
       bidding_state = advance_room_to_bidding(room_code)
       wait_for_turn_timer(room_code)
@@ -1150,27 +1150,24 @@ defmodule PidroServer.Games.RoomManagerTest do
       :ok = RoomManager.handle_player_disconnect(room_code, timed_user)
 
       {:ok, disconnected} = RoomManager.get_room(room_code)
-      extended = disconnected.turn_timer
       assert disconnected.seats[bidding_state.current_turn].status == :reconnecting
-      assert extended.key == timer.key
-      assert extended.timer_id != timer.timer_id
+      assert disconnected.turn_timer == nil
       assert Process.read_timer(timer.ref) == false
-
-      extension = Lifecycle.config(:reconnect_turn_extension_ms)
-      assert extended.deadline_mono >= timer.deadline_mono + extension
-      assert extended.deadline_mono <= timer.deadline_mono + extension + 50
-
       assert_receive {:turn_timer_cancelled, %{reason: :disconnected}}
-      assert_receive {:turn_timer_started, %{timer_id: new_id}}
-      assert new_id == extended.timer_id
+      refute_receive {:turn_timer_started, _}, 20
 
       # A queued expiry for the replaced timer cannot act on this window.
       send(RoomManager, {:turn_timer_expired, room_code, timer.timer_id, timer.key})
       {:ok, unchanged} = RoomManager.get_room(room_code)
-      assert unchanged.turn_timer == extended
+      assert unchanged.turn_timer == nil
       assert {:ok, reconnected} = RoomManager.handle_player_reconnect(room_code, timed_user)
-      assert reconnected.turn_timer == extended
-      refute_receive {:turn_timer_started, _}, 50
+      assert reconnected.turn_timer.key == timer.key
+      assert reconnected.turn_timer.timer_id != timer.timer_id
+
+      assert reconnected.turn_timer.duration_ms ==
+               max(disconnected.paused_turn.remaining_ms, 10_000)
+
+      assert_receive {:turn_timer_started, _}
     end
 
     test "off-turn disconnect does not change the active deadline" do
@@ -1184,21 +1181,21 @@ defmodule PidroServer.Games.RoomManagerTest do
       assert disconnected.turn_timer == room.turn_timer
     end
 
-    test "an extended turn still expires while reconnecting" do
+    test "a queued turn expiry cannot auto-play while reconnecting" do
       room_code = create_playing_room()
       bidding = advance_room_to_bidding(room_code)
       wait_for_turn_timer(room_code)
       {:ok, room} = RoomManager.get_room(room_code)
       user = room.positions[bidding.current_turn]
+      timer = room.turn_timer
       :ok = RoomManager.handle_player_disconnect(room_code, user)
       {:ok, disconnected} = RoomManager.get_room(room_code)
-      timer = disconnected.turn_timer
+      assert disconnected.turn_timer == nil
       Phoenix.PubSub.subscribe(PidroServer.PubSub, "game:#{room_code}")
       send(RoomManager, {:turn_timer_expired, room_code, timer.timer_id, timer.key})
-      assert_receive {:turn_auto_played, %{position: position}}, 500
-      assert position == bidding.current_turn
+      refute_receive {:turn_auto_played, _}, 20
       {:ok, game} = GameAdapter.get_state(room_code)
-      assert length(game.events) > length(bidding.events)
+      assert game.events == bidding.events
     end
 
     test "reconciles the action window on reconnect when no timer survives" do
@@ -2013,10 +2010,10 @@ defmodule PidroServer.Games.RoomManagerTest do
         match?({:ok, %{status: :playing}}, RoomManager.get_room(room.code))
       end)
 
-      # Open a seat for substitutes only after the reclaim reservation expires.
+      # Only an intentional leave releases the seat for substitutes.
       :ok = RoomManager.handle_player_disconnect(room.code, "user5")
       PidroServer.RoomManagerCase.expire_phase(room.code, user5_position, :phase2_start)
-      PidroServer.RoomManagerCase.expire_phase(room.code, user5_position, :phase3_gone)
+      :ok = RoomManager.leave_room("user5")
 
       wait_until(fn ->
         match?(

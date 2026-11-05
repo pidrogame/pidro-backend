@@ -87,7 +87,7 @@ defmodule PidroServer.Games.TableCleanupTest do
     RoomFixtures.ready_room(room.code)
     :ok = RoomManager.handle_player_disconnect(room.code, departed.id)
     {:ok, _} = RoomManagerCase.expire_phase(room.code, :east, :phase2_start)
-    {:ok, _} = RoomManagerCase.expire_phase(room.code, :east, :phase3_gone)
+    :ok = RoomManager.leave_room(departed.id)
     {:ok, _} = RoomManager.open_seat(room.code, :east, host.id)
     replacement = AccountsFixtures.user_fixture()
     {:ok, _, :east} = RoomManager.join_as_substitute(room.code, replacement.id)
@@ -162,7 +162,7 @@ defmodule PidroServer.Games.TableCleanupTest do
     assert after_return.state_revision > before.state_revision
   end
 
-  test "last multiplayer human past grace closes the game and keeps abandonments" do
+  test "all multiplayer humans past grace stay reclaimable without abandonments" do
     users = for _ <- 1..4, do: AccountsFixtures.user_fixture()
     [host | others] = users
     {:ok, room} = RoomManager.create_room(host.id)
@@ -173,16 +173,14 @@ defmodule PidroServer.Games.TableCleanupTest do
     for position <- [:east, :south, :west, :north] do
       :ok = RoomManager.handle_player_disconnect(room.code, room.seats[position].user_id)
       {:ok, _} = RoomManagerCase.expire_phase(room.code, position, :phase2_start)
-      result = RoomManagerCase.expire_phase(room.code, position, :phase3_gone)
-
-      if position == :north,
-        do: assert(result == {:error, :room_not_found}),
-        else: assert(match?({:ok, _}, result))
+      assert {:ok, _} = RoomManagerCase.expire_phase(room.code, position, :phase3_gone)
     end
 
-    refute Process.alive?(game)
-    assert Repo.aggregate(AbandonmentEvent, :count) == 4
+    assert Process.alive?(game)
+    assert Repo.aggregate(AbandonmentEvent, :count) == 0
     assert Repo.aggregate("game_stats", :count) == 0
+    assert {:ok, returned} = RoomManager.handle_player_reconnect(room.code, host.id)
+    assert returned.seats.north.user_id == host.id
   end
 
   test "restore preserves an existing absence and uses boot time for a connected human" do

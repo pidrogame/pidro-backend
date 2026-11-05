@@ -56,14 +56,15 @@ defmodule PidroServer.Games.SubstituteSeatTest do
     end)
   end
 
-  # Disconnects a player and runs them through the cascade to :bot_substitute.
+  # Only deliberate departure releases a seat for another player.
   defp make_seat_bot_substitute(room, user_id) do
     position = position_for(room, user_id)
     :ok = RoomManager.handle_player_disconnect(room.code, user_id)
 
     # Trigger Phase 2: bot substitution
     {:ok, _} = RoomManagerCase.expire_phase(room.code, position, :phase2_start)
-    {:ok, room_after_p2} = RoomManagerCase.expire_phase(room.code, position, :phase3_gone)
+    :ok = RoomManager.leave_room(user_id)
+    {:ok, room_after_p2} = RoomManager.get_room(room.code)
 
     {room_after_p2, position}
   end
@@ -107,7 +108,7 @@ defmodule PidroServer.Games.SubstituteSeatTest do
       assert kept.seats[position].decision_id == nil
       assert {:error, :stale_decision} = RoomManager.open_seat(room.code, position, "user1", id)
       assert {:error, :stale_decision} = RoomManager.keep_bot(room.code, position, "user1", id)
-      :ok = RoomManager.leave_room("user2")
+      assert {:error, :not_in_room} = RoomManager.leave_room("user2")
       :ok = RoomManager.leave_room("user1")
       {:ok, transferred} = RoomManager.get_seat_lifecycle(room.code)
       assert transferred.owner_id == "user3"
