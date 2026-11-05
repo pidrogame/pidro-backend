@@ -77,7 +77,16 @@ defmodule PidroServer.Games.GameAdapter do
 
     with {:ok, pid} <- GameRegistry.lookup(room_code) do
       try do
-        case Pidro.Server.apply_action_with_snapshot(pid, position, action, timeout) do
+        action_key =
+          case diagnostics do
+            %{user_id: user, action_id: id} when is_binary(id) -> {user, id}
+            _ -> nil
+          end
+
+        case Pidro.Server.apply_action_with_snapshot(pid, position, action, timeout, action_key) do
+          {:replayed, outcome} ->
+            {:replayed, outcome}
+
           # The one info line per applied move. A move the server plays (a
           # bot's, a timed-out turn) has a `seat` and no `user_id`.
           {:ok, old_state, snapshot} ->

@@ -62,6 +62,8 @@ defmodule PidroServer.Games.Room.Seat do
     :vacated_by,
     :bot_persona,
     :bot_strategy,
+    :app_version,
+    :platform,
     is_owner: false,
     joined_at: nil,
     substitute: false

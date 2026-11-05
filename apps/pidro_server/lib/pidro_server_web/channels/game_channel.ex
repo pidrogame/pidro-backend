@@ -179,7 +179,7 @@ defmodule PidroServerWeb.GameChannel do
   end
 
   defp join_player(room_code, user_id, socket) do
-    with :ok <- ensure_player_channel_registered(room_code, user_id),
+    with :ok <- ensure_player_channel_registered(room_code, user_id, socket.assigns.client_build),
          {:ok, room} <- RoomManager.get_room(room_code) do
       result =
         cond do
@@ -210,8 +210,8 @@ defmodule PidroServerWeb.GameChannel do
     end
   end
 
-  defp ensure_player_channel_registered(room_code, user_id) do
-    case RoomManager.register_game_channel(room_code, user_id, self()) do
+  defp ensure_player_channel_registered(room_code, user_id, client) do
+    case RoomManager.register_game_channel(room_code, user_id, self(), client) do
       :ok -> :ok
       {:error, :room_not_found} -> {:error, :room_not_found}
     end
@@ -1354,7 +1354,6 @@ defmodule PidroServerWeb.GameChannel do
            socket.assigns[:diagnostic_context] || %{}
          ) do
       {:ok, _new_state} ->
-        _ = RoomManager.reset_consecutive_timeouts(room_code, socket.assigns.user_id)
         # State update is broadcast via PubSub subscription
         {:reply, :ok, socket}
 

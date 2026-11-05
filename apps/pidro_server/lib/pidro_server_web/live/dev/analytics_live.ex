@@ -48,6 +48,11 @@ defmodule PidroServerWeb.Dev.AnalyticsLive do
     {:noreply, load_stats(socket)}
   end
 
+  def handle_info(message, socket) do
+    PidroServer.Games.UnexpectedMessage.report_once(__MODULE__, message)
+    {:noreply, socket}
+  end
+
   @impl true
   def render(assigns) do
     ~H"""

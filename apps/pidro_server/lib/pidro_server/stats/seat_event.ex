@@ -21,6 +21,8 @@ defmodule PidroServer.Stats.SeatEvent do
     field :room_code, :string
     field :kind, :string
     field :elapsed_ms, :integer
+    field :app_version, :string
+    field :platform, :string
 
     timestamps(updated_at: false)
   end
@@ -28,7 +30,7 @@ defmodule PidroServer.Stats.SeatEvent do
   @doc false
   def changeset(event, attrs) do
     event
-    |> cast(attrs, [:user_id, :room_code, :kind, :elapsed_ms])
+    |> cast(attrs, [:user_id, :room_code, :kind, :elapsed_ms, :app_version, :platform])
     |> validate_required([:user_id, :room_code, :kind])
     |> validate_inclusion(:kind, @kinds)
     |> validate_number(:elapsed_ms, greater_than_or_equal_to: 0)

@@ -59,6 +59,11 @@ defmodule PidroServerWeb.Dev.HistoryLive do
 
   def handle_info({:playback, _stale}, socket), do: {:noreply, socket}
 
+  def handle_info(message, socket) do
+    PidroServer.Games.UnexpectedMessage.report_once(__MODULE__, message)
+    {:noreply, socket}
+  end
+
   defp with_admin(socket, fun) do
     case Admins.get_admin_by_session_token(socket.assigns.token) do
       %{force_password_change: false} ->

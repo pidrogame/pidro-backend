@@ -336,11 +336,10 @@ defmodule PidroServer.Stats do
   defp events_of(_game_state), do: []
 
   @doc """
-  Records a player abandonment when Phase 3 fires.
+  Records a player abandonment.
 
-  Called when a disconnected player's seat becomes permanently bot-filled
-  (grace period expired without reconnection). Logs the abandonment event
-  for observability.
+  Called when a player leaves deliberately or is still absent at game over.
+  A substitute covering during the game does not count as abandonment.
 
   This data will be used for matchmaking penalties and profile badges
   in a future phase.
@@ -379,13 +378,15 @@ defmodule PidroServer.Stats do
   or failed write must never hold up or crash the tables.
   """
   @spec record_seat_event(String.t(), String.t(), String.t(), non_neg_integer() | nil) :: :ok
-  def record_seat_event(user_id, room_code, kind, elapsed_ms \\ nil) do
+  def record_seat_event(user_id, room_code, kind, elapsed_ms \\ nil, client \\ %{}) do
     changeset =
       SeatEvent.changeset(%SeatEvent{}, %{
         user_id: user_id,
         room_code: room_code,
         kind: kind,
-        elapsed_ms: elapsed_ms
+        elapsed_ms: elapsed_ms,
+        app_version: Map.get(client, :app_version),
+        platform: Map.get(client, :platform)
       })
 
     Task.Supervisor.start_child(PidroServer.TaskSupervisor, fn ->
@@ -397,6 +398,35 @@ defmodule PidroServer.Stats do
     end)
 
     :ok
+  end
+
+  @doc "Connection events over the last seven days and the last reported app build."
+  @spec connection_summary(String.t()) :: map()
+  def connection_summary(user_id) do
+    cutoff = DateTime.utc_now() |> DateTime.add(-7, :day)
+
+    counts =
+      Repo.all(
+        from e in SeatEvent,
+          where: e.user_id == ^user_id and e.inserted_at >= ^cutoff,
+          group_by: e.kind,
+          select: {e.kind, count(e.id)}
+      )
+      |> Map.new()
+
+    latest =
+      Repo.one(
+        from e in SeatEvent,
+          where: e.user_id == ^user_id and not is_nil(e.app_version),
+          order_by: [desc: e.inserted_at],
+          limit: 1,
+          select: %{app_version: e.app_version, platform: e.platform}
+      )
+
+    Map.merge(
+      %{drops: Map.get(counts, "drop", 0), auto_plays: Map.get(counts, "timeout", 0)},
+      latest || %{app_version: nil, platform: nil}
+    )
   end
 
   @doc """

@@ -79,6 +79,11 @@ defmodule PidroServerWeb.Dev.GameListLive do
 
   def handle_info({:online_count_updated, _}, socket), do: {:noreply, socket}
 
+  def handle_info(message, socket) do
+    PidroServer.Games.UnexpectedMessage.report_once(__MODULE__, message)
+    {:noreply, socket}
+  end
+
   @impl true
   def handle_event("filter_phase", %{"phase" => phase}, socket) do
     {:noreply, socket |> assign(:phase_filter, phase) |> present()}

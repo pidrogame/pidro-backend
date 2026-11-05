@@ -48,6 +48,11 @@ defmodule PidroServerWeb.Dev.UserDetailLive do
   def handle_info({:room_closed, _code}, socket), do: {:noreply, load_user_context(socket)}
   def handle_info({:online_count_updated, _payload}, socket), do: {:noreply, socket}
 
+  def handle_info(message, socket) do
+    PidroServer.Games.UnexpectedMessage.report_once(__MODULE__, message)
+    {:noreply, socket}
+  end
+
   @impl true
   def handle_event("validate", %{"user" => params}, socket) do
     changeset =
@@ -162,6 +167,15 @@ defmodule PidroServerWeb.Dev.UserDetailLive do
           </div>
         </div>
       </section>
+
+      <p
+        id="connection-quality"
+        class="rounded-md border border-stone-300 bg-white px-4 py-3 text-sm text-stone-700"
+      >
+        Connection: {@connection.drops} drops, {@connection.auto_plays} auto-plays in the last 7 days.
+        Last app version: {@connection.app_version || "unknown"}
+        <span :if={@connection.platform}>({@connection.platform})</span>
+      </p>
 
       <dl class="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <.stat_card
@@ -637,6 +651,7 @@ defmodule PidroServerWeb.Dev.UserDetailLive do
 
     socket
     |> assign(:stats, Stats.get_user_stats(user.id))
+    |> assign(:connection, Stats.connection_summary(user.id))
     |> assign(:profile, profile)
     |> assign(:skill, Tier.classify(profile))
     |> assign(:recent_games, Stats.list_recent_games(player_id: user.id, limit: 20))

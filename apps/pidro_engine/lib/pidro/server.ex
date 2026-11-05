@@ -173,6 +173,11 @@ defmodule Pidro.Server do
   Applies an action and returns the previous state plus the atomically committed
   server snapshot. This is used by real-time adapters that must publish phase
   timing from the same commit as the game state.
+
+  With `{user_id, action_id}`, the last 32 successful outcomes per user are
+  retained for this game process. A duplicate returns `{:replayed, outcome}`
+  without applying an action. Rejections are not retained. The cache is not
+  checkpointed: a process restart or restored room loses deduplication history.
   """
   @spec apply_action_with_snapshot(
           GenServer.server(),
@@ -180,8 +185,16 @@ defmodule Pidro.Server do
           Types.action(),
           timeout()
         ) :: {:ok, GameState.t(), map()} | {:error, term()}
-  def apply_action_with_snapshot(server, position, action, timeout \\ 5_000) do
-    GenServer.call(server, {:apply_action_with_snapshot, position, action}, timeout)
+  @spec apply_action_with_snapshot(
+          GenServer.server(),
+          Types.position(),
+          Types.action(),
+          timeout(),
+          {String.t(), String.t()} | nil
+        ) ::
+          {:ok, GameState.t(), map()} | {:replayed, GameState.t()} | {:error, term()}
+  def apply_action_with_snapshot(server, position, action, timeout \\ 5_000, action_key \\ nil) do
+    GenServer.call(server, {:apply_action_with_snapshot, position, action, action_key}, timeout)
   end
 
   @doc """
@@ -399,6 +412,7 @@ defmodule Pidro.Server do
             Base.url_encode64(:crypto.strong_rand_bytes(12), padding: false)
           end),
         state_revision: Keyword.get(opts, :state_revision, 0),
+        recent_actions: %{},
         dealer_selection_presentation: nil,
         dealer_selection_timer_ref: nil,
         dealer_selection_token: nil,
@@ -421,6 +435,30 @@ defmodule Pidro.Server do
 
   def handle_call({:apply_action_with_snapshot, position, action}, _from, state) do
     apply_game_action(position, action, :snapshot, state)
+  end
+
+  def handle_call({:apply_action_with_snapshot, position, action, nil}, _from, state) do
+    apply_game_action(position, action, :snapshot, state)
+  end
+
+  def handle_call({:apply_action_with_snapshot, position, action, {user, id}}, _from, state) do
+    recent = Map.get(state.recent_actions, user, [])
+
+    case List.keyfind(recent, id, 0) do
+      {^id, outcome} ->
+        {:reply, {:replayed, outcome}, state}
+
+      nil ->
+        case apply_game_action(position, action, :snapshot, state) do
+          {:reply, {:ok, _, snapshot} = reply, updated} ->
+            recent = Enum.take([{id, snapshot.state} | recent], 32)
+            updated = put_in(updated.recent_actions[user], recent)
+            {:reply, reply, updated}
+
+          other ->
+            other
+        end
+    end
   end
 
   @impl true
@@ -524,7 +562,9 @@ defmodule Pidro.Server do
         config: state.game_state.config
       )
 
-    new_state = replace_game_state(state, game) |> checkpoint(%{kind: :reset})
+    new_state =
+      replace_game_state(%{state | recent_actions: %{}}, game) |> checkpoint(%{kind: :reset})
+
     {:reply, :ok, new_state}
   end
 

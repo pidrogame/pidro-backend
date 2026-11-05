@@ -25,6 +25,11 @@ defmodule PidroServerWeb.Dev.DashboardLive do
     {:noreply, socket}
   end
 
+  def handle_info(message, socket) do
+    PidroServer.Games.UnexpectedMessage.report_once(__MODULE__, message)
+    {:noreply, socket}
+  end
+
   defp sample(socket) do
     now = DateTime.utc_now()
     online = PresenceAggregator.online_users()

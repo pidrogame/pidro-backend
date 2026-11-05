@@ -97,6 +97,11 @@ defmodule PidroServerWeb.Dev.BotCatalogueLive do
     {:noreply, assign(socket, :profiles, BotCatalogue.list())}
   end
 
+  def handle_info(message, socket) do
+    PidroServer.Games.UnexpectedMessage.report_once(__MODULE__, message)
+    {:noreply, socket}
+  end
+
   defp cancel_pending_uploads(socket) do
     Enum.reduce(
       socket.assigns.uploads.avatar.entries,

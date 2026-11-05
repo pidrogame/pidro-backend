@@ -2,6 +2,28 @@ defmodule PidroServer.Games.UnexpectedMessage do
   @moduledoc false
   require Logger
 
+  # One debug line per envelope for each subscriber process, never its payload.
+  def report_once(subscriber, message) do
+    {tag, arity} = envelope(message)
+    key = {__MODULE__, subscriber, tag, arity}
+
+    unless Process.get(key) do
+      Process.put(key, true)
+
+      Logger.debug(
+        "#{inspect(subscriber)} ignored unexpected message tag=#{inspect(tag)} arity=#{arity}"
+      )
+    end
+
+    :telemetry.execute(
+      [:pidro_server, :game_topic, :unexpected_message],
+      %{count: 1},
+      %{subscriber: subscriber, tag: tag, arity: arity}
+    )
+
+    :ok
+  end
+
   # Report the envelope, never the payload (which can contain private hands or
   # account data). Keep room identifiers out of metric labels.
   def report(subscriber, message) do

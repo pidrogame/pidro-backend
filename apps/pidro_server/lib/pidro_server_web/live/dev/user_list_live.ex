@@ -37,6 +37,11 @@ defmodule PidroServerWeb.Dev.UserListLive do
   def handle_info({:room_closed, _code}, socket), do: {:noreply, load_users(socket)}
   def handle_info({:online_count_updated, _payload}, socket), do: {:noreply, socket}
 
+  def handle_info(message, socket) do
+    PidroServer.Games.UnexpectedMessage.report_once(__MODULE__, message)
+    {:noreply, socket}
+  end
+
   @impl true
   def handle_event("filter_users", %{"filters" => params}, socket) do
     filters =

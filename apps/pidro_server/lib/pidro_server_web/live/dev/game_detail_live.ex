@@ -325,7 +325,7 @@ defmodule PidroServerWeb.Dev.GameDetailLive do
 
   @impl true
   def handle_info(message, socket) do
-    PidroServer.Games.UnexpectedMessage.report(__MODULE__, message)
+    PidroServer.Games.UnexpectedMessage.report_once(__MODULE__, message)
     {:noreply, socket}
   end
 
