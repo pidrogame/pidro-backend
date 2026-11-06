@@ -31,6 +31,7 @@ defmodule PidroServerWeb.Dev.AnalyticsLive do
      |> assign(:page_title, "Analytics Dashboard")
      |> assign(:uptime_seconds, node_uptime_seconds())
      |> assign(:current_time, DateTime.utc_now())
+     |> assign(:connection_reports, for(days <- [7, 30], do: {days, PidroServer.Stats.connection_analytics(days)}))
      |> load_stats()}
   end
 
@@ -70,6 +71,23 @@ defmodule PidroServerWeb.Dev.AnalyticsLive do
           <.icon name="hero-arrow-left" class="size-4" /> Games
         </.link>
       </:actions>
+
+      <section id="connection-analytics" class="rounded-md border border-stone-300 bg-white p-4">
+        <h2 class="font-semibold">Play time on poor connections</h2>
+        <p class="mt-1 text-xs text-stone-500">Share of recorded player time. Graded per player and app version in each period; insufficient data is shown separately. Refresh to include newly finished games.</p>
+        <div class="mt-4 grid gap-6 lg:grid-cols-2">
+          <div :for={{days, rows} <- @connection_reports}>
+            <h3 class="text-sm font-semibold">Last {days} days</h3>
+            <p :if={rows == []} class="mt-2 text-sm text-stone-500">No measured games yet.</p>
+            <ul class="mt-2 divide-y divide-stone-200 text-sm">
+              <li :for={row <- rows} class="flex flex-wrap justify-between gap-x-4 gap-y-1 py-2">
+                <span>{row.platform || "unknown platform"} {row.app_version || "unknown version"}</span>
+                <span>{Float.round(row.poor_percent / 1, 1)}% poor · {Float.round(row.unknown_percent / 1, 1)}% insufficient · {Float.round(row.duration_seconds / 3600, 1)} h</span>
+              </li>
+            </ul>
+          </div>
+        </div>
+      </section>
 
     <!-- Server Status -->
       <div class="overflow-hidden rounded-md border border-stone-300 bg-white shadow-sm">

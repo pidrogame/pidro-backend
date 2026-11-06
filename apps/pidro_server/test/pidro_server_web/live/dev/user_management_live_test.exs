@@ -30,8 +30,31 @@ defmodule PidroServerWeb.Dev.UserManagementLiveTest do
       })
     end
 
+    Stats.record_connection_game(%{
+      user_id: user.id,
+      room_id: Ecto.UUID.generate(),
+      room_code: "L5V3",
+      game_instance_id: Ecto.UUID.generate(),
+      duration_seconds: 3600,
+      disconnected_seconds: 24,
+      checks_sent: 240,
+      unanswered_checks: 4,
+      drops: 2,
+      rtt_histogram: %{"420" => 18, "2000" => 2},
+      network_ms: %{"cellular" => 3_600_000},
+      network: "cellular",
+      platform: "android",
+      app_version: "3.2.3"
+    })
+
+    PidroServer.DataCase.await_tasks()
+
     {:ok, view, _} = live(conn, ~p"/admin/users/#{user.id}")
     assert has_element?(view, "#connection-quality", "2 drops, 1 auto-plays in the last 7 days")
+    assert has_element?(view, "#connection-strength", "poor: typically 420 ms")
+    assert has_element?(view, "#connection-strength", "mostly cellular")
+    assert has_element?(view, "#connection-strip", "420 ms")
+    assert has_element?(view, "#connection-strip", "2 drops")
     assert has_element?(view, "#connection-timeline", "heartbeat_timeout · cellular")
     assert has_element?(view, "#connection-timeline", "android 3.2.3")
     assert has_element?(view, "#connection-timeline", "UTC")

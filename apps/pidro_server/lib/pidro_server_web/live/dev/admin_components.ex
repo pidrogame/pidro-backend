@@ -46,7 +46,18 @@ defmodule PidroServerWeb.Dev.AdminComponents do
               />
             </span>
             <div class="min-w-0">
-              <p class="match-person-name">{seat.name}</p>
+              <p class="match-person-name">
+                <span
+                  :if={seat[:quality]}
+                  class={[
+                    "inline-block size-2 rounded-full mr-1",
+                    connection_color(seat.quality.grade)
+                  ]}
+                  title={"#{connection_label(seat.quality)} · #{seat.quality.checks_sent} checks, #{seat.quality.unanswered_checks} unanswered · #{round(seat.quality.disconnected_seconds)} s disconnected"}
+                  aria-label={"Connection: #{connection_label(seat.quality)}"}
+                ></span>
+                {seat.name}
+              </p>
               <p class="match-person-detail">
                 {position |> to_string() |> String.capitalize()}{if seat.detail != "",
                   do: " · #{seat.detail}"}
@@ -57,6 +68,27 @@ defmodule PidroServerWeb.Dev.AdminComponents do
       </section>
     </div>
     """
+  end
+
+  def connection_color(grade) do
+    %{
+      good: "bg-emerald-500",
+      fair: "bg-amber-500",
+      poor: "bg-red-500",
+      insufficient: "bg-stone-300"
+    }[grade]
+  end
+
+  def connection_label(quality) do
+    grade =
+      if quality.grade == :insufficient, do: "not enough data", else: to_string(quality.grade)
+
+    latency =
+      if quality.median_ms,
+        do: "typically #{round(quality.median_ms)} ms, slow (p95) #{round(quality.p95_ms)} ms",
+        else: "RTT unknown"
+
+    "#{grade}: #{latency} · #{Float.round(quality.drops_per_hour / 1, 1)} drops per hour of play"
   end
 
   attr :status, :any, required: true

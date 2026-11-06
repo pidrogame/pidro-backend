@@ -70,6 +70,33 @@ defmodule PidroServer.Games.SubstituteSeatTest do
   end
 
   describe "open_seat — owner opens a bot-filled seat" do
+    test "a new human does not inherit the departing player's connection measurements" do
+      {room, _} = create_playing_room()
+      send(RoomManager, :check_connections)
+      RoomManager.get_room(room.code)
+      assert_receive {:connection_ping, "user2", %{id: id}}
+      :ok = RoomManager.connection_activity(room.code, "user2", id)
+      {with_bot, position} = make_seat_bot_substitute(room, "user2")
+
+      {:ok, _} =
+        RoomManager.open_seat(room.code, position, "user1", with_bot.seats[position].decision_id)
+
+      {:ok, replacement, ^position} = RoomManager.join_room(room.code, "replacement")
+      assert replacement.seats[position].connection_stats != nil
+      send(RoomManager, {:game_over, room.code, :north_south, %{north_south: 62, east_west: 25}})
+      RoomManager.get_room(room.code)
+      await_tasks()
+      assert [old] = PidroServer.Stats.connection_games("user2")
+      assert [new] = PidroServer.Stats.connection_games("replacement")
+      assert old.checks_sent == 1
+      assert old.drops == 1
+      assert new.checks_sent == 0
+      assert new.drops == 0
+      assert new.median_ms == nil
+      assert new.disconnected_seconds == 0
+      assert new.duration_seconds < old.duration_seconds
+    end
+
     test "a reserved seat cannot be opened, and host reclaim preserves another pending decision" do
       {room, _} = create_playing_room()
       {_, departed} = make_seat_bot_substitute(room, "user2")

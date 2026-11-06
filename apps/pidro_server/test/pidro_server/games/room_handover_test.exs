@@ -184,8 +184,19 @@ defmodule PidroServer.Games.RoomHandoverTest do
     assert event_count(SeatEvent) == 2
     assert event_count(AbandonmentEvent) == 0
 
+    five_seconds_later = DateTime.to_unix(room.seats.north.disconnected_at, :millisecond) + 5000
+    totals = PidroServer.Games.Room.Seat.connection_totals(room.seats.north, five_seconds_later)
+    assert totals.disconnected_seconds == 5
+    assert totals.drops == 0
+
     assert {:ok, back} = RoomManager.handle_player_reconnect(code, north)
     assert back.seats.north.status == :connected
+
+    returned_totals =
+      PidroServer.Games.Room.Seat.connection_totals(back.seats.north, five_seconds_later)
+
+    assert returned_totals.disconnected_seconds > 0
+    assert returned_totals.disconnected_seconds < 5
     refute Map.has_key?(back.phase_timers, :north)
   end
 

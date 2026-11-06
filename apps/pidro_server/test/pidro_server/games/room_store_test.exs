@@ -36,6 +36,11 @@ defmodule PidroServer.Games.RoomStoreTest do
       round_trips: [42, 200, 18]
     }
 
+    substitute =
+      substitute |> Seat.start_connection_stats(1000) |> Seat.record_connection_reply(237)
+
+    substitute = %{substitute | round_trips: [42, 200, 18]}
+
     room = %Room{
       id: Ecto.UUID.generate(),
       code: "AB12",

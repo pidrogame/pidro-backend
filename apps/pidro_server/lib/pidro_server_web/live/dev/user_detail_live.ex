@@ -177,6 +177,49 @@ defmodule PidroServerWeb.Dev.UserDetailLive do
         <span :if={@connection.platform}>({@connection.platform})</span>
       </p>
 
+      <section id="connection-strength" class="rounded-md border border-stone-300 bg-white p-4">
+        <p class="text-sm">
+          <span class={[
+            "inline-block size-2 rounded-full mr-1",
+            connection_color(@connection_strength.grade)
+          ]}></span>
+          Connection: {connection_label(@connection_strength)} · mostly {@connection_strength.network} · {@connection_strength.platform ||
+            "unknown platform"} {@connection_strength.app_version || "unknown version"} · last 7 days
+        </p>
+        <p class="mt-2 text-xs text-stone-500">
+          {@connection_strength.checks_sent} checks · {@connection_strength.unanswered_checks} unanswered · {round(
+            @connection_strength.disconnected_seconds
+          )} s disconnected.
+          Grades need at least 10 minutes of play and answered checks.
+        </p>
+        <p class="mt-3 text-xs font-semibold text-stone-600">
+          Typical round trip / drops per game · last 7 days
+        </p>
+        <p :if={@connection_games == []} class="mt-2 text-sm text-stone-500">
+          No measured games yet.
+        </p>
+        <ol id="connection-strip" class="mt-2 flex gap-2 overflow-x-auto pb-2">
+          <li
+            :for={game <- Enum.reverse(@connection_games)}
+            class="w-24 shrink-0 rounded border border-stone-200 p-2 text-xs"
+            title={"#{game.room_code} · #{game.inserted_at} UTC"}
+          >
+            <time>{Calendar.strftime(game.inserted_at, "%d %b")}</time>
+            <div class="mt-1 flex h-10 items-end">
+              <span
+                class={["block w-full rounded-sm", connection_color(Stats.connection_grade(game))]}
+                style={"height: #{if game.median_ms, do: min(40, max(2, round(game.median_ms / 25))), else: 2}px"}
+              ></span>
+            </div>
+            <p class="mt-1">
+              {if game.median_ms, do: "#{round(game.median_ms)} ms", else: "RTT unknown"}
+            </p>
+            <p>{game.drops} drops</p>
+            <p class="mt-1 font-mono text-stone-500">{game.room_code}</p>
+          </li>
+        </ol>
+      </section>
+
       <section id="connection-timeline" class="rounded-md border border-stone-300 bg-white p-4">
         <h2 class="font-semibold">Connection timeline</h2>
         <p :if={@connection_events == []} class="mt-2 text-sm text-stone-500">
@@ -664,10 +707,13 @@ defmodule PidroServerWeb.Dev.UserDetailLive do
   defp load_user_context(socket) do
     user = socket.assigns.user
     {:ok, profile} = Profiles.get_profile_for_screen(user.id)
+    connection_games = Stats.connection_games(user.id)
 
     socket
     |> assign(:stats, Stats.get_user_stats(user.id))
     |> assign(:connection, Stats.connection_summary(user.id))
+    |> assign(:connection_games, connection_games)
+    |> assign(:connection_strength, Stats.summarize_connections(connection_games))
     |> assign(:connection_events, Stats.connection_timeline(user.id))
     |> assign(:profile, profile)
     |> assign(:skill, Tier.classify(profile))

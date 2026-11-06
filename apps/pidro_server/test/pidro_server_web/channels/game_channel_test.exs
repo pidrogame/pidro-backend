@@ -1372,6 +1372,9 @@ defmodule PidroServerWeb.GameChannelTest do
 
       assert joined.state_revision == snapshot.state_revision
       assert joined.game_instance_id == snapshot.game_instance_id
+      {:ok, joined_room} = RoomManager.get_room(ctx.room_code)
+      joined_seat = Enum.find(Map.values(joined_room.seats), &(&1.user_id == ctx.user1.id))
+      assert joined_seat.network == "cellular"
       send(RoomManager, :check_connections)
       assert_push "ping", %{id: id}
       ref = push(socket, "pong", %{"id" => id})

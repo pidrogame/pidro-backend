@@ -19,4 +19,92 @@ defmodule PidroServer.Stats.ConnectionStrengthTest do
     assert grade.(3600, 30, 4) == :poor
     assert grade.(7200, 30, 1) == :good
   end
+
+  test "seven-day summary pools RTT samples and weights network by duration" do
+    rows = [
+      %{
+        duration_seconds: 2400,
+        drops: 6,
+        rtt_histogram: %{"420" => 17, "2000" => 2},
+        network_ms: %{"cellular" => 2_400_000},
+        app_version: "3.2.4",
+        platform: "android"
+      },
+      %{
+        duration_seconds: 1200,
+        drops: 0,
+        rtt_histogram: %{"100" => 1},
+        network_ms: %{"wifi" => 1_200_000}
+      }
+    ]
+
+    summary = Stats.summarize_connections(rows)
+    assert summary.median_ms == 420
+    assert summary.p95_ms == 2000
+    assert summary.drops_per_hour == 6
+    assert summary.network == "cellular"
+    assert summary.grade == :poor
+    assert summary.app_version == "3.2.4"
+    assert Stats.summarize_connections([]).grade == :insufficient
+
+    unknown = %{duration_seconds: 3600, drops: 0, rtt_histogram: %{}}
+    short = %{duration_seconds: 590, drops: 1, rtt_histogram: %{"30" => 20}}
+    assert Stats.summarize_connections([short, unknown]).grade == :insufficient
+    measured = Stats.summarize_connections([%{short | duration_seconds: 610}, unknown])
+    assert measured.grade == :poor
+    assert measured.measured_seconds == 610
+    assert measured.unknown_seconds == 3600
+  end
+
+  test "analytics weights play time, keeps unknown data visible and separates builds and windows" do
+    now = NaiveDateTime.utc_now() |> NaiveDateTime.truncate(:second)
+
+    for {user, seconds, histogram, version, at} <- [
+          {"good", 3600, %{"30" => 100}, "3.2.4", now},
+          {"poor", 10_800, %{"420" => 100}, "3.2.4", now},
+          {"unknown", 3600, %{}, "3.2.4", now},
+          {"older", 3600, %{"30" => 100}, "3.2.4", NaiveDateTime.add(now, -8, :day)},
+          {"other-build", 3600, %{"30" => 100}, "3.2.3", now}
+        ] do
+      Repo.insert!(%PidroServer.Stats.ConnectionGame{
+        user_id: user,
+        room_id: Ecto.UUID.generate(),
+        room_code: "CONN",
+        game_instance_id: Ecto.UUID.generate(),
+        checks_sent: 100,
+        unanswered_checks: 0,
+        drops: 0,
+        duration_seconds: seconds / 1,
+        disconnected_seconds: 0.0,
+        rtt_histogram: histogram,
+        app_version: version,
+        platform: "android",
+        inserted_at: at,
+        updated_at: at
+      })
+    end
+
+    assert [%{app_version: "3.2.3"} = other, current] = Stats.connection_analytics(7)
+    assert other.poor_percent == 0
+    assert current.duration_seconds == 18_000
+    assert current.poor_percent == 60
+    assert current.unknown_percent == 20
+    assert [_, month] = Stats.connection_analytics(30)
+    assert month.poor_percent == 50
+    assert Stats.connection_games("older") == []
+    assert [_] = Stats.connection_games("older", 30)
+
+    unknown = Repo.one!(from c in PidroServer.Stats.ConnectionGame, where: c.user_id == "unknown")
+
+    Repo.insert!(%{
+      unknown
+      | id: Ecto.UUID.generate(),
+        user_id: "poor",
+        game_instance_id: Ecto.UUID.generate()
+    })
+
+    assert [_, mixed] = Stats.connection_analytics(7)
+    assert mixed.poor_percent == 50
+    assert_in_delta mixed.unknown_percent, 33.333333, 0.00001
+  end
 end

@@ -68,6 +68,7 @@ defmodule PidroServer.Games.Room.Seat do
     :network,
     :background_token,
     :pending_ping,
+    :connection_stats,
     liveness_enabled: false,
     missed_pings: 0,
     round_trips: [],
@@ -89,6 +90,129 @@ defmodule PidroServer.Games.Room.Seat do
     n = length(sorted)
     median = (Enum.at(sorted, div(n - 1, 2)) + Enum.at(sorted, div(n, 2))) / 2
     %{latest_ms: latest, median_ms: median}
+  end
+
+  @doc "Starts this human's per-game counters; timestamps are restart-safe Unix milliseconds."
+  def start_connection_stats(seat, now \\ System.system_time(:millisecond)) do
+    stats =
+      if seat.user_id || seat.reserved_for do
+        %{
+          started_ms: now,
+          ended_ms: nil,
+          network_started_ms: now,
+          network_ms: %{},
+          checks_sent: 0,
+          rtt_histogram: %{},
+          drops: 0,
+          disconnected_ms: 0,
+          disconnected_since_ms: if(seat.disconnected_at, do: now)
+        }
+      end
+
+    %{seat | connection_stats: stats, round_trips: []}
+  end
+
+  @doc "Counts a sent probe. Any probe without a pong is unanswered, including cancellation."
+  def record_connection_probe(%{connection_stats: nil} = seat), do: seat
+  def record_connection_probe(seat), do: update_in(seat.connection_stats.checks_sent, &(&1 + 1))
+
+  @doc "Adds a round-trip frequency, without retaining a timestamped probe log."
+  def record_connection_reply(%{connection_stats: nil} = seat, _elapsed), do: seat
+
+  def record_connection_reply(seat, elapsed) do
+    update_in(
+      seat.connection_stats.rtt_histogram,
+      &Map.update(&1, to_string(elapsed), 1, fn n -> n + 1 end)
+    )
+  end
+
+  @doc "Closes the previous connection's network interval before recording the new network."
+  def connection_network(seat, network, now \\ System.system_time(:millisecond))
+
+  def connection_network(%{connection_stats: nil} = seat, network, _now),
+    do: %{seat | network: network}
+
+  def connection_network(seat, network, now) do
+    stats = seat.connection_stats
+    now = stats.ended_ms || now
+
+    %{
+      seat
+      | network: network,
+        connection_stats: %{
+          stats
+          | network_ms: network_totals(seat, now),
+            network_started_ms: now
+        }
+    }
+  end
+
+  @doc "Closes the current absence before reclaim clears its timestamps."
+  def connection_returned(seat, now \\ System.system_time(:millisecond))
+  def connection_returned(%{connection_stats: nil} = seat, _now), do: seat
+
+  def connection_returned(seat, now) do
+    stats = seat.connection_stats
+    now = stats.ended_ms || now
+
+    %{
+      seat
+      | connection_stats: %{
+          stats
+          | disconnected_ms: disconnected_total(stats, now),
+            disconnected_since_ms: nil
+        }
+    }
+  end
+
+  @doc "Freezes playing time and open intervals when the game ends."
+  def finish_connection_stats(seat, now \\ System.system_time(:millisecond))
+  def finish_connection_stats(%{connection_stats: nil} = seat, _now), do: seat
+  def finish_connection_stats(seat, now), do: put_in(seat.connection_stats.ended_ms, now)
+
+  @doc "Starts a deployment-induced absence without counting a player drop."
+  def restore_connection_stats(%{connection_stats: nil} = seat), do: seat
+
+  def restore_connection_stats(seat) do
+    update_in(
+      seat.connection_stats.disconnected_since_ms,
+      &(&1 || DateTime.to_unix(seat.disconnected_at, :millisecond))
+    )
+  end
+
+  @doc "Current per-game totals, including any still-open absence and network interval."
+  def connection_totals(seat, now \\ System.system_time(:millisecond))
+  def connection_totals(%{connection_stats: nil}, _now), do: nil
+
+  def connection_totals(seat, now) do
+    stats = seat.connection_stats
+    now = stats.ended_ms || now
+
+    %{
+      checks_sent: stats.checks_sent,
+      unanswered_checks: stats.checks_sent - Enum.sum(Map.values(stats.rtt_histogram)),
+      rtt_histogram: stats.rtt_histogram,
+      drops: stats.drops,
+      duration_seconds: max(0, now - stats.started_ms) / 1000,
+      disconnected_seconds: disconnected_total(stats, now) / 1000,
+      network_ms: network_totals(seat, now)
+    }
+  end
+
+  defp disconnected_total(stats, now) do
+    stats.disconnected_ms +
+      if(stats.disconnected_since_ms, do: max(0, now - stats.disconnected_since_ms), else: 0)
+  end
+
+  defp network_totals(seat, now) do
+    elapsed = max(0, now - seat.connection_stats.network_started_ms)
+
+    Map.update(
+      seat.connection_stats.network_ms,
+      seat.network || "unknown",
+      elapsed,
+      &(&1 + elapsed)
+    )
   end
 
   @doc """
@@ -179,7 +303,18 @@ defmodule PidroServer.Games.Room.Seat do
   """
   @spec disconnect(t()) :: {:ok, t()} | {:error, atom()}
   def disconnect(%__MODULE__{status: :connected, occupant_type: :human} = seat) do
-    {:ok, %{seat | status: :reconnecting, disconnected_at: DateTime.utc_now()}}
+    stats = seat.connection_stats
+
+    stats =
+      if stats,
+        do: %{
+          stats
+          | drops: stats.drops + 1,
+            disconnected_since_ms: System.system_time(:millisecond)
+        }
+
+    {:ok,
+     %{seat | status: :reconnecting, disconnected_at: DateTime.utc_now(), connection_stats: stats}}
   end
 
   def disconnect(%__MODULE__{}), do: {:error, :invalid_transition}
@@ -256,7 +391,9 @@ defmodule PidroServer.Games.Room.Seat do
          decision_id: decision_id,
          decision_player_id: player_id,
          disconnected_at: nil,
-         grace_expires_at: nil
+         grace_expires_at: nil,
+         connection_stats: nil,
+         round_trips: []
      }}
   end
 
@@ -387,7 +524,16 @@ defmodule PidroServer.Games.Room.Seat do
          substitute: true,
          vacated_by: nil,
          decision_id: nil,
-         decision_player_id: nil
+         decision_player_id: nil,
+         connection_stats: nil,
+         round_trips: [],
+         pending_ping: nil,
+         liveness_enabled: false,
+         missed_pings: 0,
+         app_version: nil,
+         platform: nil,
+         network: nil,
+         reason: nil
      }}
   end
 

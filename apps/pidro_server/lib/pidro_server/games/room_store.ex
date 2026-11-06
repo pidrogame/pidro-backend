@@ -251,6 +251,11 @@ defmodule PidroServer.Games.RoomStore do
 
   # Kept as JSON: a summary only ever goes back out to the client as JSON.
   defp value(json, "post_game_summaries"), do: json
+  defp value(json, key) when key in ["rtt_histogram", "network_ms"], do: json
+  defp value(nil, "connection_stats"), do: nil
+
+  defp value(json, "connection_stats"),
+    do: Map.new(json, fn {key, item} -> {String.to_existing_atom(key), value(item, key)} end)
 
   defp value(history, "auto_played_turns") do
     Enum.map(history, fn %{

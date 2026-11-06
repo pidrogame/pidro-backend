@@ -8,7 +8,151 @@ defmodule PidroServer.Stats do
   import Ecto.Query, warn: false
   alias PidroServer.Profiles
   alias PidroServer.Repo
-  alias PidroServer.Stats.{AbandonmentEvent, GameStats, SeatEvent}
+  alias PidroServer.Stats.{AbandonmentEvent, ConnectionGame, GameStats, SeatEvent}
+
+  @connection_thresholds %{
+    minimum_seconds: 600,
+    good_ms: 150,
+    good_drops: 1,
+    fair_ms: 400,
+    fair_drops: 4
+  }
+
+  @doc "Connection grade from measured play time, median RTT and drops; boundaries are exclusive."
+  def connection_grade(%{duration_seconds: seconds, median_ms: median, drops: drops}) do
+    limits = @connection_thresholds
+
+    cond do
+      seconds < limits.minimum_seconds or is_nil(median) -> :insufficient
+      median < limits.good_ms and drops * 3600 / seconds < limits.good_drops -> :good
+      median < limits.fair_ms and drops * 3600 / seconds < limits.fair_drops -> :fair
+      true -> :poor
+    end
+  end
+
+  @doc "Persists one final aggregate per player/game, off the table's process."
+  def record_connection_game(attrs) do
+    attrs = Map.merge(attrs, connection_percentiles(attrs.rtt_histogram))
+    changeset = ConnectionGame.changeset(%ConnectionGame{}, attrs)
+
+    Task.Supervisor.start_child(PidroServer.TaskSupervisor, fn ->
+      try do
+        case Repo.insert(changeset,
+               on_conflict: :nothing,
+               conflict_target: [:user_id, :game_instance_id]
+             ) do
+          {:ok, _} -> :ok
+          {:error, _} -> Logger.warning("Connection game aggregate rejected")
+        end
+      catch
+        failure, _ -> Logger.warning("Connection game aggregate not recorded: #{failure}")
+      end
+    end)
+
+    :ok
+  end
+
+  @doc "The player's recent per-game connection aggregates, newest first."
+  def connection_games(user_id, days \\ 7) do
+    cutoff = DateTime.add(DateTime.utc_now(), -days, :day)
+
+    Repo.all(
+      from c in ConnectionGame,
+        where: c.user_id == ^user_id and c.inserted_at >= ^cutoff,
+        order_by: [desc: c.inserted_at, desc: c.id]
+    )
+  end
+
+  @doc "Combines sample frequencies and network durations; never averages per-game percentiles."
+  def summarize_connections(rows) do
+    totals =
+      Map.new(
+        [:duration_seconds, :disconnected_seconds, :drops, :checks_sent, :unanswered_checks],
+        fn key ->
+          {key, Enum.reduce(rows, 0, &(Map.get(&1, key, 0) + &2))}
+        end
+      )
+
+    histogram = merge_connection_counts(rows, :rtt_histogram)
+    networks = merge_connection_counts(rows, :network_ms)
+    {network, _} = Enum.max_by(networks, fn {_network, ms} -> ms end, fn -> {"unknown", 0} end)
+    totals = Map.merge(totals, connection_percentiles(histogram))
+    measured = Enum.filter(rows, &(map_size(Map.get(&1, :rtt_histogram, %{})) > 0))
+    measured_seconds = Enum.sum(Enum.map(measured, & &1.duration_seconds))
+    measured_drops = Enum.sum(Enum.map(measured, & &1.drops))
+
+    Map.merge(totals, %{
+      grade:
+        connection_grade(%{totals | duration_seconds: measured_seconds, drops: measured_drops}),
+      measured_seconds: measured_seconds,
+      unknown_seconds: totals.duration_seconds - measured_seconds,
+      network: network,
+      drops_per_hour:
+        if(measured_seconds > 0,
+          do: measured_drops * 3600 / measured_seconds,
+          else: 0
+        ),
+      app_version: Map.get(List.first(rows) || %{}, :app_version),
+      platform: Map.get(List.first(rows) || %{}, :platform)
+    })
+  end
+
+  @doc "Share of recorded play time graded poor, by platform/version, with unknown time separate."
+  def connection_analytics(days) do
+    cutoff = DateTime.add(DateTime.utc_now(), -days, :day)
+
+    Repo.all(from c in ConnectionGame, where: c.inserted_at >= ^cutoff)
+    |> Enum.group_by(&{&1.user_id, &1.platform, &1.app_version})
+    |> Enum.map(fn {{_user, platform, version}, rows} ->
+      Map.merge(summarize_connections(rows), %{platform: platform, app_version: version})
+    end)
+    |> Enum.group_by(&{&1.platform, &1.app_version})
+    |> Enum.map(fn {{platform, version}, players} ->
+      total = Enum.sum(Enum.map(players, & &1.duration_seconds))
+      poor = Enum.sum(for p <- players, p.grade == :poor, do: p.measured_seconds)
+
+      unknown =
+        Enum.sum(
+          for p <- players,
+              do: if(p.grade == :insufficient, do: p.duration_seconds, else: p.unknown_seconds)
+        )
+
+      %{
+        platform: platform,
+        app_version: version,
+        duration_seconds: total,
+        poor_percent: if(total > 0, do: poor * 100 / total, else: 0),
+        unknown_percent: if(total > 0, do: unknown * 100 / total, else: 0)
+      }
+    end)
+    |> Enum.sort_by(&{&1.platform, &1.app_version})
+  end
+
+  defp merge_connection_counts(rows, key) do
+    Enum.reduce(rows, %{}, fn row, counts ->
+      Map.merge(counts, Map.get(row, key, %{}), fn _key, left, right -> left + right end)
+    end)
+  end
+
+  defp connection_percentiles(histogram) when map_size(histogram) == 0,
+    do: %{median_ms: nil, p95_ms: nil}
+
+  defp connection_percentiles(histogram) do
+    sorted =
+      histogram |> Enum.map(fn {ms, count} -> {String.to_integer(ms), count} end) |> Enum.sort()
+
+    count = Enum.sum(Map.values(histogram))
+
+    %{
+      median_ms:
+        (connection_rank(sorted, div(count + 1, 2)) + connection_rank(sorted, div(count, 2) + 1)) /
+          2,
+      p95_ms: connection_rank(sorted, ceil(count * 0.95)) / 1
+    }
+  end
+
+  defp connection_rank([{ms, count} | _], rank) when rank <= count, do: ms
+  defp connection_rank([{_ms, count} | rest], rank), do: connection_rank(rest, rank - count)
 
   @doc """
   Saves game result after completion.

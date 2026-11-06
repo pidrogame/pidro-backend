@@ -3,6 +3,32 @@ defmodule PidroServer.Games.Room.SeatTest do
 
   alias PidroServer.Games.Room.Seat
 
+  test "connection totals retain network durations and count answered and unanswered probes" do
+    seat =
+      Seat.new_human(:north, "user")
+      |> Seat.connection_network("wifi")
+      |> Seat.start_connection_stats(1000)
+      |> Seat.record_connection_probe()
+      |> Seat.record_connection_reply(42)
+      |> Seat.connection_network("cellular", 301_000)
+      |> Seat.record_connection_probe()
+      |> Seat.record_connection_probe()
+      |> Seat.record_connection_reply(2000)
+
+    totals = Seat.connection_totals(seat, 901_000)
+    assert totals.duration_seconds == 900
+    assert totals.network_ms == %{"wifi" => 300_000, "cellular" => 600_000}
+    assert totals.checks_sent == 3
+    assert totals.unanswered_checks == 1
+    assert totals.rtt_histogram == %{"42" => 1, "2000" => 1}
+    assert totals.disconnected_seconds == 0
+    finished = Seat.finish_connection_stats(seat, 901_000)
+    assert Seat.connection_totals(finished, 9_001_000) == totals
+
+    assert Seat.connection_totals(Seat.start_connection_stats(seat, 901_000), 901_000).checks_sent ==
+             0
+  end
+
   describe "creation" do
     test "new_human creates a connected human seat" do
       seat = Seat.new_human(:north, "user-1")

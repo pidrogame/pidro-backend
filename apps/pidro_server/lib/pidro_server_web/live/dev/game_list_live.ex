@@ -12,6 +12,7 @@ defmodule PidroServerWeb.Dev.GameListLive do
   def mount(_params, _session, socket) do
     if connected?(socket) do
       Phoenix.PubSub.subscribe(PidroServer.PubSub, "lobby:updates")
+      Phoenix.PubSub.subscribe(PidroServer.PubSub, "admin:connections")
       Process.send_after(self(), :sample, 750)
     end
 
@@ -78,6 +79,15 @@ defmodule PidroServerWeb.Dev.GameListLive do
   end
 
   def handle_info({:online_count_updated, _}, socket), do: {:noreply, socket}
+
+  def handle_info({:connection_quality, code, seats}, socket) do
+    case socket.assigns.all_rooms[code] do
+      nil -> {:noreply, socket}
+      room ->
+        rooms = Map.put(socket.assigns.all_rooms, code, %{room | seats: seats})
+        {:noreply, socket |> assign(:all_rooms, rooms) |> present()}
+    end
+  end
 
   def handle_info(message, socket) do
     PidroServer.Games.UnexpectedMessage.report_once(__MODULE__, message)
@@ -518,6 +528,7 @@ defmodule PidroServerWeb.Dev.GameListLive do
          name: seat_name(seat, profiles[seat.user_id]),
          detail: connection(seat, room, now),
          kind: seat.occupant_type,
+         quality: if(seat.user_id || seat.reserved_for, do: PidroServer.Stats.summarize_connections(List.wrap(Seat.connection_totals(seat)))),
          avatar_url: avatar
        }}
     end)

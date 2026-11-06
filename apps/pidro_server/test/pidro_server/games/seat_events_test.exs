@@ -49,6 +49,58 @@ defmodule PidroServer.Games.SeatEventsTest do
   end
 
   describe "drops and returns" do
+    test "activity satisfies liveness without discarding the outstanding RTT measurement" do
+      {room, user} = bidding_room()
+      position = position_of(room, user)
+      expire_connection_checks()
+      assert_receive {:connection_ping, ^user, %{id: id}}
+      :ok = RoomManager.connection_activity(room.code, user, id)
+      expire_connection_checks()
+      assert_receive {:connection_ping, ^user, %{id: _}}
+      :ok = RoomManager.connection_activity(room.code, user)
+
+      expire_connection_checks()
+      assert_receive {:connection_ping, ^user, %{id: _}}
+      assert {:ok, active} = RoomManager.get_room(room.code)
+      assert active.seats[position].missed_pings == 0
+      expire_connection_checks()
+      assert_receive {:connection_ping, ^user, %{id: _}}
+      assert {:ok, active} = RoomManager.get_room(room.code)
+      assert active.seats[position].status == :connected
+      expire_connection_checks()
+      assert_receive {:connection_ping, ^user, %{id: _}}
+      assert {:ok, absent} = RoomManager.get_room(room.code)
+      assert absent.seats[position].status == :reconnecting
+    end
+
+    test "activity preserves a pong's measurement and finalization counts an unanswered probe" do
+      {room, user} = bidding_room()
+      expire_connection_checks()
+      assert_receive {:connection_ping, ^user, %{id: id}}
+      :ok = RoomManager.connection_activity(room.code, user)
+      :ok = RoomManager.connection_activity(room.code, user, id)
+      expire_connection_checks()
+      assert_receive {:connection_ping, ^user, %{id: _}}
+      :ok = RoomManager.handle_player_disconnect(room.code, user)
+      send(RoomManager, {:game_over, room.code, :north_south, %{north_south: 62, east_west: 25}})
+      assert {:ok, finished} = RoomManager.get_room(room.code)
+      await_tasks()
+      assert [saved] = PidroServer.Stats.connection_games(user)
+      assert saved.checks_sent == 2
+      assert saved.unanswered_checks == 1
+      assert is_number(saved.median_ms)
+      seat = finished.seats[position_of(room, user)]
+
+      totals =
+        PidroServer.Games.Room.Seat.connection_totals(
+          seat,
+          System.system_time(:millisecond) + 3_600_000
+        )
+
+      assert totals.duration_seconds == saved.duration_seconds
+      assert totals.disconnected_seconds == saved.disconnected_seconds
+    end
+
     test "game end saves one connection aggregate per player and game" do
       {room, user} = bidding_room()
 
