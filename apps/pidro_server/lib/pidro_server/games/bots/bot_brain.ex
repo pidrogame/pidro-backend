@@ -97,24 +97,29 @@ defmodule PidroServer.Games.Bots.BotBrain do
   is logged.
 
   `bot_label` is used for log messages (e.g., "BotPlayer" or "SubstituteBot").
-  SubstituteBot supplies RoomManager's PID-checked action function; BotPlayer
-  retains direct GameAdapter application.
+  Both controllers supply RoomManager's PID-checked action function. The
+  selected move is fenced to its snapshot, even if the same actor plays next.
   """
   @spec execute_move(map(), String.t()) :: :ok
-  @spec execute_move(map(), String.t(), (String.t(), atom(), term() -> term())) :: :ok
-  def execute_move(state, bot_label, apply_action \\ &GameAdapter.apply_action/3) do
+  @spec execute_move(map(), String.t(), (String.t(), atom(), term(), tuple() -> term())) :: :ok
+  def execute_move(state, bot_label, apply_action \\ &apply_move/4) do
     label = "#{bot_label} (#{state.room_code}/#{state.position})"
 
-    with {:ok, [_ | _] = legal_actions} <-
-           GameAdapter.get_legal_actions(state.room_code, state.position),
-         {:ok, %GameState{} = game_state} <- GameAdapter.get_state(state.room_code) do
+    with {:ok, %{state: %GameState{} = game_state, game_instance_id: instance}} <-
+           GameAdapter.get_snapshot(state.room_code),
+         [_ | _] = legal_actions <- Pidro.Game.Engine.legal_actions(game_state, state.position) do
       view = SeatView.for_seat(game_state, state.position)
       {action, reasoning} = choose(state.strategy, legal_actions, view, label)
       action = resolve_action(action, game_state, state.position)
 
       Logger.debug("#{label} executing: #{inspect(action)} - #{reasoning}")
 
-      case apply_action.(state.room_code, state.position, action) do
+      case apply_action.(
+             state.room_code,
+             state.position,
+             action,
+             {instance, length(game_state.events)}
+           ) do
         {:ok, _new_state} ->
           publish_reasoning(state.room_code, %{
             position: state.position,
@@ -133,7 +138,7 @@ defmodule PidroServer.Games.Bots.BotBrain do
           Logger.warning("#{label} action failed: #{inspect(reason)} (#{inspect(action)})")
       end
     else
-      {:ok, []} ->
+      [] ->
         Logger.debug("#{label} has no legal actions")
 
       {:error, :not_found} ->
@@ -143,6 +148,9 @@ defmodule PidroServer.Games.Bots.BotBrain do
         Logger.warning("#{label} error: #{inspect(other)}")
     end
   end
+
+  defp apply_move(code, position, action, turn),
+    do: GameAdapter.apply_action(code, position, action, 5_000, %{expected_turn: turn})
 
   @doc """
   Returns the per-room PubSub topic that carries each bot move's reason.

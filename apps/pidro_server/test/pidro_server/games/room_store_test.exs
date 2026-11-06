@@ -70,6 +70,17 @@ defmodule PidroServer.Games.RoomStoreTest do
          %{type: :play_card, card: %{rank: 14, suit: :hearts}}}
       ],
       consecutive_timeouts: %{north: 2},
+      turn_pause_budget: %{key: {:seat, :east, :playing, 42}, remaining_ms: 9_000},
+      table_outcome: %{
+        turns: 21,
+        bot_turns: 4,
+        peers: [host],
+        left: [gone],
+        participants: %{
+          host => %{platform: "android", app_version: "3.2.4"},
+          gone => %{platform: "ios", app_version: "3.2.3"}
+        }
+      },
       last_hand_number: 3,
       game: %{hand: 3, scores: %{north_south: 12, east_west: -4}},
       ready_epoch: 5,

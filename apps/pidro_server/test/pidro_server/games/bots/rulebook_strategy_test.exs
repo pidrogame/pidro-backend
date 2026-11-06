@@ -161,6 +161,31 @@ defmodule PidroServer.Games.Bots.RulebookStrategyTest do
   end
 
   describe "BotBrain.execute_move/3" do
+    test "a selected move cannot apply after the turn changes even when it remains legal" do
+      {room, game} = bidding_room()
+      {:ok, pid} = PidroServer.Games.GameRegistry.lookup(room.code)
+      newer = %{game | events: game.events ++ [{:cards_dealt, %{}}]}
+
+      capture_log(fn ->
+        BotBrain.execute_move(
+          %{room_code: room.code, position: game.current_turn, strategy: RulebookStrategy},
+          "Test",
+          fn code, position, action, turn ->
+            :ok = GenServer.call(pid, {:set_state, newer})
+            assert action in Pidro.Game.Engine.legal_actions(newer, position)
+
+            result =
+              GameAdapter.apply_action(code, position, action, 5_000, %{expected_turn: turn})
+
+            assert {:error, :stale_turn} = result
+            result
+          end
+        )
+      end)
+
+      assert {:ok, ^newer} = GameAdapter.get_state(room.code)
+    end
+
     test "hands the strategy a seat view with only counts for the other hands" do
       {room, game} = bidding_room()
       position = game.current_turn

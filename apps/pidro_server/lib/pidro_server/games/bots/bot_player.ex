@@ -186,7 +186,7 @@ defmodule PidroServer.Games.Bots.BotPlayer do
 
   @impl true
   def handle_info(:make_move, state) do
-    BotBrain.execute_move(state, "BotPlayer", &PidroServer.Games.RoomManager.apply_bot_action/3)
+    BotBrain.execute_move(state, "BotPlayer", &PidroServer.Games.RoomManager.apply_bot_action/4)
     {:noreply, %{state | move_scheduled?: false}}
   end
 

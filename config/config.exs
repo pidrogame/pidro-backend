@@ -26,6 +26,7 @@ config :pidro_server, PidroServer.Games.RoomManager, grace_period_ms: 120_000
 # All values are in milliseconds. Override per-environment or via env vars in runtime.exs.
 config :pidro_server, PidroServer.Games.Lifecycle,
   hiccup_timeout_ms: 20_000,
+  turn_pause_budget_ms: 25_000,
   grace_timeout_ms: 120_000,
   empty_room_ttl_ms: 30_000,
   finished_room_ttl_ms: 300_000,

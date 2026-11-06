@@ -65,6 +65,7 @@ defmodule PidroServer.Games.RoomManager do
   alias PidroServer.Games.Room.Positions
   alias PidroServer.Games.Room.Seat
   alias PidroServer.Stats
+  alias PidroServer.Stats.TableOutcome
 
   @max_players 4
   # Rooms are saved this often; a heartbeat and a look for rooms to take over
@@ -166,6 +167,8 @@ defmodule PidroServer.Games.RoomManager do
       bot_personas: Seat.bot_personas(),
       turn_timer: nil,
       paused_turn: nil,
+      turn_pause_budget: nil,
+      table_outcome: nil,
       auto_played_turns: [],
       consecutive_timeouts: %{},
       last_hand_number: nil,
@@ -1424,15 +1427,18 @@ defmodule PidroServer.Games.RoomManager do
   @doc "Applies an action only for the currently tracked substitute controller."
   @spec apply_substitute_action(String.t(), Positions.position(), term()) ::
           {:ok, map()} | {:error, term()}
-  def apply_substitute_action(room_code, position, action) do
-    GenServer.call(__MODULE__, {:apply_substitute_action, room_code, position, action})
+  def apply_substitute_action(room_code, position, action, expected_turn \\ nil) do
+    GenServer.call(
+      __MODULE__,
+      {:apply_substitute_action, room_code, position, action, expected_turn}
+    )
   end
 
   @doc "Applies a table bot's action unless its only human is away."
   @spec apply_bot_action(String.t(), Positions.position(), term()) ::
           {:ok, map()} | {:error, term()}
-  def apply_bot_action(room_code, position, action) do
-    GenServer.call(__MODULE__, {:apply_bot_action, room_code, position, action})
+  def apply_bot_action(room_code, position, action, expected_turn \\ nil) do
+    GenServer.call(__MODULE__, {:apply_bot_action, room_code, position, action, expected_turn})
   end
 
   @doc "Sets pace for the sole human seated with three bots."
@@ -2047,6 +2053,7 @@ defmodule PidroServer.Games.RoomManager do
         end)
 
       state = put_in(state.rooms[room_code].seats, seats)
+      state = update_in(state.rooms[room_code].table_outcome, &TableOutcome.capture(&1, seats))
       state = register_channel_pid(state, room_code, user_id, pid)
       {:reply, :ok, resume_background(state, room_code, user_id)}
     else
@@ -2140,6 +2147,12 @@ defmodule PidroServer.Games.RoomManager do
 
       {:ok, _} ->
         room = reset_timeout_counter(state.rooms[room_code], position)
+
+        room = %{
+          room
+          | table_outcome: TableOutcome.turn(room.table_outcome, room.seats, action, false)
+        }
+
         {:reply, result, put_in(state.rooms[room_code], room)}
 
       _ ->
@@ -2148,7 +2161,7 @@ defmodule PidroServer.Games.RoomManager do
   end
 
   @impl true
-  def handle_call({operation, room_code, position, action}, {caller, _}, state)
+  def handle_call({operation, room_code, position, action, expected_turn}, {caller, _}, state)
       when operation in [:apply_substitute_action, :apply_bot_action] do
     result =
       with {:ok, %Room{status: :playing} = room} <- fetch_room(state, room_code),
@@ -2158,9 +2171,28 @@ defmodule PidroServer.Games.RoomManager do
            false <- solo_player_away?(room) do
         # Keep admission and engine application serialized with seat transitions.
         # Never retry an ambiguous engine timeout: its action may have committed.
-        GameAdapter.apply_action(room_code, position, action, @player_action_call_timeout_ms)
+        GameAdapter.apply_action(room_code, position, action, @player_action_call_timeout_ms, %{
+          expected_turn: expected_turn
+        })
       else
         _ -> {:error, :seat_not_controlled}
+      end
+
+    state =
+      if match?({:ok, _}, result) do
+        room = state.rooms[room_code]
+
+        outcome =
+          TableOutcome.turn(
+            room.table_outcome,
+            room.seats,
+            action,
+            operation == :apply_substitute_action
+          )
+
+        put_in(state.rooms[room_code].table_outcome, outcome)
+      else
+        state
       end
 
     {:reply, result, state}
@@ -2737,6 +2769,7 @@ defmodule PidroServer.Games.RoomManager do
               %{
                 room
                 | seats: Map.put(room.seats, position, bot_seat),
+                  table_outcome: TableOutcome.takeover(room.table_outcome, room.seats, position),
                   phase_timers: Map.put(room.phase_timers, position, timer_ref)
               }
               |> bump_seat_lifecycle_revision()
@@ -3035,6 +3068,7 @@ defmodule PidroServer.Games.RoomManager do
         }
 
         record_connection_games(room, state.active_game_instances[room_code])
+        record_table_outcome(room, state.active_game_instances[room_code], true)
 
         # Clearing readiness turns the ready check into the rematch vote.
         finished_room =
@@ -3098,22 +3132,50 @@ defmodule PidroServer.Games.RoomManager do
   # so a game that did not answer is asked again a few times.
   @impl true
   def handle_info({:sweep_play, room_code, event_seq, retries}, %State{} = state) do
-    with %Room{status: :playing, pace: :quick} = room <- Map.get(state.rooms, room_code),
-         false <- solo_player_away?(room),
-         {:ok, game_state} <- GameAdapter.get_state(room_code),
-         ^event_seq <- length(game_state.events),
-         {position, card} <- Play.settled_play(game_state),
-         {:ok, _state} <- GameAdapter.apply_action(room_code, position, {:play_card, card}) do
-      :ok
-    else
-      {:error, _reason} when retries > 0 ->
-        schedule_sweep_play(room_code, event_seq, retries - 1, sweep_delay_ms())
+    state =
+      with %Room{status: :playing, pace: :quick} = room <- Map.get(state.rooms, room_code),
+           false <- solo_player_away?(room),
+           {:ok, game_state} <- GameAdapter.get_state(room_code),
+           ^event_seq <- length(game_state.events),
+           {position, card} <- Play.settled_play(game_state),
+           {:ok, _state} <- GameAdapter.apply_action(room_code, position, {:play_card, card}) do
+        outcome =
+          TableOutcome.turn(
+            room.table_outcome,
+            room.seats,
+            {:play_card, card},
+            room.seats[position].status == :bot_substitute
+          )
 
-      _ ->
-        :ok
-    end
+        put_in(state.rooms[room_code].table_outcome, outcome)
+      else
+        {:error, _reason} when retries > 0 ->
+          schedule_sweep_play(room_code, event_seq, retries - 1, sweep_delay_ms())
+          state
+
+        _ ->
+          state
+      end
 
     {:noreply, state}
+  end
+
+  @impl true
+  def handle_info({:timeout, ref, {:turn_pause_expired, code, key}}, state) do
+    with %Room{status: :playing, paused_turn: %{ref: ^ref, key: ^key, timer: timer}} = room <-
+           state.rooms[code] do
+      room = %{
+        room
+        | turn_timer: timer,
+          paused_turn: nil,
+          turn_pause_budget: %{key: key, remaining_ms: 0}
+      }
+
+      {room, state} = handle_turn_timer_expired(room, code, timer.timer_id, key, state, true)
+      {:noreply, put_in(state.rooms[code], room)}
+    else
+      _ -> {:noreply, state}
+    end
   end
 
   @impl true
@@ -4425,6 +4487,13 @@ defmodule PidroServer.Games.RoomManager do
 
     with {:ok, bot_pid} <- departure_bot(room, seat) do
       record_connection_games(room, state.active_game_instances[room.code], player_id)
+
+      outcome =
+        if bot_pid,
+          do: TableOutcome.takeover(room.table_outcome, room.seats, position),
+          else: room.table_outcome
+
+      room = %{room | table_outcome: TableOutcome.leave(outcome, player_id)}
       # Leaving a table of bots, say to join a friend, abandons nobody.
       if position && not Seat.alone_with_bots?(room.seats, player_id) do
         PidroServer.Stats.record_abandonment(player_id, room.code, position)
@@ -4932,6 +5001,7 @@ defmodule PidroServer.Games.RoomManager do
 
       room ->
         record_connection_games(room, state.active_game_instances[room_code])
+        record_table_outcome(room, state.active_game_instances[room_code], false)
         maybe_cancel_turn_timer(room)
         cancel_all_phase_timers(room)
         terminate_room_bots(room)
@@ -5315,6 +5385,9 @@ defmodule PidroServer.Games.RoomManager do
           )
       )
 
+      # Engine and room checkpoints are independent. Restored counters and
+      # takeover/departure metadata cannot establish a complete observation.
+      room = %{room | table_outcome: nil}
       state = install_room(state, restore_seats(room), snapshot)
 
       case state.rooms[room_code] do
@@ -5819,6 +5892,9 @@ defmodule PidroServer.Games.RoomManager do
         | status: :playing,
           snapshot_revision: room.snapshot_revision + 1,
           turn_timer: nil,
+          paused_turn: nil,
+          turn_pause_budget: nil,
+          table_outcome: TableOutcome.new(room.seats),
           consecutive_timeouts: %{},
           last_hand_number: nil,
           game: game_summary(snapshot.state),
@@ -6219,6 +6295,20 @@ defmodule PidroServer.Games.RoomManager do
 
   defp record_connection_games(_room, _instance, _user), do: :ok
 
+  defp record_table_outcome(%Room{status: :playing} = room, instance, completed?)
+       when is_binary(instance) do
+    with {:ok, game} <- GameAdapter.get_state(room.code),
+         true <- TableOutcome.complete?(room.table_outcome, game),
+         %{cohorts: [_ | _]} = attrs <-
+           TableOutcome.finish(room.table_outcome, room.seats, completed?) do
+      Stats.record_table_outcome(Map.put(attrs, :game_instance_id, instance))
+    else
+      _ -> :ok
+    end
+  end
+
+  defp record_table_outcome(_room, _instance, _completed?), do: :ok
+
   defp broadcast_connection_quality(room) do
     Phoenix.PubSub.broadcast(
       PidroServer.PubSub,
@@ -6367,55 +6457,113 @@ defmodule PidroServer.Games.RoomManager do
          transition_delay_ms,
          %State{} = state
        ) do
-    current_window = current_action_window(room, game_state)
+    current_window = current_action_window(room, game_state, true)
 
-    case {room.turn_timer, current_window} do
-      {%{key: key}, {:ok, key, _scope, _actor_position, _phase, _duration_ms}} ->
-        {room, state}
+    room =
+      case room.paused_turn do
+        %{key: key} ->
+          if TurnTimer.event_seq(key) == length(game_state.events),
+            do: room,
+            else: cancel_turn_pause(room)
 
-      {%{}, :none} ->
-        {cancel_active_turn_timer(room, room_code, :acted), state}
-
-      {%{}, {:ok, key, scope, actor_position, phase, duration_ms}} ->
-        room =
+        _ ->
           room
-          |> cancel_active_turn_timer(room_code, :acted)
-          |> start_turn_timer(
-            room_code,
-            key,
-            scope,
-            actor_position,
-            phase,
-            duration_ms,
-            transition_delay_ms
-          )
+      end
 
-        {room, state}
+    current_window =
+      case {room.paused_turn, current_window} do
+        {%{key: key}, {:ok, key, :seat, position, _, _}} ->
+          seat = room.seats[position]
 
-      {nil, :none} ->
-        {room, state}
+          if seat.status != :connected or seat.background_token != nil,
+            do: :paused,
+            else: current_window
 
-      {nil, {:ok, key, scope, actor_position, phase, duration_ms}} ->
-        duration_ms =
-          case room.paused_turn do
-            %{key: ^key, remaining_ms: remaining} -> max(remaining, 10_000)
-            _ -> duration_ms
-          end
+        _ ->
+          current_window
+      end
 
-        room =
-          start_turn_timer(
-            room,
-            room_code,
-            key,
-            scope,
-            actor_position,
-            phase,
-            duration_ms,
-            transition_delay_ms
-          )
+    {room, state} =
+      case {room.turn_timer, current_window} do
+        {%{key: key}, {:ok, key, _scope, _actor_position, _phase, _duration_ms}} ->
+          {room, state}
 
-        {room, state}
-    end
+        {%{}, :none} ->
+          {cancel_active_turn_timer(room, room_code, :acted), state}
+
+        {%{}, {:ok, key, scope, actor_position, phase, duration_ms}} ->
+          room =
+            room
+            |> cancel_active_turn_timer(room_code, :acted)
+            |> start_turn_timer(
+              room_code,
+              key,
+              scope,
+              actor_position,
+              phase,
+              duration_ms,
+              transition_delay_ms
+            )
+
+          {room, state}
+
+        {nil, window} when window in [:none, :paused] ->
+          {room, state}
+
+        {nil, {:ok, key, scope, actor_position, phase, duration_ms}} ->
+          {room, duration_ms} =
+            case room.paused_turn do
+              %{key: ^key, remaining_ms: remaining, started_at_mono: started} ->
+                budget =
+                  max(
+                    0,
+                    room.turn_pause_budget.remaining_ms -
+                      (System.monotonic_time(:millisecond) - started)
+                  )
+
+                extension = min(max(10_000 - remaining, 0), budget)
+
+                extension =
+                  if game_against_bots?(room), do: max(10_000 - remaining, 0), else: extension
+
+                {%{
+                   room
+                   | turn_pause_budget: %{key: key, remaining_ms: max(0, budget - extension)}
+                 }, remaining + extension}
+
+              _ ->
+                {room, duration_ms}
+            end
+
+          room =
+            start_turn_timer(
+              room,
+              room_code,
+              key,
+              scope,
+              actor_position,
+              phase,
+              duration_ms,
+              transition_delay_ms
+            )
+
+          {room, state}
+      end
+
+    room =
+      case current_window do
+        {:ok, _key, :seat, position, _phase, _duration} ->
+          seat = room.seats[position]
+
+          if seat.status != :connected or seat.background_token != nil,
+            do: pause_active_turn_timer(room, room_code, position),
+            else: room
+
+        _ ->
+          room
+      end
+
+    {room, state}
   end
 
   defp maybe_schedule_sweep(
@@ -6438,7 +6586,7 @@ defmodule PidroServer.Games.RoomManager do
 
   defp sweep_delay_ms, do: Lifecycle.config(:sweep_trick_delay_ms)
 
-  defp current_action_window(%Room{} = room, game_state) do
+  defp current_action_window(%Room{} = room, game_state, allow_away) do
     if room.status != :playing or room.pace == :own or single_player_room?(room) or
          solo_player_away?(room) or
          Play.settled_play(game_state) != nil do
@@ -6462,11 +6610,16 @@ defmodule PidroServer.Games.RoomManager do
           position = Map.get(game_state, :current_turn)
           seat = position && Map.get(room.seats, position)
           actions = if position, do: Engine.legal_actions(game_state, position), else: []
+          key = {:seat, position, phase, event_seq}
 
-          if seat && seat.occupant_type == :human &&
-               seat.status == :connected && seat.background_token == nil && actions != [] do
-            {:ok, {:seat, position, phase, event_seq}, :seat, position, phase,
-             turn_timer_duration_ms(phase)}
+          held_turn? =
+            (allow_away and seat) && seat.status == :bot_substitute &&
+              is_binary(seat.reserved_for) && match?(%{key: ^key}, room.turn_pause_budget)
+
+          if seat && (seat.occupant_type == :human or held_turn?) &&
+               (allow_away or (seat.status == :connected && seat.background_token == nil)) &&
+               actions != [] do
+            {:ok, key, :seat, position, phase, turn_timer_duration_ms(phase)}
           else
             :none
           end
@@ -6510,14 +6663,29 @@ defmodule PidroServer.Games.RoomManager do
         _ -> timer
       end
 
-    %{room | turn_timer: timer, paused_turn: nil}
+    budget =
+      case room.turn_pause_budget do
+        %{key: ^key} = budget ->
+          elapsed =
+            if budget[:paused_since_ms],
+              do: System.system_time(:millisecond) - budget.paused_since_ms,
+              else: 0
+
+          %{key: key, remaining_ms: max(0, budget.remaining_ms - elapsed)}
+
+        _ ->
+          %{key: key, remaining_ms: Lifecycle.config(:turn_pause_budget_ms)}
+      end
+
+    room = cancel_turn_pause(room)
+    %{room | turn_timer: timer, turn_pause_budget: budget}
   end
 
-  defp maybe_cancel_turn_timer(%Room{turn_timer: nil} = room), do: room
+  defp maybe_cancel_turn_timer(%Room{turn_timer: nil} = room), do: cancel_turn_pause(room)
 
   defp maybe_cancel_turn_timer(%Room{} = room) do
     TurnTimer.cancel_timer(room.turn_timer)
-    %{room | turn_timer: nil}
+    cancel_turn_pause(%{room | turn_timer: nil})
   end
 
   defp cancel_active_turn_timer(%Room{} = room, room_code, reason) do
@@ -6535,12 +6703,24 @@ defmodule PidroServer.Games.RoomManager do
   defp pause_active_turn_timer(%Room{} = room, room_code, position) do
     case room.turn_timer do
       %{actor_position: ^position} = timer ->
+        ref =
+          if not game_against_bots?(room),
+            do:
+              :erlang.start_timer(
+                room.turn_pause_budget.remaining_ms,
+                self(),
+                {:turn_pause_expired, room_code, timer.key}
+              )
+
         room
         |> cancel_active_turn_timer(room_code, :disconnected)
         |> Map.put(:paused_turn, %{
           key: timer.key,
           remaining_ms: TurnTimer.remaining_ms(timer),
-          opened_at_mono: timer.opened_at_mono
+          opened_at_mono: timer.opened_at_mono,
+          started_at_mono: System.monotonic_time(:millisecond),
+          ref: ref,
+          timer: timer
         })
 
       _ ->
@@ -6548,7 +6728,21 @@ defmodule PidroServer.Games.RoomManager do
     end
   end
 
-  defp handle_turn_timer_expired(%Room{} = room, room_code, timer_id, key, %State{} = state) do
+  defp cancel_turn_pause(room) do
+    if room.paused_turn && is_reference(room.paused_turn.ref),
+      do: Process.cancel_timer(room.paused_turn.ref)
+
+    %{room | paused_turn: nil}
+  end
+
+  defp handle_turn_timer_expired(
+         %Room{} = room,
+         room_code,
+         timer_id,
+         key,
+         %State{} = state,
+         paused? \\ false
+       ) do
     case room.turn_timer do
       %{
         timer_id: ^timer_id,
@@ -6562,7 +6756,7 @@ defmodule PidroServer.Games.RoomManager do
 
         with {:ok, game_state} <- GameAdapter.get_state(room_code),
              {:ok, ^key, ^scope, ^actor_position, _current_phase, _duration_ms} <-
-               current_action_window(cleared_room, game_state),
+               current_action_window(cleared_room, game_state, paused?),
              {:ok, legal_actions} <- GameAdapter.get_legal_actions(room_code, actor_position),
              true <- legal_actions != [],
              view = SeatView.for_seat(game_state, actor_position),
@@ -6571,10 +6765,13 @@ defmodule PidroServer.Games.RoomManager do
              {:ok, _new_state} <-
                GameAdapter.apply_action(room_code, actor_position, resolved_action) do
           {updated_room, incremented?} =
-            maybe_increment_timeout_counter(cleared_room, scope, actor_position)
+            if paused?,
+              do: {cleared_room, false},
+              else: maybe_increment_timeout_counter(cleared_room, scope, actor_position)
 
           turn = {state.active_game_instances[room_code], TurnTimer.event_seq(key)}
-          user = updated_room.seats[actor_position].user_id
+          seat = updated_room.seats[actor_position]
+          user = seat.user_id || seat.reserved_for
 
           history =
             Enum.take(
@@ -6585,6 +6782,21 @@ defmodule PidroServer.Games.RoomManager do
             )
 
           updated_room = %{updated_room | auto_played_turns: history}
+
+          outcome =
+            if paused?,
+              do:
+                TableOutcome.takeover(
+                  updated_room.table_outcome,
+                  updated_room.seats,
+                  actor_position
+                ),
+              else: updated_room.table_outcome
+
+          updated_room = %{
+            updated_room
+            | table_outcome: TableOutcome.turn(outcome, updated_room.seats, resolved_action, true)
+          }
 
           if incremented? do
             Stats.record_seat_event(

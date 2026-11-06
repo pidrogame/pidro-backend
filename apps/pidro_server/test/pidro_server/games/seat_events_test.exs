@@ -49,6 +49,259 @@ defmodule PidroServer.Games.SeatEventsTest do
   end
 
   describe "drops and returns" do
+    @tag :table_outcomes
+    test "an admin-applied turn excludes an incompletely counted table" do
+      {room, user} = bidding_room()
+      assert {:ok, _} = GameAdapter.apply_action(room.code, position_of(room, user), :pass)
+      RoomManager.get_room(room.code)
+      send(RoomManager, {:game_over, room.code, :north_south, %{north_south: 62, east_west: 25}})
+      RoomManager.get_room(room.code)
+      await_tasks()
+      assert Repo.aggregate(PidroServer.Stats.TableOutcome, :count) == 0
+    end
+
+    @tag :pause_review
+    test "a slow substitute cannot outlast the original turn's pause allowance" do
+      pause_budget(250)
+
+      Application.put_env(
+        :pidro_server,
+        Lifecycle,
+        Keyword.merge(Application.fetch_env!(:pidro_server, Lifecycle),
+          hiccup_timeout_ms: 200,
+          bot_delay_ms: 5_000
+        )
+      )
+
+      {room, user} = bidding_room()
+      position = position_of(room, user)
+      {:ok, original} = GameAdapter.get_state(room.code)
+      :ok = RoomManager.handle_player_disconnect(room.code, user)
+
+      wait_until(fn ->
+        {:ok, current} = RoomManager.get_room(room.code)
+        current.seats[position].status == :bot_substitute
+      end)
+
+      wait_until(
+        fn ->
+          {:ok, current} = GameAdapter.get_state(room.code)
+          length(current.events) > length(original.events)
+        end,
+        20
+      )
+
+      assert {:ok, returned} = RoomManager.handle_player_reconnect(room.code, user)
+      assert returned.seats[position].user_id == user
+      assert PidroServer.Stats.list_abandonments_for_room(room.code) == []
+    end
+
+    @tag :pause_review
+    test "one human with original bots retains its background hold" do
+      pause_budget(80)
+      {:ok, room} = RoomManager.create_room("solo-style", %{})
+      for pos <- [:east, :south, :west], do: BotManager.start_bot(room.code, pos, :basic, 1)
+      PidroServer.RoomFixtures.ready_room(room.code)
+      {:ok, _} = GameAdapter.apply_action(room.code, :north, :select_dealer)
+
+      wait_until(fn ->
+        match?({:ok, %{phase: :bidding, current_turn: :north}}, GameAdapter.get_state(room.code))
+      end)
+
+      {:ok, before} = GameAdapter.get_state(room.code)
+      :ok = RoomManager.going_background(room.code, "solo-style")
+      Process.sleep(140)
+      assert {:ok, ^before} = GameAdapter.get_state(room.code)
+      :ok = RoomManager.register_game_channel(room.code, "solo-style", self())
+      assert {:ok, %{turn_timer: timer}} = RoomManager.get_room(room.code)
+      assert timer != nil
+    end
+
+    for {ending, expected} <- [finished: 100, peer_left: 0, closed: 0] do
+      @tag :table_outcomes
+      test "human, timer and stand-in turns persist once when the table is #{ending}" do
+        {room, user} = bidding_room()
+
+        for id <- Map.values(room.positions) do
+          :ok =
+            RoomManager.register_game_channel(room.code, id, self(), %{
+              platform: "android",
+              app_version: "3.2.4"
+            })
+        end
+
+        position = position_of(room, user)
+
+        assert {:ok, _} =
+                 RoomManager.apply_player_action(room.code, user, position, :pass, %{
+                   action_id: "once"
+                 })
+
+        assert {:ok, _} =
+                 RoomManager.apply_player_action(room.code, user, position, :pass, %{
+                   action_id: "once"
+                 })
+
+        wait_until(fn ->
+          {:ok, next} = RoomManager.get_room(room.code)
+          next.turn_timer && next.turn_timer.key != room.turn_timer.key
+        end)
+
+        {:ok, next} = RoomManager.get_room(room.code)
+        timer = next.turn_timer
+        send(RoomManager, {:turn_timer_expired, room.code, timer.timer_id, timer.key})
+
+        wait_until(fn ->
+          {:ok, next} = RoomManager.get_room(room.code)
+          next.turn_timer && next.turn_timer.key != timer.key
+        end)
+
+        {:ok, next} = RoomManager.get_room(room.code)
+        position = next.turn_timer.actor_position
+        absent = next.positions[position]
+        :ok = RoomManager.handle_player_disconnect(room.code, absent)
+        {:ok, covered} = expire_phase(room.code, position, :phase2_start)
+        {:ok, before} = GameAdapter.get_state(room.code)
+        send(covered.seats[position].bot_pid, :make_move)
+
+        wait_until(fn ->
+          {:ok, current} = GameAdapter.get_state(room.code)
+          length(current.events) > length(before.events)
+        end)
+
+        if unquote(ending) == :peer_left, do: RoomManager.leave_room(user)
+
+        if unquote(ending) == :closed do
+          RoomManager.close_room(room.code)
+        else
+          send(
+            RoomManager,
+            {:game_over, room.code, :north_south, %{north_south: 62, east_west: 25}}
+          )
+
+          RoomManager.get_room(room.code)
+
+          send(
+            RoomManager,
+            {:game_over, room.code, :north_south, %{north_south: 62, east_west: 25}}
+          )
+
+          RoomManager.get_room(room.code)
+        end
+
+        await_tasks()
+        assert [row] = PidroServer.Stats.connection_analytics(7)
+        assert row.turns == 3
+        assert row.bot_turns == 2
+        assert row.takeover_games == 1
+        assert row.others_finished_percent == unquote(expected)
+      end
+    end
+
+    @tag :pause_budget
+    test "repeated drop and return spends one pause allowance in a turn" do
+      pause_budget(240)
+      {room, user} = bidding_room()
+      {:ok, original} = GameAdapter.get_state(room.code)
+
+      for _ <- 1..2 do
+        :ok = RoomManager.handle_player_disconnect(room.code, user)
+        Process.sleep(85)
+        assert {:ok, _} = RoomManager.handle_player_reconnect(room.code, user)
+      end
+
+      :ok = RoomManager.handle_player_disconnect(room.code, user)
+
+      wait_until(
+        fn ->
+          {:ok, current} = GameAdapter.get_state(room.code)
+          length(current.events) > length(original.events)
+        end,
+        20
+      )
+
+      assert {:ok, returned} = RoomManager.handle_player_reconnect(room.code, user)
+      assert returned.seats[position_of(room, user)].user_id == user
+      refute Map.has_key?(returned.consecutive_timeouts, position_of(room, user))
+    end
+
+    @tag :pause_budget
+    test "background hold and subsequent drop share the turn allowance" do
+      pause_budget(240)
+      {room, user} = bidding_room()
+      {:ok, original} = GameAdapter.get_state(room.code)
+      :ok = RoomManager.going_background(room.code, user)
+      Process.sleep(170)
+      {:ok, held} = RoomManager.get_room(room.code)
+      token = held.seats[position_of(room, user)].background_token
+      send(RoomManager, {:background_expired, room.code, user, token})
+
+      wait_until(
+        fn ->
+          {:ok, current} = GameAdapter.get_state(room.code)
+          length(current.events) > length(original.events)
+        end,
+        20
+      )
+
+      assert {:ok, _} = RoomManager.handle_player_reconnect(room.code, user)
+      assert PidroServer.Stats.list_abandonments_for_room(room.code) == []
+    end
+
+    @tag :pause_budget
+    test "return resumes inside the allowance and the next turn gets a fresh allowance" do
+      pause_budget(240)
+      {room, user} = bidding_room()
+      :ok = RoomManager.handle_player_disconnect(room.code, user)
+      Process.sleep(170)
+      assert {:ok, returned} = RoomManager.handle_player_reconnect(room.code, user)
+      assert returned.turn_timer.duration_ms > 500_000
+
+      assert {:ok, _} =
+               RoomManager.apply_player_action(room.code, user, position_of(room, user), :pass)
+
+      wait_until(fn ->
+        {:ok, next} = RoomManager.get_room(room.code)
+        next.turn_timer && next.turn_timer.key != returned.turn_timer.key
+      end)
+
+      {:ok, next} = RoomManager.get_room(room.code)
+      actor = next.positions[next.turn_timer.actor_position]
+      {:ok, original} = GameAdapter.get_state(room.code)
+      :ok = RoomManager.handle_player_disconnect(room.code, actor)
+      Process.sleep(130)
+      assert {:ok, ^original} = GameAdapter.get_state(room.code)
+
+      wait_until(fn ->
+        {:ok, current} = GameAdapter.get_state(room.code)
+        length(current.events) > length(original.events)
+      end)
+    end
+
+    @tag :pause_budget
+    test "resume floor spends allowance rather than manufacturing ten seconds" do
+      pause_budget(240)
+      {room, user} = bidding_room()
+
+      :sys.replace_state(RoomManager, fn state ->
+        put_in(
+          state.rooms[room.code].turn_timer.deadline_mono,
+          System.monotonic_time(:millisecond) + 100
+        )
+      end)
+
+      :ok = RoomManager.handle_player_disconnect(room.code, user)
+      assert {:ok, returned} = RoomManager.handle_player_reconnect(room.code, user)
+      assert returned.turn_timer.duration_ms <= 340
+      {:ok, original} = GameAdapter.get_state(room.code)
+      :ok = RoomManager.handle_player_disconnect(room.code, user)
+
+      wait_until(fn ->
+        {:ok, current} = GameAdapter.get_state(room.code)
+        length(current.events) > length(original.events)
+      end)
+    end
+
     test "activity satisfies liveness without discarding the outstanding RTT measurement" do
       {room, user} = bidding_room()
       position = position_of(room, user)
@@ -603,6 +856,14 @@ defmodule PidroServer.Games.SeatEventsTest do
       assert {:ok, _} = RoomManager.apply_player_action(room.code, "solo", :north, action)
       assert seat_events("solo") == []
     end
+  end
+
+  defp pause_budget(ms) do
+    Application.put_env(
+      :pidro_server,
+      Lifecycle,
+      Keyword.put(Application.fetch_env!(:pidro_server, Lifecycle), :turn_pause_budget_ms, ms)
+    )
   end
 
   defp expire_connection_checks do

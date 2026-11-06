@@ -8,7 +8,7 @@ defmodule PidroServer.Stats do
   import Ecto.Query, warn: false
   alias PidroServer.Profiles
   alias PidroServer.Repo
-  alias PidroServer.Stats.{AbandonmentEvent, ConnectionGame, GameStats, SeatEvent}
+  alias PidroServer.Stats.{AbandonmentEvent, ConnectionGame, GameStats, SeatEvent, TableOutcome}
 
   @connection_thresholds %{
     minimum_seconds: 600,
@@ -101,31 +101,87 @@ defmodule PidroServer.Stats do
   def connection_analytics(days) do
     cutoff = DateTime.add(DateTime.utc_now(), -days, :day)
 
-    Repo.all(from c in ConnectionGame, where: c.inserted_at >= ^cutoff)
-    |> Enum.group_by(&{&1.user_id, &1.platform, &1.app_version})
-    |> Enum.map(fn {{_user, platform, version}, rows} ->
-      Map.merge(summarize_connections(rows), %{platform: platform, app_version: version})
-    end)
-    |> Enum.group_by(&{&1.platform, &1.app_version})
-    |> Enum.map(fn {{platform, version}, players} ->
-      total = Enum.sum(Enum.map(players, & &1.duration_seconds))
-      poor = Enum.sum(for p <- players, p.grade == :poor, do: p.measured_seconds)
+    connections =
+      Repo.all(from c in ConnectionGame, where: c.inserted_at >= ^cutoff)
+      |> Enum.group_by(&{&1.user_id, &1.platform, &1.app_version})
+      |> Enum.map(fn {{_user, platform, version}, rows} ->
+        Map.merge(summarize_connections(rows), %{platform: platform, app_version: version})
+      end)
+      |> Enum.group_by(&{&1.platform, &1.app_version})
+      |> Enum.map(fn {{platform, version}, players} ->
+        total = Enum.sum(Enum.map(players, & &1.duration_seconds))
+        poor = Enum.sum(for p <- players, p.grade == :poor, do: p.measured_seconds)
 
-      unknown =
-        Enum.sum(
-          for p <- players,
-              do: if(p.grade == :insufficient, do: p.duration_seconds, else: p.unknown_seconds)
-        )
+        unknown =
+          Enum.sum(
+            for p <- players,
+                do: if(p.grade == :insufficient, do: p.duration_seconds, else: p.unknown_seconds)
+          )
 
-      %{
-        platform: platform,
-        app_version: version,
-        duration_seconds: total,
-        poor_percent: if(total > 0, do: poor * 100 / total, else: 0),
-        unknown_percent: if(total > 0, do: unknown * 100 / total, else: 0)
-      }
+        %{
+          platform: platform,
+          app_version: version,
+          duration_seconds: total,
+          poor_percent: if(total > 0, do: poor * 100 / total, else: 0),
+          unknown_percent: if(total > 0, do: unknown * 100 / total, else: 0)
+        }
+      end)
+
+    outcomes =
+      Repo.all(from t in TableOutcome, where: t.inserted_at >= ^cutoff)
+      |> Enum.flat_map(fn row ->
+        for cohort <- Enum.uniq(row.cohorts),
+            do: {{cohort["platform"], cohort["app_version"]}, row}
+      end)
+      |> Enum.group_by(&elem(&1, 0), &elem(&1, 1))
+
+    connections = Map.new(connections, &{{&1.platform, &1.app_version}, &1})
+
+    (Map.keys(connections) ++ Map.keys(outcomes))
+    |> Enum.uniq()
+    |> Enum.sort()
+    |> Enum.map(fn {platform, version} = key ->
+      rows = Map.get(outcomes, key, [])
+      turns = Enum.sum(Enum.map(rows, & &1.turns))
+      bot_turns = Enum.sum(Enum.map(rows, & &1.bot_turns))
+      eligible = Enum.reject(rows, &is_nil(&1.others_finished))
+      finished = Enum.count(eligible, & &1.others_finished)
+
+      connection =
+        Map.get(connections, key, %{
+          platform: platform,
+          app_version: version,
+          duration_seconds: 0,
+          poor_percent: 0,
+          unknown_percent: 0
+        })
+
+      Map.merge(connection, %{
+        turns: turns,
+        bot_turns: bot_turns,
+        takeover_games: length(eligible),
+        bot_turn_percent: if(turns > 0, do: bot_turns * 100 / turns),
+        others_finished_percent: if(eligible != [], do: finished * 100 / length(eligible))
+      })
     end)
-    |> Enum.sort_by(&{&1.platform, &1.app_version})
+  end
+
+  @doc "Save one finalized table aggregate; repeated completion/closure cannot double-count it."
+  def record_table_outcome(attrs) do
+    changeset = TableOutcome.changeset(%TableOutcome{}, attrs)
+
+    Task.Supervisor.start_child(PidroServer.TaskSupervisor, fn ->
+      try do
+        case Repo.insert(changeset, on_conflict: :nothing, conflict_target: [:game_instance_id]) do
+          {:ok, _} -> :ok
+          {:error, _} -> Logger.warning("Table connection outcome rejected")
+        end
+      catch
+        failure, _ -> Logger.warning("Table connection outcome not recorded: #{failure}")
+      end
+    end)
+
+    :ok
   end
 
   defp merge_connection_counts(rows, key) do

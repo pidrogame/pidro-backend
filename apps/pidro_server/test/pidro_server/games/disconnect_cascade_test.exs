@@ -625,7 +625,7 @@ defmodule PidroServer.Games.DisconnectCascadeTest do
 
         assert {:reply, {:error, :seat_not_controlled}, ^state} =
                  RoomManager.handle_call(
-                   {:apply_substitute_action, room.code, position, :pass},
+                   {:apply_substitute_action, room.code, position, :pass, nil},
                    {replacement, make_ref()},
                    state
                  )

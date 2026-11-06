@@ -5,6 +5,7 @@ defmodule PidroServer.Games.LifecycleTest do
 
   @all_keys [
     :hiccup_timeout_ms,
+    :turn_pause_budget_ms,
     :waiting_disconnect_timeout_ms,
     :grace_timeout_ms,
     :solo_absence_timeout_ms,
@@ -33,6 +34,7 @@ defmodule PidroServer.Games.LifecycleTest do
 
   @expected_defaults %{
     hiccup_timeout_ms: 20_000,
+    turn_pause_budget_ms: 25_000,
     waiting_disconnect_timeout_ms: 30_000,
     grace_timeout_ms: 120_000,
     solo_absence_timeout_ms: 1_800_000,

@@ -3,6 +3,55 @@ defmodule PidroServer.Stats.ConnectionStrengthTest do
 
   alias PidroServer.Stats
 
+  test "complete table accounting includes bids, passes and cards but not other events" do
+    game = %{
+      events: [
+        {:bid_made, :north, 7},
+        {:player_passed, :east},
+        {:card_played, :south, {14, :hearts}},
+        {:trump_declared, :north, :hearts}
+      ]
+    }
+
+    assert Stats.TableOutcome.complete?(%{turns: 3}, game)
+    refute Stats.TableOutcome.complete?(%{turns: 2}, game)
+    refute Stats.TableOutcome.complete?(%{turns: 4}, game)
+    refute Stats.TableOutcome.complete?(nil, game)
+  end
+
+  test "table outcome shares weight turns, exclude games without peers, and separate windows and versions" do
+    now = NaiveDateTime.utc_now() |> NaiveDateTime.truncate(:second)
+
+    for {turns, bot, finished, version, days} <- [
+          {20, 5, true, "3.2.4", 0},
+          {80, 15, false, "3.2.4", 0},
+          {50, 10, nil, "3.2.4", 0},
+          {10, 10, true, "3.2.4", 8},
+          {10, 9, false, "3.2.3", 0},
+          {100, 100, false, "3.2.4", 31}
+        ] do
+      :ok =
+        Stats.record_table_outcome(%{
+          game_instance_id: Ecto.UUID.generate(),
+          turns: turns,
+          bot_turns: bot,
+          others_finished: finished,
+          cohorts: [%{platform: "android", app_version: version}],
+          inserted_at: NaiveDateTime.add(now, -days, :day)
+        })
+    end
+
+    await_tasks()
+    assert [old, current] = Stats.connection_analytics(7)
+    assert old.bot_turn_percent == 90
+    assert current.bot_turn_percent == 20
+    assert current.others_finished_percent == 50
+    assert current.takeover_games == 2
+    assert [_, month] = Stats.connection_analytics(30)
+    assert month.bot_turn_percent == 25
+    assert_in_delta month.others_finished_percent, 200 / 3, 0.001
+  end
+
   test "connection grades require ten minutes and both latency and drop thresholds" do
     grade = fn seconds, median, drops ->
       Stats.connection_grade(%{duration_seconds: seconds, median_ms: median, drops: drops})

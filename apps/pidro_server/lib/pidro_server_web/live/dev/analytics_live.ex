@@ -73,16 +73,31 @@ defmodule PidroServerWeb.Dev.AnalyticsLive do
       </:actions>
 
       <section id="connection-analytics" class="rounded-md border border-stone-300 bg-white p-4">
-        <h2 class="font-semibold">Play time on poor connections</h2>
-        <p class="mt-1 text-xs text-stone-500">Share of recorded player time. Graded per player and app version in each period; insufficient data is shown separately. Refresh to include newly finished games.</p>
+        <h2 class="font-semibold">Connections and human tables</h2>
+        <p class="mt-1 text-xs text-stone-500">Poor connection: share of recorded player time, graded per player and app version. Insufficient data is separate.</p>
+        <p class="mt-1 text-xs text-stone-500">Bot-played turns: timer or stand-in bids, passes and cards / all such turns at human tables. Original bots count only in the total.</p>
+        <p class="mt-1 text-xs text-stone-500">All other humans finished: the other humans at first takeover were connected and foreground at game end, with no deliberate departure. Temporary drops are allowed. Closed tables count as not finished; solo takeovers are excluded.</p>
+        <p class="mt-1 text-xs text-stone-500">Finished or closed tables only, counted once per represented platform/version. Restored tables and incomplete accounting are excluded. Refresh for new results.</p>
         <div class="mt-4 grid gap-6 lg:grid-cols-2">
-          <div :for={{days, rows} <- @connection_reports}>
+          <div :for={{days, rows} <- @connection_reports} data-connection-period={days}>
             <h3 class="text-sm font-semibold">Last {days} days</h3>
             <p :if={rows == []} class="mt-2 text-sm text-stone-500">No measured games yet.</p>
             <ul class="mt-2 divide-y divide-stone-200 text-sm">
-              <li :for={row <- rows} class="flex flex-wrap justify-between gap-x-4 gap-y-1 py-2">
-                <span>{row.platform || "unknown platform"} {row.app_version || "unknown version"}</span>
-                <span>{Float.round(row.poor_percent / 1, 1)}% poor · {Float.round(row.unknown_percent / 1, 1)}% insufficient · {Float.round(row.duration_seconds / 3600, 1)} h</span>
+              <li :for={row <- rows} class="space-y-2 py-3">
+                <p class="font-semibold">{row.platform || "unknown platform"} · {row.app_version || "unknown version"}</p>
+                <p>{Float.round(row.poor_percent / 1, 1)}% poor · {Float.round(row.unknown_percent / 1, 1)}% insufficient · {Float.round(row.duration_seconds / 3600, 1)} h</p>
+                <dl class="grid gap-2 sm:grid-cols-2">
+                  <div class="rounded-sm bg-stone-50 p-2">
+                    <dt class="text-xs text-stone-600">Bot-played turns</dt>
+                    <dd class="text-lg font-semibold">{if row.bot_turn_percent, do: "#{Float.round(row.bot_turn_percent / 1, 1)}%", else: "—"}</dd>
+                    <dd class="text-xs text-stone-500">{row.bot_turns} / {row.turns} turns</dd>
+                  </div>
+                  <div class="rounded-sm bg-stone-50 p-2">
+                    <dt class="text-xs text-stone-600">All other humans finished</dt>
+                    <dd class="text-lg font-semibold">{if row.others_finished_percent, do: "#{Float.round(row.others_finished_percent / 1, 1)}%", else: "—"}</dd>
+                    <dd class="text-xs text-stone-500">{row.takeover_games} takeover games<%= if row.others_finished_percent do %> · {Float.round((100 - row.others_finished_percent) / 1, 1)}% did not finish<% end %></dd>
+                  </div>
+                </dl>
               </li>
             </ul>
           </div>

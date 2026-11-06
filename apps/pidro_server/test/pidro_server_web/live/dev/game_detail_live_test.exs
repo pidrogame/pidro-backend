@@ -200,7 +200,7 @@ defmodule PidroServerWeb.Dev.GameDetailLiveTest do
         BotBrain.execute_move(
           %{room_code: room.code, position: game.current_turn, strategy: RulebookStrategy},
           "Test",
-          fn _code, _position, _action -> {:error, :rejected} end
+          fn _code, _position, _action, _turn -> {:error, :rejected} end
         )
       end)
 

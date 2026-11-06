@@ -31,7 +31,7 @@ defmodule PidroServer.Games.RoomStore do
 
   @strings ~w(id code host_id kicked_ids positions spectator_ids user_id reserved_for decision_id
     decision_player_id vacated_by bot_persona bot_personas name seat_holds seat_password
-    ready_player_ids app_version platform reason network)
+    ready_player_ids app_version platform reason network peers left)
   @times ~w(created_at last_activity invite_live_until)
   @structs %{
     "Elixir.PidroServer.Games.RoomManager.Room" => Room,
@@ -221,6 +221,17 @@ defmodule PidroServer.Games.RoomStore do
   @doc "The room as stored: no timers, processes, talk or game summary."
   @spec encode(Room.t()) :: map()
   def encode(%Room{} = room) do
+    budget =
+      if room.paused_turn do
+        elapsed = System.monotonic_time(:millisecond) - room.paused_turn.started_at_mono
+
+        room.turn_pause_budget
+        |> Map.update!(:remaining_ms, &max(0, &1 - elapsed))
+        |> Map.put(:paused_since_ms, System.system_time(:millisecond))
+      else
+        room.turn_pause_budget
+      end
+
     seats =
       Map.new(room.seats, fn {position, seat} ->
         {position,
@@ -240,6 +251,7 @@ defmodule PidroServer.Games.RoomStore do
         phase_timers: %{},
         turn_timer: nil,
         paused_turn: nil,
+        turn_pause_budget: budget,
         talk: [],
         game: nil
     })
@@ -251,6 +263,18 @@ defmodule PidroServer.Games.RoomStore do
 
   # Kept as JSON: a summary only ever goes back out to the client as JSON.
   defp value(json, "post_game_summaries"), do: json
+
+  defp value(nil, "table_outcome"), do: nil
+
+  defp value(json, "table_outcome"),
+    do: Map.new(json, fn {key, item} -> {String.to_existing_atom(key), value(item, key)} end)
+
+  defp value(json, "participants"),
+    do:
+      Map.new(json, fn {id, client} ->
+        {id, Map.new(client, fn {key, item} -> {String.to_existing_atom(key), item} end)}
+      end)
+
   defp value(json, key) when key in ["rtt_histogram", "network_ms"], do: json
   defp value(nil, "connection_stats"), do: nil
 
@@ -272,6 +296,7 @@ defmodule PidroServer.Games.RoomStore do
   defp value(json, _key) when is_boolean(json) or is_number(json), do: json
   defp value(%{"$integer" => integer}, _key), do: String.to_integer(integer)
   defp value(%{"$set" => items}, key), do: MapSet.new(value(items, key))
+  defp value(%{"$tuple" => items}, key), do: List.to_tuple(value(items, key))
 
   defp value(%{"$struct" => module} = json, _key) do
     fields =

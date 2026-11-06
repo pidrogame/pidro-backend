@@ -205,6 +205,90 @@ defmodule PidroServer.Games.TableCleanupTest do
     assert restored.phase_timers == %{}
   end
 
+  test "unclean recovery excludes a room checkpoint older than its committed engine move" do
+    Application.put_env(
+      :pidro_server,
+      Lifecycle,
+      Keyword.merge(Application.fetch_env!(:pidro_server, Lifecycle),
+        dealer_selection_delay_ms: 0,
+        deal_transition_delay_ms: 0
+      )
+    )
+
+    users = for _ <- 1..4, do: AccountsFixtures.user_fixture()
+    {:ok, room} = RoomManager.create_room(hd(users).id)
+    for user <- tl(users), do: {:ok, _, _} = RoomManager.join_room(room.code, user.id)
+    RoomFixtures.ready_room(room.code)
+    {:ok, _} = GameAdapter.apply_action(room.code, :north, :select_dealer)
+    wait_for_bidding(room.code)
+    {:ok, before} = GameAdapter.get_state(room.code)
+    manager = :sys.get_state(RoomManager)
+    checkpoint = PidroServer.Games.RoomStore.encode(manager.rooms[room.code])
+    actor = manager.rooms[room.code].positions[before.current_turn]
+
+    assert {:ok, after_move} =
+             RoomManager.apply_player_action(room.code, actor, before.current_turn, :pass)
+
+    # No release/save: the durable engine is newer than the last room checkpoint.
+    :ok = Supervisor.terminate_child(PidroServer.Games.Supervisor, RoomManager)
+
+    :ok =
+      PidroServer.Games.RoomStore.save(
+        room.code,
+        manager.boot_id,
+        manager.epochs[room.code],
+        checkpoint
+      )
+
+    {:ok, _} = Supervisor.restart_child(PidroServer.Games.Supervisor, RoomManager)
+    assert {:ok, restored} = RoomManager.find_room(room.code)
+    assert {:ok, game} = GameAdapter.get_state(room.code)
+    assert game.events == after_move.events
+    assert restored.table_outcome == nil
+    :ok = RoomManager.close_room(room.code)
+    assert Repo.aggregate(PidroServer.Stats.TableOutcome, :count) == 0
+  end
+
+  test "restore enforces a substituted turn's spent pause allowance but excludes uncertain analytics" do
+    Application.put_env(
+      :pidro_server,
+      Lifecycle,
+      Keyword.merge(Application.fetch_env!(:pidro_server, Lifecycle),
+        turn_pause_budget_ms: 5_000,
+        bot_delay_ms: 60_000,
+        dealer_selection_delay_ms: 0,
+        deal_transition_delay_ms: 0
+      )
+    )
+
+    users = for _ <- 1..4, do: AccountsFixtures.user_fixture()
+    {:ok, room} = RoomManager.create_room(hd(users).id)
+    for user <- tl(users), do: {:ok, _, _} = RoomManager.join_room(room.code, user.id)
+    RoomFixtures.ready_room(room.code)
+    {:ok, _} = GameAdapter.apply_action(room.code, :north, :select_dealer)
+    wait_for_bidding(room.code)
+    {:ok, before} = GameAdapter.get_state(room.code)
+    {:ok, room} = RoomManager.get_room(room.code)
+    position = before.current_turn
+    user = room.positions[position]
+    :ok = RoomManager.handle_player_disconnect(room.code, user)
+    RoomManagerCase.expire_phase(room.code, position, :phase2_start)
+
+    :sys.replace_state(RoomManager, fn state ->
+      put_in(
+        state.rooms[room.code].paused_turn.started_at_mono,
+        System.monotonic_time(:millisecond) - 6_000
+      )
+    end)
+
+    restore(room.code)
+    wait_for_progress(room.code, before)
+    assert {:ok, restored} = RoomManager.get_room(room.code)
+    assert restored.table_outcome == nil
+    assert {:ok, returned} = RoomManager.handle_player_reconnect(room.code, user)
+    assert returned.seats[position].user_id == user
+  end
+
   test "restore returns a legacy solo substitute to its human without restarting the clock" do
     {room, user} = bot_table(false, :quick)
     :ok = RoomManager.handle_player_disconnect(room.code, user.id)

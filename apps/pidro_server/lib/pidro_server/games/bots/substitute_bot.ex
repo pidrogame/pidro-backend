@@ -117,7 +117,7 @@ defmodule PidroServer.Games.Bots.SubstituteBot do
     BotBrain.execute_move(
       state,
       "SubstituteBot",
-      &PidroServer.Games.RoomManager.apply_substitute_action/3
+      &PidroServer.Games.RoomManager.apply_substitute_action/4
     )
 
     {:noreply, %{state | move_scheduled?: false}}
