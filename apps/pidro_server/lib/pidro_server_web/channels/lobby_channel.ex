@@ -96,6 +96,7 @@ defmodule PidroServerWeb.LobbyChannel do
        rooms: serialize_rooms(rooms),
        lobby: serialize_lobby(lobby),
        minimum_native_versions: Application.get_env(:pidro_server, :minimum_native_versions, %{}),
+       native_store_urls: Application.get_env(:pidro_server, :native_store_urls, %{}),
        online_count: PresenceAggregator.get_count()
      }, socket}
   end

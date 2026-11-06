@@ -23,6 +23,24 @@ Only the newest green commit ships. A newer commit cancels the journeys of an
 older one, and replaces an older deploy that is still waiting. A deploy that
 is already running is never cancelled.
 
+## Native store notice
+
+Set each platform's minimum and destination together in `config/deploy.yml`
+under `env.clear`; the next automatic deploy applies them:
+
+| Platform | Minimum (empty disables notice) | Store URL |
+| --- | --- | --- |
+| Android | `MINIMUM_NATIVE_ANDROID` | `NATIVE_STORE_URL_ANDROID` — `https://play.google.com/store/apps/details?id=com.oneapps.pidro.beta` |
+| iOS | `MINIMUM_NATIVE_IOS` | `NATIVE_STORE_URL_IOS` — `https://testflight.apple.com/join/2JR95b65` |
+
+Both minimums are empty until Marcel confirms a store build is live. An empty
+URL also disables the notice; an unset URL uses the beta default above.
+At public launch, replace the beta/TestFlight URLs with the public store listings.
+
+The lobby join reply keeps `minimum_native_versions` and adds `native_store_urls`,
+both maps keyed by `android`/`ios`. The app requires both entries for its platform
+and opens only the supplied URL; old clients can ignore the new field.
+
 ## Secrets
 
 The deploy job reads these GitHub Actions repository secrets

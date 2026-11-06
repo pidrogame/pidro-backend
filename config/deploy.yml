@@ -48,6 +48,12 @@ env:
     WEB_URL: "https://play.pidro.online"
     MAIL_FROM_ADDRESS: "noreply@pidro.online"
     MAIL_REPLY_TO: "support@pidro.online"
+    # Set a minimum only once its store build is live; empty means no notice.
+    MINIMUM_NATIVE_ANDROID: ""
+    NATIVE_STORE_URL_ANDROID: "https://play.google.com/store/apps/details?id=com.oneapps.pidro.beta"
+    MINIMUM_NATIVE_IOS: ""
+    NATIVE_STORE_URL_IOS: "https://testflight.apple.com/join/2JR95b65"
+    # Public launch: replace the beta/TestFlight URLs with the public store listings.
     # Phase 4 privacy disclosure is live and verified on the canonical site.
     DEFERRED_INVITES_ENABLED: "true"
     # Weekly leagues (PID-350): must be a Sunday 19:00 UTC; unset means off.

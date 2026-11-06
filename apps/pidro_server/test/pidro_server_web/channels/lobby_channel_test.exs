@@ -82,12 +82,27 @@ defmodule PidroServerWeb.LobbyChannelTest do
     socket: socket
   } do
     old = Application.get_env(:pidro_server, :minimum_native_versions, %{})
-    on_exit(fn -> Application.put_env(:pidro_server, :minimum_native_versions, old) end)
-    Application.put_env(:pidro_server, :minimum_native_versions, %{"android" => "3.2.4"})
+    old_urls = Application.get_env(:pidro_server, :native_store_urls, %{})
 
-    assert {:ok, %{minimum_native_versions: %{"android" => "3.2.4"}}, _} =
+    on_exit(fn ->
+      Application.put_env(:pidro_server, :minimum_native_versions, old)
+      Application.put_env(:pidro_server, :native_store_urls, old_urls)
+    end)
+
+    Application.put_env(:pidro_server, :minimum_native_versions, %{"android" => "3.2.4"})
+    urls = %{"android" => "https://example.test/android", "ios" => "https://example.test/ios"}
+    Application.put_env(:pidro_server, :native_store_urls, urls)
+
+    assert {:ok, %{minimum_native_versions: %{"android" => "3.2.4"}, native_store_urls: ^urls}, _} =
              subscribe_and_join(socket, LobbyChannel, "lobby", %{})
 
+    Application.put_env(:pidro_server, :native_store_urls, %{})
+
+    assert {:ok, %{minimum_native_versions: %{"android" => "3.2.4"}, native_store_urls: missing},
+            _} =
+             subscribe_and_join(socket, LobbyChannel, "lobby", %{})
+
+    assert missing == %{}
     Application.put_env(:pidro_server, :minimum_native_versions, %{})
 
     assert {:ok, %{minimum_native_versions: empty}, _} =

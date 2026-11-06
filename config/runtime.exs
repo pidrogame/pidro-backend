@@ -10,6 +10,20 @@ config :pidro_server,
          do: {platform, value}
        )
 
+config :pidro_server,
+       :native_store_urls,
+       for(
+         {platform, env, default} <- [
+           {"android", "NATIVE_STORE_URL_ANDROID",
+            "https://play.google.com/store/apps/details?id=com.oneapps.pidro.beta"},
+           {"ios", "NATIVE_STORE_URL_IOS", "https://testflight.apple.com/join/2JR95b65"}
+         ],
+         value = System.get_env(env, default),
+         value != "",
+         into: %{},
+         do: {platform, value}
+       )
+
 case System.get_env("LEAGUES_START_AT") do
   nil ->
     if config_env() == :prod, do: config(:pidro_server, :leagues_start_at, nil)
