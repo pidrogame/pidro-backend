@@ -99,6 +99,31 @@ defmodule Pidro.ServerTest do
   end
 
   describe "authoritative snapshots" do
+    test "turn identity rejects late actions but successful IDs still replay" do
+      {:ok, pid} = Server.start_link(dealer_selection_delay_ms: 60_000)
+      before = Server.get_snapshot(pid)
+      turn = {before.game_instance_id, length(before.state.events)}
+      key = {"player", "tap"}
+
+      assert {:ok, _, _} =
+               Server.apply_action_with_snapshot(pid, :north, :select_dealer, 1000, key, turn)
+
+      assert {:replayed, _} =
+               Server.apply_action_with_snapshot(pid, :north, :select_dealer, 1000, key, turn)
+
+      assert {:error, :stale_turn} =
+               Server.apply_action_with_snapshot(
+                 pid,
+                 :north,
+                 :select_dealer,
+                 1000,
+                 {"player", "late"},
+                 turn
+               )
+
+      assert Server.get_snapshot(pid).state_revision == 1
+    end
+
     test "an applied action whose caller timed out is replayed, not applied again" do
       checkpoint = fn _snapshot, cause ->
         if cause.kind == :action, do: Process.sleep(30)

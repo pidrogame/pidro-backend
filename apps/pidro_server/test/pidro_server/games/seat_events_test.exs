@@ -49,6 +49,88 @@ defmodule PidroServer.Games.SeatEventsTest do
   end
 
   describe "drops and returns" do
+    test "two missed probes pause a seat only after its first pong" do
+      {room, user} = bidding_room()
+      position = position_of(room, user)
+      :ok = RoomManager.register_game_channel(room.code, user, self())
+
+      for _ <- 1..3 do
+        send(RoomManager, :check_connections)
+        assert_receive {:connection_ping, %{id: _}}
+      end
+
+      assert {:ok, connected} = RoomManager.get_room(room.code)
+      assert connected.seats[position].status == :connected
+      send(RoomManager, :check_connections)
+      assert_receive {:connection_ping, %{id: id}}
+      assert :ok = GenServer.call(RoomManager, {:connection_pong, room.code, user, id})
+
+      send(RoomManager, :check_connections)
+      assert_receive {:connection_ping, %{id: _}}
+      send(RoomManager, :check_connections)
+      assert_receive {:connection_ping, %{id: _}}
+      assert {:ok, connected} = RoomManager.get_room(room.code)
+      assert connected.seats[position].status == :connected
+      send(RoomManager, :check_connections)
+      assert_receive {:connection_ping, %{id: last}}
+      assert {:ok, dropped} = RoomManager.get_room(room.code)
+      assert dropped.seats[position].status == :reconnecting
+      assert dropped.turn_timer == nil
+      assert :ok = GenServer.call(RoomManager, {:connection_pong, room.code, user, last})
+      assert {:ok, returned} = RoomManager.get_room(room.code)
+      assert returned.seats[position].status == :connected
+      assert returned.turn_timer.duration_ms >= 10_000
+      assert seat_events(user) == [{"drop", nil}, {"return", nil}]
+    end
+
+    test "background holds quietly through socket loss, but expires into a normal drop" do
+      {room, user} = bidding_room()
+      position = position_of(room, user)
+      :ok = RoomManager.register_game_channel(room.code, user, self())
+      Phoenix.PubSub.subscribe(PidroServer.PubSub, "game:#{room.code}")
+      assert :ok = GenServer.call(RoomManager, {:going_background, room.code, user})
+      assert {:ok, held} = RoomManager.get_room(room.code)
+      assert held.turn_timer == nil
+      assert held.seats[position].status == :connected
+      assert RoomManager.unregister_game_channel(room.code, user, self()) == :last_channel_closed
+      assert {:ok, held} = RoomManager.get_room(room.code)
+      assert held.seats[position].status == :connected
+      assert seat_events(user) == []
+      refute_receive {:player_reconnecting, _}
+
+      :ok = RoomManager.register_game_channel(room.code, user, self())
+      assert {:ok, returned} = RoomManager.get_room(room.code)
+      assert returned.turn_timer != nil
+      assert seat_events(user) == []
+      assert :ok = GenServer.call(RoomManager, {:going_background, room.code, user})
+      assert {:ok, held} = RoomManager.get_room(room.code)
+      token = held.seats[position].background_token
+      send(RoomManager, {:background_expired, room.code, user, token})
+      assert {:ok, dropped} = RoomManager.get_room(room.code)
+      assert dropped.seats[position].status == :reconnecting
+      assert seat_events(user) == [{"drop", nil}]
+    end
+
+    test "rejoin records the connection's reason and network on the return" do
+      {room, user} = bidding_room()
+      :ok = RoomManager.handle_player_disconnect(room.code, user)
+
+      :ok =
+        RoomManager.register_game_channel(room.code, user, self(), %{
+          reason: "heartbeat_timeout",
+          network: "cellular",
+          app_version: "3.2.4",
+          platform: "android"
+        })
+
+      {:ok, _} = RoomManager.handle_player_reconnect(room.code, user)
+      await_tasks()
+      returned = Repo.one!(from e in SeatEvent, where: e.user_id == ^user and e.kind == "return")
+      assert Map.get(returned, :reason) == "heartbeat_timeout"
+      assert Map.get(returned, :network) == "cellular"
+      assert returned.app_version == "3.2.4"
+    end
+
     test "failed abandonment persistence cannot interrupt finished or unrelated rooms" do
       {room, user} = bidding_room()
       position = position_of(room, user)
