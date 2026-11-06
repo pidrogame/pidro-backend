@@ -4,6 +4,7 @@
 @import "tailwindcss" source(none);
 @import "./watch-table.css";
 @import "./campaign-desk.css";
+@import "./live-tables.css";
 @source "../css";
 @source "../js";
 @source "../../lib/pidro_server_web";

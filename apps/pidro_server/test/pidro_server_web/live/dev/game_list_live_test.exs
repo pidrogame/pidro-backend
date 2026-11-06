@@ -219,9 +219,15 @@ defmodule PidroServerWeb.Dev.GameListLiveTest do
 
     assert Enum.sort(Map.keys(summary)) ==
              Enum.sort(
-               ~w(phase current_turn trick_number cumulative_scores hand_number pace last_event updated_at)a
+               ~w(phase current_turn trick_number cumulative_scores hand_number pace last_event table updated_at)a
              )
 
+    # The table holds only what everyone seated can see: no card in a hand.
+    assert Enum.sort(Map.keys(summary.table)) ==
+             Enum.sort(~w(dealer trump bid bids trick hand_points cards_left cold winner)a)
+
+    assert %{north: 9, east: 9, south: 9, west: 9} = summary.table.cards_left
+    assert summary.table.bids == %{state.current_turn => 8}
     refute inspect(summary) =~ "hand:"
     refute render(view) =~ "revealed_cards"
 
@@ -263,7 +269,8 @@ defmodule PidroServerWeb.Dev.GameListLiveTest do
     :ok = GenServer.call(pid, {:set_state, held})
     {:ok, view, _} = live(conn, ~p"/admin/games")
     assert has_element?(view, "#room-#{room.code}", "Waiting for Continue")
-    assert has_element?(view, "#room-#{room.code}", "N/S 24 · E/W -8")
+    assert has_element?(view, "#room-#{room.code} [data-score=north_south]", "24")
+    assert has_element?(view, "#room-#{room.code} [data-score=east_west]", "-8")
     refute has_element?(view, "#room-#{room.code}", "Connection / process issue")
     {:ok, waiting} = RoomManager.create_room("waiting-host")
     view |> form("#phase-filter-form", phase: "hand_complete") |> render_change()
@@ -271,6 +278,69 @@ defmodule PidroServerWeb.Dev.GameListLiveTest do
     refute has_element?(view, "#room-#{waiting.code}")
     view |> form("#phase-filter-form", phase: "issues") |> render_change()
     refute has_element?(view, "#room-#{room.code}")
+  end
+
+  test "a table shows the cards on the felt, trump and the bid, but never a hand", %{conn: conn} do
+    {room, _} = RoomFixtures.waiting_room_fixture(seated: 4)
+    room = RoomFixtures.ready_room(room.code)
+    {:ok, pid} = GameSupervisor.get_game(room.code)
+    {:ok, state} = GameAdapter.get_state(room.code)
+
+    trick = %Pidro.Core.Types.Trick{
+      number: 2,
+      leader: :west,
+      plays: [west: {14, :hearts}, north: {5, :hearts}]
+    }
+
+    playing = %{
+      state
+      | phase: :playing,
+        current_turn: :east,
+        trump_suit: :hearts,
+        highest_bid: {:north, 9},
+        bidding_team: :north_south,
+        current_trick: trick,
+        trick_number: 1
+    }
+
+    :ok = GenServer.call(pid, {:set_state, playing})
+    {:ok, view, _} = live(conn, ~p"/admin/games")
+    tile = "#room-#{room.code}"
+
+    assert has_element?(view, "#{tile} .lt-trump", "♥")
+    assert has_element?(view, "#{tile} .lt-bid-chip", "9")
+    assert has_element?(view, "#{tile} .lt-card-west", "A")
+    assert has_element?(view, "#{tile} .lt-card-north .lt-card-points", "5")
+    assert has_element?(view, "#{tile} .lt-phase", "Trick 2")
+    assert has_element?(view, "#{tile} .lt-seat-east.lt-seat-turn")
+
+    html = view |> element(tile) |> render()
+    assert length(Regex.scan(~r/class="lt-card lt-card-/, html)) == 2
+
+    for {_, player} <- playing.players,
+        card <- player.hand,
+        card not in [{14, :hearts}, {5, :hearts}] do
+      refute html =~ "title=\"#{PidroServerWeb.CardHelpers.format_card(card)}\""
+    end
+  end
+
+  test "a seat opens a player preview with their record and a way to their profile", %{
+    conn: conn
+  } do
+    host = PidroServer.AccountsFixtures.user_fixture(%{display_name: "Preview Pia"})
+    {:ok, room} = RoomManager.create_room(host.id)
+    {:ok, view, _} = live(conn, ~p"/admin/games")
+
+    view |> element("#room-#{room.code} .lt-seat-north [data-seat-preview]") |> render_click()
+    preview = "#preview-#{room.code}-north"
+
+    assert has_element?(view, preview, "Preview Pia")
+    assert has_element?(view, preview, "Games")
+    assert has_element?(view, "#{preview} a[href='/admin/users/#{host.id}']", "Open profile")
+    assert has_element?(view, "#{preview} [data-clipboard-text='#{host.id}']")
+
+    render_keydown(view, "close_preview", %{"key" => "Escape"})
+    refute has_element?(view, preview)
   end
 
   test "Waiting includes ready tables as well as partially seated rooms", %{conn: conn} do

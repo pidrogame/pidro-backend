@@ -13,8 +13,15 @@ Evidence lives in [the implementation thread](https://ampcode.com/threads/T-01a1
   Both routes retain existing admin/password-change authentication.
 - Each engine process synchronously writes a fixed compact projection into its own
   existing GameRegistry entry. It retains phase, turn, trick/hand numbers, cumulative
-  scores, pace, event **type only**, and activity time. No cards, action arguments,
-  user records or diagnostic payloads are added to any broadcast.
+  scores, pace, event **type only**, activity time, and a `table` of what everyone
+  seated can see: cards on the felt (current trick, or the trick just taken),
+  trump, bids, dealer, hand points, card counts per seat, cold seats and the
+  winner. No card still in a hand, action arguments, user records or diagnostic
+  payloads are kept, and nothing is added to any broadcast.
+- `/admin/games` draws each table as a small felt (2026-11-05 redesign): seats with
+  turn light, dealer/bot/bid badges and card counts; the trick as it lands; scores
+  beside the pair of player names; a seat click opens a player or bot preview
+  (level, games, win rate, quits, joined, copy ID, profile link).
 - No separate cache process can restart and lose idle summaries. Registry ownership
   fences old rematches and removes projections when games stop. Existing Registry
   consumers ignore metadata; their PID lookup contract is unchanged.

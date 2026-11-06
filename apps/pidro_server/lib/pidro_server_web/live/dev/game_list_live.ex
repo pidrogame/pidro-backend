@@ -1,12 +1,26 @@
 defmodule PidroServerWeb.Dev.GameListLive do
-  @moduledoc "Admin-only, latest-state operational overview. Never subscribes to private game snapshots."
+  @moduledoc """
+  Admin-only, latest-state view of every open table, drawn as a small felt.
+
+  Never subscribes to private game snapshots: it samples the public table
+  projection in `AdminGameSummary` (cards on the felt, bids, trump, dealer,
+  scores, card counts) and lobby lifecycle PubSub. No card in a hand is shown.
+  """
   use PidroServerWeb, :live_view
   import PidroServerWeb.Dev.AdminComponents
 
   alias PidroServer.Accounts.{Auth, User}
+  alias PidroServer.BotCatalogue
   alias PidroServer.Games.{AdminGameSummary, GameSupervisor, Lifecycle, RoomManager}
   alias PidroServer.Games.Bots.BotManager
   alias PidroServer.Games.Room.{Positions, Seat}
+  alias PidroServer.{Profiles, Stats}
+  alias PidroServer.Rating.Tier
+  alias PidroServerWeb.CardHelpers
+
+  @positions [:north, :east, :south, :west]
+  @winning_score 62
+  @tricks_per_hand 6
 
   @impl true
   def mount(_params, _session, socket) do
@@ -23,7 +37,7 @@ defmodule PidroServerWeb.Dev.GameListLive do
      |> assign(:all_rooms, %{})
      |> assign(:summaries, %{})
      |> assign(:profiles, %{})
-     |> assign(:changed, MapSet.new())
+     |> assign(:preview, nil)
      |> assign(:now, DateTime.utc_now())
      |> assign(:developer_controls_open, false)
      |> assign(:show_create_form, false)
@@ -103,6 +117,18 @@ defmodule PidroServerWeb.Dev.GameListLive do
     order = if socket.assigns.sort_order == :desc, do: :asc, else: :desc
     {:noreply, socket |> assign(:sort_order, order) |> present()}
   end
+
+  def handle_event("preview", %{"code" => code, "position" => position}, socket) do
+    open = socket.assigns.preview
+
+    if open && open.code == code && to_string(open.position) == position do
+      {:noreply, assign(socket, :preview, nil)}
+    else
+      {:noreply, assign(socket, :preview, load_preview(socket.assigns.all_rooms[code], position))}
+    end
+  end
+
+  def handle_event("close_preview", _, socket), do: {:noreply, assign(socket, :preview, nil)}
 
   def handle_event("toggle_developer_controls", _, socket) do
     {:noreply, assign(socket, :developer_controls_open, !socket.assigns.developer_controls_open)}
@@ -203,148 +229,67 @@ defmodule PidroServerWeb.Dev.GameListLive do
     <.admin_shell
       active="games"
       title="Live games"
-      class="admin-game-inspection"
-      subtitle="Live tables · observation only until you choose an action"
+      class="live-tables"
       flash={@flash}
     >
       <:actions>
-        <.link navigate={~p"/admin/game-settings"} class="text-sm underline">
-          Game settings · bot base {Lifecycle.config(:bot_delay_ms)}ms
+        <.link navigate={~p"/admin/game-settings"} class="lt-settings-link">
+          <.icon name="hero-adjustments-horizontal" class="size-4" />
+          Game settings · bots every {seconds(Lifecycle.config(:bot_delay_ms))}
         </.link>
       </:actions>
 
-      <div class="flex flex-wrap gap-3 text-sm" id="room-counts">
-        <span><strong>{@stats.waiting}</strong> waiting</span>
-        <span><strong>{@stats.playing}</strong> playing</span>
-        <span><strong>{@stats.finished}</strong> finished</span>
-        <span><strong>{@stats.issues}</strong> with connection / process issues</span>
-      </div>
-      <p class="text-xs text-stone-500">
-        Elapsed time is informational. Own-pace tables may wait for human Continue; no inactivity alarm.
-      </p>
-
-      <div class="flex flex-wrap items-center gap-3">
-        <form id="phase-filter-form" phx-change="filter_phase">
-          <label for="phase-filter" class="text-sm">Phase</label>
-          <select id="phase-filter" name="phase" class="rounded border-stone-300 text-sm">
-            <option :for={{value, label} <- filters()} value={value} selected={@phase_filter == value}>
-              {label}
-            </option>
-          </select>
+      <div class="lt-toolbar">
+        <form id="phase-filter-form" phx-change="filter_phase" class="lt-filters" role="radiogroup" aria-label="Show tables">
+          <label
+            :for={{value, label, count} <- filter_chips(@stats)}
+            class={["lt-filter", value == "issues" && count > 0 && "lt-filter-alert"]}
+          >
+            <input type="radio" name="phase" value={value} checked={@phase_filter == value} class="sr-only" />
+            <span>{label}</span>
+            <span class="lt-filter-count">{count}</span>
+          </label>
         </form>
-        <button phx-click="toggle_sort" class="rounded border border-stone-300 px-3 py-2 text-sm">
-          {if @sort_order == :desc, do: "Newest First", else: "Oldest First"}
-        </button>
-        <span class="text-xs text-stone-500">Showing {length(@rooms)} of {map_size(@all_rooms)} games · sampled every 750ms</span>
+        <div id="room-counts" class="sr-only">
+          {@stats.waiting} waiting, {@stats.playing} playing, {@stats.finished} finished
+        </div>
+        <div class="lt-toolbar-end">
+          <span class="lt-live" title="Tables refresh every 750ms"><span class="lt-live-dot"></span>Live</span>
+          <button phx-click="toggle_sort" class="lt-sort">
+            <.icon
+              name={if @sort_order == :desc, do: "hero-bars-arrow-down", else: "hero-bars-arrow-up"}
+              class="size-4"
+            />
+            {if @sort_order == :desc, do: "Newest first", else: "Oldest first"}
+          </button>
+        </div>
       </div>
 
-      <div id="game-rows" class="match-list">
-        <div :if={@rooms != []} class="match-columns" aria-hidden="true">
-          <span>Table / room</span><span>Players · teams</span><span>Game state</span><span>Activity · UTC</span><span>Actions</span>
+      <div :if={@tiles == []} class="lt-empty">
+        <div class="lt-empty-felt" aria-hidden="true">
+          <span :for={_ <- 1..4} class="lt-empty-seat"></span>
         </div>
-        <p :if={@rooms == []} class="rounded border border-dashed p-8 text-center text-stone-500">
-          No active rooms at the moment
+        <p class="lt-empty-title">
+          {if map_size(@all_rooms) == 0, do: "No tables open", else: "No tables match this filter"}
         </p>
-        <article
-          :for={room <- @rooms}
-          id={"room-#{room.code}"}
-          class={[
-            "match-row",
-            MapSet.member?(@changed, room.code) && "admin-row-changed"
-          ]}
-        >
-          <% summary = @summaries[room.code] %>
-          <div class="match-room">
-            <.link
-              navigate={~p"/admin/games/#{room.code}"}
-              class="match-title"
-            >{room.config.name || "Game #{room.code}"}</.link>
-            <button
-              id={"copy-#{room.code}"}
-              phx-hook="Clipboard"
-              data-clipboard-text={room.code}
-              title="Copy room ID"
-              class="match-code"
-            ><.icon name="hero-square-2-stack" class="size-3.5" />{room.code}</button>
-            <p :if={RoomManager.game_against_bots?(room)} class="mt-1 text-xs text-stone-500">
-              vs bots
-            </p>
-            <details class="match-identifiers">
-              <summary>Seat identifiers</summary>
-              <ul>
-                <li :for={{position, seat} <- room.seats} class="break-all">
-                  {position} · {seat.user_id || "No player ID"}
-                  <button
-                    :if={seat.user_id}
-                    id={"player-id-#{room.code}-#{position}"}
-                    phx-hook="Clipboard"
-                    data-clipboard-text={seat.user_id}
-                    class="px-3 underline"
-                    title={"Copy player ID: #{seat.user_id}"}
-                  >Copy</button>
-                </li>
-              </ul>
-            </details>
-          </div>
-          <.participant_teams seats={team_seats(room, @profiles, @now)} />
-          <div class="match-state">
-            <.match_status status={room.status} />
-            <p class="mt-2 text-sm font-semibold">{phase_label(summary, room)}</p>
-            <p class="match-score">
-              N/S {score(summary, :north_south)} · E/W {score(summary, :east_west)}
-            </p>
-            <p :if={summary && summary.current_turn} class="mt-1 text-xs text-stone-600">
-              Turn: {seat_name(
-                room.seats[summary.current_turn],
-                @profiles[room.seats[summary.current_turn].user_id]
-              )} ({summary.current_turn})
-            </p>
-            <p class="mt-1 text-xs text-stone-500">
-              Pace: {if summary, do: summary.pace, else: room.pace}
-            </p>
-          </div>
-          <div class="match-time">
-            <%= if summary do %>
-              <p>{humanize(summary.last_event)}</p>
-              <time
-                datetime={DateTime.to_iso8601(summary.updated_at)}
-                title={DateTime.to_iso8601(summary.updated_at)}
-              >{elapsed(summary.updated_at, @now)} ago</time>
-            <% else %>
-              <p>
-                {if room.status == :playing,
-                  do: "Game process unavailable",
-                  else: "Waiting for players"}
-              </p>
-            <% end %>
-            <p class="mt-1">{Positions.count(room)} / 4 seated</p>
-            <p :if={is_nil(room.host_id)} class="mt-1">No owner</p>
-            <p :if={issue?(room, summary)} class="mt-1 text-amber-700">
-              Connection / process issue
-            </p>
-            <p :if={Enum.any?(room.seats, fn {_, seat} -> away?(seat) end)} class="mt-1">
-              Player away
-            </p>
-            <p class="mt-2">Created {Calendar.strftime(room.created_at, "%d %b %H:%M UTC")}</p>
-          </div>
-          <div class="match-actions">
-            <.link navigate={~p"/admin/games/#{room.code}"} class="match-primary">
-              <.icon name="hero-eye" class="size-4" />Watch
-            </.link>
-            <button phx-click="request_delete" phx-value-code={room.code} class="match-delete">
-              <.icon name="hero-trash" class="size-4" />Delete
-            </button>
-          </div>
-        </article>
+        <p class="lt-empty-body">
+          {if map_size(@all_rooms) == 0,
+            do: "Tables appear here the moment someone creates a game. Developer controls below can start a bot table.",
+            else: "Pick All to see every open table."}
+        </p>
+      </div>
+
+      <div id="game-rows" class="lt-grid">
+        <.table_tile :for={tile <- @tiles} tile={tile} preview={@preview} />
       </div>
 
       <details
         id="developer-controls"
         open={@show_create_form || @developer_controls_open}
-        class="rounded-lg border border-stone-200 bg-white p-4"
+        class="lt-dev"
       >
-        <summary phx-click="toggle_developer_controls" class="cursor-pointer text-sm font-medium">
-          Developer controls · create a game
+        <summary phx-click="toggle_developer_controls">
+          <.icon name="hero-wrench-screwdriver" class="size-4" /> Developer controls · create a game
         </summary>
         <div class="mt-4 flex flex-wrap gap-2">
           <button
@@ -357,13 +302,13 @@ defmodule PidroServerWeb.Dev.GameListLive do
               ]
             }
             phx-click={event}
-            class="rounded border px-3 py-2 text-sm"
+            class="lt-button"
           >{label}</button>
-          <button phx-click="toggle_create_form" class="rounded border px-3 py-2 text-sm">New Game</button>
+          <button phx-click="toggle_create_form" class="lt-button">New Game</button>
           <button
             :if={@stats.finished > 0}
             phx-click="request_bulk_delete"
-            class="rounded border px-3 py-2 text-sm text-red-700"
+            class="lt-button text-red-700"
           >Delete All Finished ({@stats.finished})</button>
         </div>
         <form
@@ -396,8 +341,8 @@ defmodule PidroServerWeb.Dev.GameListLive do
           ><option value="random">random</option><option value="basic">basic</option><option value="smart">
             smart
           </option></select></label>
-          <button class="rounded bg-stone-900 px-3 py-2 text-white">Create</button>
-          <button type="button" phx-click="cancel_create">Cancel</button>
+          <button class="lt-button lt-button-dark">Create</button>
+          <button type="button" class="lt-button" phx-click="cancel_create">Cancel</button>
         </form>
       </details>
 
@@ -408,20 +353,346 @@ defmodule PidroServerWeb.Dev.GameListLive do
         aria-label="Confirm Delete"
         class="fixed inset-0 z-50 grid place-items-center bg-stone-950/40 p-4"
       >
-        <div class="rounded-lg bg-white p-6">
-          <p>
+        <div class="lt-confirm" phx-click-away="cancel_confirm" phx-window-keydown="cancel_confirm" phx-key="Escape">
+          <p class="font-semibold">
             {if @delete_code == :finished,
               do: "Delete all finished games?",
               else: "Delete game #{@delete_code}?"}
           </p>
-          <div class="mt-4 flex gap-4">
-            <button phx-click="confirm_delete" class="text-red-700">Confirm</button><button phx-click="cancel_confirm">Cancel</button>
+          <p class="mt-1 text-sm text-stone-500">Bots stop and anyone seated is sent back to the lobby.</p>
+          <div class="mt-5 flex justify-end gap-2">
+            <button phx-click="cancel_confirm" class="lt-button">Cancel</button>
+            <button phx-click="confirm_delete" class="lt-button lt-button-danger">Confirm</button>
           </div>
         </div>
       </div>
     </.admin_shell>
     """
   end
+
+  # ---------------------------------------------------------------------------
+  # Table tile
+  # ---------------------------------------------------------------------------
+
+  attr :tile, :map, required: true
+  attr :preview, :map, default: nil
+
+  defp table_tile(assigns) do
+    ~H"""
+    <article
+      id={"room-#{@tile.code}"}
+      class={[
+        "lt-tile",
+        "lt-phase-#{@tile.stage}",
+        @tile.issue && "lt-tile-issue",
+        @preview && @preview.code == @tile.code && "lt-tile-raised"
+      ]}
+    >
+      <header class="lt-head">
+        <div class="lt-title-row">
+          <.link navigate={~p"/admin/games/#{@tile.code}"} class="lt-title">{@tile.name}</.link>
+          <button
+            id={"copy-#{@tile.code}"}
+            phx-hook="Clipboard"
+            data-clipboard-text={@tile.code}
+            title={"Copy room ID · created #{@tile.created}"}
+            class="lt-code"
+          >{@tile.code}</button>
+        </div>
+        <div class="lt-head-end">
+          <span :if={@tile.vs_bots} class="lt-tag">vs bots</span>
+          <span :if={@tile.own_pace} class="lt-tag" title="Own pace: players press Continue between hands">own pace</span>
+          <span class={["lt-phase", "lt-phase-pill-#{@tile.stage}"]}>
+            <span :if={@tile.stage == :live} class="lt-phase-dot"></span>{@tile.phase_label}
+          </span>
+        </div>
+      </header>
+
+      <div class="lt-felt">
+        <div class="lt-corner lt-corner-tl">
+          <span :if={@tile.trump} class={["lt-trump", red?(@tile.trump) && "lt-red"]} title={"Trump: #{@tile.trump}"}>
+            {CardHelpers.suit_symbol(@tile.trump)}
+          </span>
+        </div>
+        <div class="lt-corner lt-corner-tr">
+          <span :if={@tile.bid} class={["lt-bid-chip", "lt-team-#{@tile.bid.team}"]} title={"#{@tile.bid.name} bid #{@tile.bid.amount}"}>
+            <span class="lt-bid-chip-label">Bid</span>{@tile.bid.amount}
+          </span>
+        </div>
+        <div class="lt-corner lt-corner-bl">
+          <span :if={@tile.hand_number} class="lt-hand-no">Hand {@tile.hand_number}</span>
+        </div>
+        <div class="lt-corner lt-corner-br">
+          <span :if={@tile.trick_pips} class="lt-pips" title={"Trick #{@tile.trick_pips.current} of #{@tile.trick_pips.total}"}>
+            <span
+              :for={n <- 1..@tile.trick_pips.total}
+              class={[
+                "lt-pip",
+                n < @tile.trick_pips.current && "lt-pip-done",
+                n == @tile.trick_pips.current && "lt-pip-now"
+              ]}
+            ></span>
+          </span>
+        </div>
+
+        <.seat :for={seat <- @tile.seats} seat={seat} code={@tile.code} preview={@preview} />
+
+        <div class="lt-center">
+          <%= case @tile.center do %>
+            <% {:trick, trick} -> %>
+              <div
+                :for={{position, card} <- trick.plays}
+                id={"card-#{@tile.code}-#{@tile.hand_number}-#{trick.number}-#{position}"}
+                class={[
+                  "lt-card",
+                  "lt-card-#{position}",
+                  red?(card) && "lt-red",
+                  trick.winner && trick.winner != position && "lt-card-beaten",
+                  trick.winner == position && "lt-card-won"
+                ]}
+                title={CardHelpers.format_card(card)}
+              >
+                <span class="lt-card-rank">{CardHelpers.format_rank(elem(card, 0))}</span>
+                <span class="lt-card-suit">{CardHelpers.suit_symbol(elem(card, 1))}</span>
+                <span :if={points(card, @tile.trump) > 0} class="lt-card-points">{points(card, @tile.trump)}</span>
+                <span :if={trick.winner == position && trick.points > 0} class="lt-trick-take">+{trick.points}</span>
+              </div>
+            <% {:bidding, nil} -> %>
+              <p class="lt-center-note">Bidding</p>
+            <% {:bidding, bid} -> %>
+              <p class="lt-center-big" id={"high-#{@tile.code}-#{bid.amount}"}>{bid.amount}</p>
+              <p class="lt-center-note">High bid · {bid.name}</p>
+            <% {:declaring, bid} -> %>
+              <p class="lt-center-suits" aria-hidden="true"><span>♠</span><span class="lt-red">♥</span><span>♣</span><span class="lt-red">♦</span></p>
+              <p class="lt-center-note">{bid && bid.name} picks trump</p>
+            <% {:dealing, label} -> %>
+              <div class="lt-deck" aria-hidden="true"><span></span><span></span><span></span></div>
+              <p class="lt-center-note">{label}</p>
+            <% {:hand_done, hand} -> %>
+              <p class="lt-hand-result">
+                <span class="lt-team-text-north_south">{signed(hand.north_south)}</span>
+                <span class="lt-hand-result-sep">·</span>
+                <span class="lt-team-text-east_west">{signed(hand.east_west)}</span>
+              </p>
+              <p class="lt-center-note">{if @tile.own_pace, do: "Waiting for Continue", else: "Hand scored"}</p>
+            <% {:finished, winner} -> %>
+              <.icon name="hero-trophy" class="lt-trophy" />
+              <p class="lt-center-note">{winner || "Game over"}</p>
+            <% {:waiting, seated} -> %>
+              <p class="lt-center-big lt-center-dim">{seated}<span>/4</span></p>
+              <p class="lt-center-note">{if seated == 4, do: "Ready to deal", else: "Waiting for players"}</p>
+            <% {:missing, _} -> %>
+              <.icon name="hero-exclamation-triangle" class="lt-trophy lt-warn" />
+              <p class="lt-center-note">Game process unavailable</p>
+          <% end %>
+        </div>
+      </div>
+
+      <div class="lt-teams">
+        <div :for={team <- @tile.teams} class={["lt-team", "lt-team-#{team.key}", team.leading && "lt-team-leading"]} data-score={team.key}>
+          <div class="lt-team-line">
+            <span class="lt-team-swatch" aria-hidden="true"></span>
+            <span class="lt-team-names" title={team.names}>{team.names}</span>
+            <span :if={team.hand_points} class="lt-team-hand" title="Points this hand">+{team.hand_points}</span>
+            <span class="lt-team-score">{team.score}</span>
+          </div>
+          <div class="lt-team-bar" aria-hidden="true">
+            <span style={"transform: scaleX(#{team.progress})"}></span>
+          </div>
+        </div>
+      </div>
+
+      <footer class="lt-foot">
+        <p class="lt-activity">
+          <%= cond do %>
+            <% @tile.issue -> %>
+              <span class="lt-alert"><.icon name="hero-exclamation-triangle-mini" class="size-4" />Connection / process issue</span>
+            <% @tile.away -> %>
+              <span class="lt-away-note"><.icon name="hero-moon-mini" class="size-4" />Player away</span>
+            <% @tile.no_owner -> %>
+              <span>No owner</span>
+            <% true -> %>
+          <% end %>
+          <span :if={@tile.last_event} class="lt-event">{@tile.last_event}</span>
+          <time :if={@tile.updated_at} datetime={DateTime.to_iso8601(@tile.updated_at)} title={DateTime.to_iso8601(@tile.updated_at)}>{@tile.elapsed}</time>
+          <span :if={!@tile.updated_at} class="lt-event">Opened {@tile.opened}</span>
+          <span :if={@tile.no_owner && (@tile.issue || @tile.away)} class="sr-only">No owner</span>
+        </p>
+        <div class="lt-actions">
+          <button
+            phx-click="request_delete"
+            phx-value-code={@tile.code}
+            class="lt-icon-button"
+            title="Delete game"
+          ><.icon name="hero-trash" class="size-4" /><span class="sr-only">Delete</span></button>
+          <.link navigate={~p"/admin/games/#{@tile.code}"} class="lt-watch">
+            <.icon name="hero-eye-mini" class="size-4" />Watch
+          </.link>
+        </div>
+      </footer>
+    </article>
+    """
+  end
+
+  attr :seat, :map, required: true
+  attr :code, :string, required: true
+  attr :preview, :map, default: nil
+
+  defp seat(assigns) do
+    assigns =
+      assign(
+        assigns,
+        :open,
+        assigns.preview && assigns.preview.code == assigns.code &&
+          assigns.preview.position == assigns.seat.position
+      )
+
+    ~H"""
+    <div
+      class={[
+        "lt-seat",
+        "lt-seat-#{@seat.position}",
+        "lt-team-#{@seat.team}",
+        @seat.kind == :vacant && "lt-seat-open",
+        @seat.turn && "lt-seat-turn",
+        @seat.cold && "lt-seat-cold",
+        @seat.away && "lt-seat-away"
+      ]}
+      phx-click-away={@open && "close_preview"}
+    >
+      <button
+        :if={@seat.kind != :vacant}
+        type="button"
+        class="lt-seat-button"
+        phx-click="preview"
+        phx-value-code={@code}
+        phx-value-position={@seat.position}
+        aria-expanded={to_string(!!@open)}
+        data-seat-preview
+      >
+        <.avatar seat={@seat} />
+        <span class="lt-seat-name"><span
+            :if={@seat.quality && @seat.quality.grade != :insufficient}
+            class={["lt-net", "lt-net-#{@seat.quality.grade}"]}
+            title={connection_label(@seat.quality)}
+            aria-label={"Connection: #{@seat.quality.grade}"}
+          ></span>{@seat.name}</span>
+      </button>
+      <div :if={@seat.kind == :vacant} class="lt-seat-button">
+        <span class="lt-avatar lt-avatar-open" aria-hidden="true"><.icon name="hero-plus-mini" class="size-4" /></span>
+        <span class="lt-seat-name">Open</span>
+      </div>
+      <span :if={@seat.turn} class="sr-only">Turn: {@seat.name} ({@seat.position})</span>
+      <span :if={@seat.detail} class={["lt-seat-detail", @seat.away && "lt-seat-detail-away"]}>{@seat.detail}</span>
+      <span :if={@seat.cards_left} class="lt-backs" aria-label={"#{@seat.cards_left} cards in hand"}>
+        <span :for={_ <- 1..@seat.cards_left//1} class="lt-back"></span>
+      </span>
+      <.preview_card :if={@open} preview={@preview} />
+    </div>
+    """
+  end
+
+  attr :seat, :map, required: true
+  attr :size, :string, default: "md"
+
+  defp avatar(assigns) do
+    ~H"""
+    <span class={["lt-avatar", "lt-avatar-#{@size}", "lt-avatar-#{@seat.kind}"]}>
+      <span class="lt-avatar-face">
+        <span class="lt-avatar-initial" aria-hidden="true">{@seat.initial}</span>
+        <img :if={@seat.avatar_url} src={@seat.avatar_url} alt="" loading="lazy" onerror="this.hidden=true" />
+      </span>
+      <span :if={@seat[:dealer]} class="lt-badge lt-badge-dealer" title="Dealer">D</span>
+      <span :if={@seat.kind == :bot} class="lt-badge lt-badge-bot" title="Bot">
+        <.icon name="hero-cpu-chip-micro" class="size-2.5" />
+      </span>
+      <span :if={@seat[:away]} class="lt-badge lt-badge-away" title="Away"></span>
+      <span
+        :if={@seat[:bid]}
+        id={"bid-#{@seat[:bid_key]}"}
+        class={["lt-badge lt-badge-bid", @seat.bid == :pass && "lt-badge-pass"]}
+      >{if @seat.bid == :pass, do: "–", else: @seat.bid}</span>
+    </span>
+    """
+  end
+
+  attr :preview, :map, required: true
+
+  defp preview_card(assigns) do
+    ~H"""
+    <div
+      id={"preview-#{@preview.code}-#{@preview.position}"}
+      class={["lt-preview", "lt-preview-from-#{@preview.position}"]}
+      role="dialog"
+      aria-label={"#{@preview.name} preview"}
+      phx-window-keydown="close_preview"
+      phx-key="Escape"
+    >
+      <div class="lt-preview-head">
+        <.avatar seat={@preview} size="lg" />
+        <div class="min-w-0">
+          <p class="lt-preview-name">{@preview.name}</p>
+          <p class="lt-preview-sub">
+            <%= if @preview.kind == :bot do %>
+              Bot · {@preview.strategy}
+            <% else %>
+              {@preview.level}{if @preview.title, do: " · #{@preview.title}"}
+            <% end %>
+          </p>
+          <p :if={@preview.kind == :human} class="lt-preview-tags">
+            <span :if={@preview.pin == "classic"} class="lt-chip lt-chip-gold">Classic</span>
+            <span :if={@preview.guest} class="lt-chip">Guest</span>
+            <span :if={@preview.registered} class="lt-chip">{@preview.tier}</span>
+          </p>
+        </div>
+      </div>
+
+      <%= if @preview.kind == :human do %>
+        <dl :if={@preview.registered} class="lt-preview-stats">
+          <div><dt>Games</dt><dd>{@preview.games}</dd></div>
+          <div><dt>Won</dt><dd>{@preview.win_rate}</dd></div>
+          <div><dt>Quit</dt><dd class={@preview.abandoned > 0 && "lt-warn"}>{@preview.abandoned}</dd></div>
+        </dl>
+        <p :if={!@preview.registered} class="lt-preview-id">{@preview.user_id}</p>
+        <p :if={@preview.quality} class="lt-preview-net">
+          <span class={["lt-net", "lt-net-#{@preview.quality.grade}"]}></span>{connection_label(@preview.quality)}
+        </p>
+        <p class="lt-preview-meta">
+          <span>{@preview.connection}</span>
+          <span :if={@preview.joined}>Joined {@preview.joined}</span>
+        </p>
+        <div class="lt-preview-actions">
+          <button
+            id={"copy-player-#{@preview.code}-#{@preview.position}"}
+            phx-hook="Clipboard"
+            data-clipboard-text={@preview.user_id}
+            class="lt-button"
+            title={@preview.user_id}
+          ><.icon name="hero-square-2-stack-mini" class="size-4" />Copy ID</button>
+          <.link
+            :if={@preview.registered}
+            navigate={~p"/admin/users/#{@preview.user_id}"}
+            class="lt-button lt-button-dark"
+          >
+            Open profile <.icon name="hero-arrow-right-mini" class="size-4" />
+          </.link>
+        </div>
+      <% else %>
+        <p :if={@preview.description not in [nil, ""]} class="lt-preview-desc">{@preview.description}</p>
+        <p :if={@preview.connection} class="lt-preview-meta"><span>{@preview.connection}</span></p>
+        <div class="lt-preview-actions">
+          <.link navigate={~p"/admin/bots"} class="lt-button">
+            Bot catalogue <.icon name="hero-arrow-right-mini" class="size-4" />
+          </.link>
+        </div>
+      <% end %>
+    </div>
+    """
+  end
+
+  # ---------------------------------------------------------------------------
+  # Sampling
+  # ---------------------------------------------------------------------------
 
   defp replace_rooms(socket, rooms) do
     ids = rooms |> Enum.flat_map(&Positions.player_ids/1) |> Enum.uniq()
@@ -431,9 +702,12 @@ defmodule PidroServerWeb.Dev.GameListLive do
     profiles =
       if Enum.sort(ids) == old_ids, do: socket.assigns.profiles, else: public_profiles(ids)
 
+    preview = socket.assigns.preview
+
     socket
     |> assign(:all_rooms, Map.new(rooms, &{&1.code, &1}))
     |> assign(:profiles, profiles)
+    |> assign(:preview, if(preview && Enum.any?(rooms, &(&1.code == preview.code)), do: preview))
     |> sample()
   end
 
@@ -452,15 +726,8 @@ defmodule PidroServerWeb.Dev.GameListLive do
     summaries =
       Map.new(socket.assigns.all_rooms, fn {code, _} -> {code, AdminGameSummary.get(code)} end)
 
-    changed =
-      for {code, summary} <- summaries,
-          summary != socket.assigns.summaries[code],
-          into: MapSet.new(),
-          do: code
-
     socket
     |> assign(:summaries, summaries)
-    |> assign(:changed, changed)
     |> assign(:now, DateTime.utc_now())
     |> present()
   end
@@ -481,19 +748,380 @@ defmodule PidroServerWeb.Dev.GameListLive do
       end)
 
     stats = %{
+      all: length(rooms),
       waiting: Enum.count(rooms, &(&1.status in [:waiting, :ready])),
       playing: Enum.count(rooms, &(&1.status == :playing)),
+      hand_complete:
+        Enum.count(rooms, &match?(%{phase: :hand_complete}, summaries[&1.code])),
       finished: Enum.count(rooms, &(&1.status == :finished)),
       issues: Enum.count(rooms, &issue?(&1, summaries[&1.code]))
     }
 
+    %{profiles: profiles, now: now} = socket.assigns
+
+    tiles =
+      visible
+      |> Enum.sort_by(& &1.created_at, {socket.assigns.sort_order, DateTime})
+      |> Enum.map(&tile(&1, summaries[&1.code], profiles, now))
+
     socket
-    |> assign(
-      :rooms,
-      Enum.sort_by(visible, & &1.created_at, {socket.assigns.sort_order, DateTime})
-    )
+    |> assign(:tiles, tiles)
     |> assign(:stats, stats)
   end
+
+  defp filter_chips(stats) do
+    [
+      {"all", "All", stats.all},
+      {"playing", "Playing", stats.playing},
+      {"waiting", "Waiting", stats.waiting},
+      {"hand_complete", "Holding", stats.hand_complete},
+      {"finished", "Finished", stats.finished},
+      {"issues", "Issues", stats.issues}
+    ]
+  end
+
+  # ---------------------------------------------------------------------------
+  # Tile view model
+  # ---------------------------------------------------------------------------
+
+  defp tile(room, summary, profiles, now) do
+    table = summary && summary[:table]
+    bid = table && table.bid && bid_view(room, profiles, table.bid)
+    stage = stage(room, summary)
+
+    seats =
+      Enum.map(@positions, fn position ->
+        seat_view(room, position, profiles, now, summary, table)
+      end)
+
+    %{
+      code: room.code,
+      name: room.config.name || "Game #{room.code}",
+      created: Calendar.strftime(room.created_at, "%d %b %H:%M UTC"),
+      stage: stage,
+      phase_label: phase_label(summary, room),
+      vs_bots: RoomManager.game_against_bots?(room),
+      own_pace: (summary && summary.pace || room.pace) == :own,
+      issue: issue?(room, summary),
+      away: Enum.any?(room.seats, fn {_, seat} -> away?(seat) end),
+      no_owner: is_nil(room.host_id),
+      trump: table && table.trump,
+      bid: if(summary && summary.phase not in [:bidding], do: bid),
+      hand_number: summary && summary.phase not in [:dealer_selection] && summary.hand_number,
+      trick_pips: trick_pips(summary, table),
+      seats: seats,
+      center: center(room, summary, table, bid, seats),
+      teams: teams(room, summary, table, seats),
+      last_event: summary && humanize(summary.last_event),
+      updated_at: summary && summary.updated_at,
+      elapsed: summary && elapsed(summary.updated_at, now),
+      opened: "#{elapsed(room.created_at, now)} ago"
+    }
+  end
+
+  defp stage(%{status: :finished}, _), do: :finished
+  defp stage(%{status: :playing}, nil), do: :issue
+  defp stage(%{status: :playing}, %{phase: :hand_complete}), do: :hold
+  defp stage(%{status: :playing}, _), do: :live
+  defp stage(_, _), do: :waiting
+
+  defp seat_view(room, position, profiles, now, summary, table) do
+    seat = room.seats[position]
+    profile = profiles[seat.user_id]
+    bot = if seat.occupant_type == :bot, do: BotCatalogue.profile(seat.bot_persona)
+    name = seat_name(seat, profile)
+    phase = summary && summary.phase
+    live? = room.status == :playing and not is_nil(summary)
+    bid = table && Map.get(table.bids, position)
+
+    %{
+      position: position,
+      team: team_of(position),
+      kind: seat.occupant_type,
+      name: name,
+      initial: name |> String.first() |> to_string() |> String.upcase(),
+      avatar_url: avatar_url(seat, bot, profile),
+      user_id: seat.user_id,
+      quality: connection_quality(seat),
+      detail: seat_detail(seat, room, now),
+      away: away?(seat),
+      turn: live? and summary.current_turn == position,
+      dealer: live? and table && table.dealer == position,
+      cold: live? and table && position in table.cold,
+      bid: if(phase in [:bidding, :declaring] and bid, do: bid),
+      bid_key: "#{room.code}-#{summary && summary.hand_number}-#{position}-#{bid}",
+      cards_left:
+        if(live? and table && phase in [:bidding, :declaring, :discarding, :second_deal, :playing],
+          do: min(Map.get(table.cards_left, position, 0), 9)
+        )
+    }
+  end
+
+  defp avatar_url(_seat, bot, _profile) when not is_nil(bot), do: BotCatalogue.avatar_url(bot)
+  defp avatar_url(%{occupant_type: :human}, _, profile), do: profile && profile.avatar_url
+  defp avatar_url(_, _, _), do: nil
+
+  defp seat_detail(seat, room, now) do
+    if away?(seat) do
+      elapsed_ms = max(0, DateTime.diff(now, seat.disconnected_at, :millisecond))
+      label = "Away #{div(elapsed_ms, 60_000)}m"
+
+      if room.status == :playing and RoomManager.game_against_bots?(room) do
+        remaining = max(0, Lifecycle.config(:solo_absence_timeout_ms) - elapsed_ms)
+        label <> " · closes in #{ceil(remaining / 60_000)}m"
+      else
+        label
+      end
+    else
+      case seat do
+        %{occupant_type: :human, status: status} when status in [:reconnecting, :grace] ->
+          humanize(status)
+
+        %{status: :bot_substitute} ->
+          "Bot sitting in"
+
+        _ ->
+          nil
+      end
+    end
+  end
+
+  defp bid_view(room, profiles, {position, amount}) do
+    %{
+      position: position,
+      amount: amount,
+      team: team_of(position),
+      name: seat_name(room.seats[position], profiles[room.seats[position].user_id])
+    }
+  end
+
+  defp bid_view(_, _, _), do: nil
+
+  defp center(room, nil, _table, _bid, _seats) do
+    cond do
+      room.status == :finished -> {:finished, nil}
+      room.status == :playing -> {:missing, nil}
+      true -> {:waiting, Positions.count(room)}
+    end
+  end
+
+  defp center(room, summary, table, bid, seats) do
+    case summary.phase do
+      _ when room.status == :finished ->
+        {:finished, winner_names(seats, table)}
+
+      :complete ->
+        {:finished, winner_names(seats, table)}
+
+      :bidding ->
+        {:bidding, bid}
+
+      :declaring ->
+        {:declaring, bid}
+
+      :dealer_selection ->
+        {:dealing, "Cutting for deal"}
+
+      phase when phase in [:dealing, :discarding, :second_deal] ->
+        {:dealing, if(phase == :dealing, do: "Dealing", else: "Second deal")}
+
+      phase when phase in [:playing, :scoring] ->
+        if table && table.trick, do: {:trick, table.trick}, else: {:dealing, "#{leader_name(seats, summary)} leads"}
+
+      :hand_complete ->
+        {:hand_done, (table && table.hand_points) || %{north_south: 0, east_west: 0}}
+
+      _ ->
+        {:dealing, humanize(summary.phase)}
+    end
+  end
+
+  defp winner_names(seats, %{winner: team}) when team in [:north_south, :east_west] do
+    seats |> Enum.filter(&(&1.team == team)) |> Enum.map_join(" & ", & &1.name)
+  end
+
+  defp winner_names(_, _), do: nil
+
+  defp leader_name(seats, %{current_turn: position}) do
+    case Enum.find(seats, &(&1.position == position)) do
+      nil -> "Next player"
+      seat -> seat.name
+    end
+  end
+
+  defp teams(room, summary, table, seats) do
+    scores = (summary && summary.cumulative_scores) || %{}
+    playing? = summary && summary.phase in [:playing, :scoring, :hand_complete]
+    leader = if map_size(scores) > 0, do: Enum.max_by(scores, &elem(&1, 1)) |> elem(0)
+    tied? = map_size(scores) > 0 and scores[:north_south] == scores[:east_west]
+
+    for team <- [:north_south, :east_west] do
+      names =
+        seats
+        |> Enum.filter(&(&1.team == team))
+        |> Enum.map(&if(&1.kind == :vacant, do: "Open", else: &1.name))
+        |> case do
+          ["Open", "Open"] -> "Two open seats"
+          pair -> Enum.join(pair, " & ")
+        end
+
+      score = if summary, do: Map.get(scores, team, 0), else: "–"
+      hand_points = playing? && table && Map.get(table.hand_points, team, 0)
+
+      %{
+        key: team,
+        names: names,
+        score: score,
+        progress:
+          if(is_integer(score),
+            do: Float.round(min(max(score, 0), @winning_score) / @winning_score, 3),
+            else: 0
+          ),
+        hand_points: if(hand_points && hand_points > 0, do: hand_points),
+        leading: summary && not tied? && leader == team && room.status != :waiting
+      }
+    end
+  end
+
+  defp trick_pips(%{phase: phase} = summary, table) when phase in [:playing, :scoring] do
+    current =
+      case table do
+        %{trick: %{number: number, winner: nil}} -> number
+        _ -> summary.trick_number + 1
+      end
+
+    %{current: min(current, @tricks_per_hand), total: @tricks_per_hand}
+  end
+
+  defp trick_pips(_, _), do: nil
+
+  defp team_of(position) when position in [:north, :south], do: :north_south
+  defp team_of(_), do: :east_west
+
+  # ---------------------------------------------------------------------------
+  # Seat preview
+  # ---------------------------------------------------------------------------
+
+  defp load_preview(nil, _), do: nil
+
+  defp load_preview(room, position) do
+    position = Enum.find(@positions, &(to_string(&1) == position))
+    seat = position && room.seats[position]
+
+    cond do
+      is_nil(seat) ->
+        nil
+
+      seat.occupant_type == :bot ->
+        bot = BotCatalogue.profile(seat.bot_persona)
+
+        %{
+          code: room.code,
+          position: position,
+          kind: :bot,
+          name: seat_name(seat, nil),
+          initial: String.first(seat_name(seat, nil)),
+          avatar_url: bot && BotCatalogue.avatar_url(bot),
+          strategy: (bot && bot.strategy) || "rulebook",
+          description: bot && bot.description,
+          connection: if(seat.status == :bot_substitute, do: "Sitting in for an away player")
+        }
+
+      seat.occupant_type == :human ->
+        human_preview(room, position, seat)
+
+      true ->
+        nil
+    end
+  end
+
+  defp human_preview(room, position, seat) do
+    user = if match?({:ok, _}, Ecto.UUID.dump(seat.user_id || "")), do: Auth.get_user(seat.user_id)
+    users = if user, do: Auth.get_users_map([user.id]), else: %{}
+    badged = users[seat.user_id]
+    name = if user, do: User.public_name(user), else: "Unknown player"
+
+    base = %{
+      code: room.code,
+      position: position,
+      kind: :human,
+      name: name,
+      initial: name |> String.first() |> to_string() |> String.upcase(),
+      avatar_url: badged && badged.avatar_url,
+      user_id: seat.user_id,
+      connection: preview_connection(seat),
+      quality: connection_quality(seat),
+      registered: not is_nil(user),
+      level: "No account",
+      title: nil,
+      pin: nil,
+      guest: false,
+      tier: "Unrated",
+      games: 0,
+      win_rate: "–",
+      abandoned: 0,
+      joined: nil
+    }
+
+    if user do
+      stats = Stats.get_user_stats(user.id)
+
+      {level, title, tier} =
+        case Profiles.get_profile_for_screen(user.id) do
+          {:ok, profile} ->
+            {level_label(profile.veteran_level, profile.veteran_prestige), profile.veteran_title,
+             skill_label(profile)}
+
+          _ ->
+            {"Lvl 1", nil, "Unrated"}
+        end
+
+      %{
+        base
+        | level: level,
+          title: title,
+          tier: tier,
+          registered: true,
+          pin: badged && badged.pin,
+          guest: user.guest,
+          games: stats.games_played,
+          win_rate:
+            if(stats.games_played > 0, do: "#{round(stats.win_rate * 100)}%", else: "–"),
+          abandoned: stats.games_abandoned,
+          joined: Calendar.strftime(user.inserted_at, "%b %Y")
+      }
+    else
+      base
+    end
+  end
+
+  defp skill_label(%{rating_mu: mu, rating_sigma: sigma, rating_games_count: games})
+       when is_number(mu) and is_number(sigma) and is_integer(games) do
+    case Tier.classify(mu / 1, sigma / 1, games) do
+      %{provisional: true} -> "Provisional"
+      %{tier: tier} -> tier |> to_string() |> String.capitalize()
+    end
+  end
+
+  defp skill_label(_profile), do: "Unrated"
+
+  defp connection_quality(%{user_id: user_id, reserved_for: reserved_for} = seat)
+       when is_binary(user_id) or is_binary(reserved_for),
+       do: Stats.summarize_connections(List.wrap(Seat.connection_totals(seat)))
+
+  defp connection_quality(_seat), do: nil
+
+  defp preview_connection(seat) do
+    cond do
+      away?(seat) -> "Away since #{Calendar.strftime(seat.disconnected_at, "%H:%M UTC")}"
+      seat.status == :connected -> "Connected"
+      true -> humanize(seat.status)
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # Shared helpers
+  # ---------------------------------------------------------------------------
 
   defp issue?(room, summary) do
     (room.status == :playing and is_nil(summary)) or
@@ -512,28 +1140,6 @@ defmodule PidroServerWeb.Dev.GameListLive do
 
   defp away?(_seat), do: false
 
-  defp team_seats(room, profiles, now) do
-    Map.new(room.seats, fn {position, seat} ->
-      bot = if seat.occupant_type == :bot, do: PidroServer.BotCatalogue.profile(seat.bot_persona)
-
-      avatar =
-        cond do
-          bot -> PidroServer.BotCatalogue.avatar_url(bot)
-          seat.occupant_type == :human -> get_in(profiles, [seat.user_id, :avatar_url])
-          true -> nil
-        end
-
-      {position,
-       %{
-         name: seat_name(seat, profiles[seat.user_id]),
-         detail: connection(seat, room, now),
-         kind: seat.occupant_type,
-         quality: if(seat.user_id || seat.reserved_for, do: PidroServer.Stats.summarize_connections(List.wrap(Seat.connection_totals(seat)))),
-         avatar_url: avatar
-       }}
-    end)
-  end
-
   defp seat_name(%{bot_persona: persona}, _) when is_binary(persona),
     do: Seat.bot_display_name(persona)
 
@@ -542,31 +1148,33 @@ defmodule PidroServerWeb.Dev.GameListLive do
   defp seat_name(%{occupant_type: :vacant}, _), do: "Open seat"
   defp seat_name(_, _), do: "Unknown player"
 
-  defp connection(%{occupant_type: :vacant}, _room, _now), do: ""
-  defp connection(%{occupant_type: :bot, status: :connected}, _room, _now), do: "bot"
-
-  defp connection(seat, room, now) do
-    if away?(seat) do
-      elapsed_ms = max(0, DateTime.diff(now, seat.disconnected_at, :millisecond))
-      label = "Away #{div(elapsed_ms, 60_000)}m"
-
-      if room.status == :playing and RoomManager.game_against_bots?(room) do
-        remaining = max(0, Lifecycle.config(:solo_absence_timeout_ms) - elapsed_ms)
-        label <> " · closes in #{ceil(remaining / 60_000)}m"
-      else
-        label
-      end
-    else
-      humanize(seat.status)
+  defp phase_label(nil, %{status: :finished}), do: "Completed"
+  defp phase_label(nil, %{status: :playing}), do: "No process"
+  defp phase_label(nil, room), do: humanize(room.status)
+  defp phase_label(_, %{status: :finished}), do: "Completed"
+  defp phase_label(%{phase: :hand_complete}, _), do: "Hand done"
+  defp phase_label(%{phase: :dealer_selection}, _), do: "Dealer selection"
+  defp phase_label(%{phase: :declaring}, _), do: "Trump call"
+  defp phase_label(%{phase: phase} = summary, _) when phase in [:playing, :scoring] do
+    case summary[:table] do
+      %{trick: %{number: n, winner: nil}} -> "Trick #{n}"
+      _ -> "Trick #{min(summary.trick_number + 1, @tricks_per_hand)}"
     end
   end
 
-  defp score(nil, _), do: "–"
-  defp score(summary, team), do: summary.cumulative_scores[team] || 0
-  defp phase_label(nil, room), do: humanize(room.status)
-  defp phase_label(%{phase: :hand_complete}, _), do: "Waiting for Continue"
-  defp phase_label(%{phase: :playing, trick_number: trick}, _), do: "Playing · trick #{trick}"
   defp phase_label(summary, _), do: humanize(summary.phase)
+
+  defp points(card, trump), do: CardHelpers.point_value(card, trump)
+
+  defp red?({_rank, suit}), do: red?(suit)
+  defp red?(suit), do: suit in [:hearts, :diamonds]
+
+  defp seconds(ms) when rem(ms, 1000) == 0, do: "#{div(ms, 1000)}s"
+  defp seconds(ms), do: "#{Float.round(ms / 1000, 1)}s"
+
+  defp signed(n) when is_integer(n) and n > 0, do: "+#{n}"
+  defp signed(n), do: to_string(n)
+
   defp humanize(nil), do: ""
 
   defp humanize(value),
@@ -577,23 +1185,10 @@ defmodule PidroServerWeb.Dev.GameListLive do
 
     cond do
       seconds < 60 -> "#{seconds}s"
-      seconds < 3600 -> "#{div(seconds, 60)}m #{rem(seconds, 60)}s"
+      seconds < 3600 -> "#{div(seconds, 60)}m"
       true -> "#{div(seconds, 3600)}h #{div(rem(seconds, 3600), 60)}m"
     end
   end
-
-  defp filters,
-    do: [
-      {"all", "All"},
-      {"waiting", "Waiting"},
-      {"playing", "Playing"},
-      {"bidding", "Bidding"},
-      {"declaring", "Declaring trump"},
-      {"dealer_selection", "Dealer selection"},
-      {"hand_complete", "Waiting for Continue"},
-      {"finished", "Finished"},
-      {"issues", "Connection / process issues"}
-    ]
 
   defp start_bots(_, 0, _), do: :ok
 
