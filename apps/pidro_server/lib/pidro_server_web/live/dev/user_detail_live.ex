@@ -177,6 +177,22 @@ defmodule PidroServerWeb.Dev.UserDetailLive do
         <span :if={@connection.platform}>({@connection.platform})</span>
       </p>
 
+      <section id="connection-timeline" class="rounded-md border border-stone-300 bg-white p-4">
+        <h2 class="font-semibold">Connection timeline</h2>
+        <p :if={@connection_events == []} class="mt-2 text-sm text-stone-500">
+          No connection events yet.
+        </p>
+        <ol class="mt-3 divide-y divide-stone-200 text-sm">
+          <li :for={event <- @connection_events} class="flex flex-wrap gap-x-4 gap-y-1 py-2">
+            <time class="font-mono text-xs text-stone-500">{event.inserted_at} UTC</time>
+            <span class="font-mono">{event.room_code}</span>
+            <span>{connection_event_kind(event.kind)}</span>
+            <span class="text-stone-500">{event.reason || "unknown"} · {event.network || "unknown"}</span>
+            <span class="text-stone-500">{event.platform} {event.app_version || "unknown version"}</span>
+          </li>
+        </ol>
+      </section>
+
       <dl class="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <.stat_card
           label="Games played"
@@ -652,12 +668,18 @@ defmodule PidroServerWeb.Dev.UserDetailLive do
     socket
     |> assign(:stats, Stats.get_user_stats(user.id))
     |> assign(:connection, Stats.connection_summary(user.id))
+    |> assign(:connection_events, Stats.connection_timeline(user.id))
     |> assign(:profile, profile)
     |> assign(:skill, Tier.classify(profile))
     |> assign(:recent_games, Stats.list_recent_games(player_id: user.id, limit: 20))
     |> assign(:abandonments, Stats.list_user_abandonments(user.id, 8))
     |> assign(:active_rooms, active_rooms_for_user(user.id))
   end
+
+  defp connection_event_kind("timeout"), do: "Timeout / auto-play"
+  defp connection_event_kind("bot_took_seat"), do: "Bot took seat"
+  defp connection_event_kind("seat_taken_back"), do: "Seat taken back"
+  defp connection_event_kind(kind), do: String.capitalize(kind)
 
   defp active_rooms_for_user(user_id) do
     case Process.whereis(RoomManager) do

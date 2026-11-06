@@ -78,6 +78,24 @@ defmodule PidroServerWeb.LobbyChannelTest do
     end
   end
 
+  test "join exposes optional store minimums without requiring a client upgrade", %{
+    socket: socket
+  } do
+    old = Application.get_env(:pidro_server, :minimum_native_versions, %{})
+    on_exit(fn -> Application.put_env(:pidro_server, :minimum_native_versions, old) end)
+    Application.put_env(:pidro_server, :minimum_native_versions, %{"android" => "3.2.4"})
+
+    assert {:ok, %{minimum_native_versions: %{"android" => "3.2.4"}}, _} =
+             subscribe_and_join(socket, LobbyChannel, "lobby", %{})
+
+    Application.put_env(:pidro_server, :minimum_native_versions, %{})
+
+    assert {:ok, %{minimum_native_versions: empty}, _} =
+             subscribe_and_join(socket, LobbyChannel, "lobby", %{})
+
+    assert empty == %{}
+  end
+
   test "a request reaches only its receiver's lobby, and its acceptance only the sender's",
        %{user: user} do
     friend = PidroServer.AccountsFixtures.user_fixture(%{display_name: "Nora"})

@@ -386,7 +386,9 @@ defmodule PidroServer.Stats do
         kind: kind,
         elapsed_ms: elapsed_ms,
         app_version: Map.get(client, :app_version),
-        platform: Map.get(client, :platform)
+        platform: Map.get(client, :platform),
+        reason: Map.get(client, :reason),
+        network: Map.get(client, :network)
       })
 
     Task.Supervisor.start_child(PidroServer.TaskSupervisor, fn ->
@@ -398,6 +400,17 @@ defmodule PidroServer.Stats do
     end)
 
     :ok
+  end
+
+  @doc "The player's fifty most recent connection events, newest first."
+  @spec connection_timeline(String.t()) :: [struct()]
+  def connection_timeline(user_id) do
+    Repo.all(
+      from e in SeatEvent,
+        where: e.user_id == ^user_id and e.kind != "turn",
+        order_by: [desc: e.inserted_at, desc: e.id],
+        limit: 50
+    )
   end
 
   @doc "Connection events over the last seven days and the last reported app build."

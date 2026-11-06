@@ -31,7 +31,7 @@ defmodule PidroServer.Games.RoomStore do
 
   @strings ~w(id code host_id kicked_ids positions spectator_ids user_id reserved_for decision_id
     decision_player_id vacated_by bot_persona bot_personas name seat_holds seat_password
-    ready_player_ids app_version platform)
+    ready_player_ids app_version platform reason network)
   @times ~w(created_at last_activity invite_live_until)
   @structs %{
     "Elixir.PidroServer.Games.RoomManager.Room" => Room,
@@ -221,7 +221,18 @@ defmodule PidroServer.Games.RoomStore do
   @doc "The room as stored: no timers, processes, talk or game summary."
   @spec encode(Room.t()) :: map()
   def encode(%Room{} = room) do
-    seats = Map.new(room.seats, fn {position, seat} -> {position, %{seat | bot_pid: nil}} end)
+    seats =
+      Map.new(room.seats, fn {position, seat} ->
+        {position,
+         %{
+           seat
+           | bot_pid: nil,
+             background_token: nil,
+             pending_ping: nil,
+             liveness_enabled: false,
+             missed_pings: 0
+         }}
+      end)
 
     Serialization.encode(%{
       room
@@ -240,6 +251,18 @@ defmodule PidroServer.Games.RoomStore do
 
   # Kept as JSON: a summary only ever goes back out to the client as JSON.
   defp value(json, "post_game_summaries"), do: json
+
+  defp value(history, "auto_played_turns") do
+    Enum.map(history, fn %{
+                           "$tuple" => [
+                             %{"$tuple" => [%{"$tuple" => [instance, seq]}, user]},
+                             action
+                           ]
+                         } ->
+      {{{instance, seq}, user}, value(action, "action")}
+    end)
+  end
+
   defp value(nil, _key), do: nil
   defp value(json, _key) when is_boolean(json) or is_number(json), do: json
   defp value(%{"$integer" => integer}, _key), do: String.to_integer(integer)

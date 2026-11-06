@@ -64,6 +64,13 @@ defmodule PidroServer.Games.Room.Seat do
     :bot_strategy,
     :app_version,
     :platform,
+    :reason,
+    :network,
+    :background_token,
+    :pending_ping,
+    liveness_enabled: false,
+    missed_pings: 0,
+    round_trips: [],
     is_owner: false,
     joined_at: nil,
     substitute: false
@@ -72,6 +79,17 @@ defmodule PidroServer.Games.Room.Seat do
   # ---------------------------------------------------------------------------
   # Constructors
   # ---------------------------------------------------------------------------
+
+  @doc "Latest and median of the last twenty answered connection probes, in milliseconds."
+  @spec connection_latency(t()) :: %{latest_ms: number() | nil, median_ms: number() | nil}
+  def connection_latency(%__MODULE__{round_trips: []}), do: %{latest_ms: nil, median_ms: nil}
+
+  def connection_latency(%__MODULE__{round_trips: [latest | _] = samples}) do
+    sorted = Enum.sort(samples)
+    n = length(sorted)
+    median = (Enum.at(sorted, div(n - 1, 2)) + Enum.at(sorted, div(n, 2))) / 2
+    %{latest_ms: latest, median_ms: median}
+  end
 
   @doc """
   Creates a new seat occupied by a connected human player.

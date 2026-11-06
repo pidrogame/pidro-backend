@@ -22,7 +22,7 @@ defmodule PidroServerWeb.Endpoint do
   socket "/socket", PidroServerWeb.UserSocket,
     auth_token: true,
     websocket: [log: false],
-    longpoll: false
+    longpoll: [log: false]
 
   # Restore the client address and scheme from kamal-proxy's X-Forwarded-*
   # headers for the HTTP pipeline. A no-op unless :trust_proxy_headers is

@@ -83,7 +83,14 @@ defmodule PidroServer.Games.GameAdapter do
             _ -> nil
           end
 
-        case Pidro.Server.apply_action_with_snapshot(pid, position, action, timeout, action_key) do
+        case Pidro.Server.apply_action_with_snapshot(
+               pid,
+               position,
+               action,
+               timeout,
+               action_key,
+               diagnostics[:expected_turn]
+             ) do
           {:replayed, outcome} ->
             {:replayed, outcome}
 

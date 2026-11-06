@@ -30,7 +30,10 @@ defmodule PidroServer.Games.RoomStoreTest do
       disconnected_at: now,
       grace_expires_at: DateTime.add(now, 100, :second),
       reserved_for: gone,
-      decision_id: "decision-1"
+      decision_id: "decision-1",
+      reason: "heartbeat_timeout",
+      network: "cellular",
+      round_trips: [42, 200, 18]
     }
 
     room = %Room{
@@ -57,6 +60,10 @@ defmodule PidroServer.Games.RoomStoreTest do
         west: Seat.new_vacant(:west)
       },
       bot_personas: ["antti", "marcel"],
+      auto_played_turns: [
+        {{{"instance-not-an-atom", 42}, gone},
+         %{type: :play_card, card: %{rank: 14, suit: :hearts}}}
+      ],
       consecutive_timeouts: %{north: 2},
       last_hand_number: 3,
       game: %{hand: 3, scores: %{north_south: 12, east_west: -4}},

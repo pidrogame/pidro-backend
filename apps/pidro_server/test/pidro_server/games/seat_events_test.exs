@@ -55,24 +55,24 @@ defmodule PidroServer.Games.SeatEventsTest do
       :ok = RoomManager.register_game_channel(room.code, user, self())
 
       for _ <- 1..3 do
-        send(RoomManager, :check_connections)
-        assert_receive {:connection_ping, %{id: _}}
+        expire_connection_checks()
+        assert_receive {:connection_ping, ^user, %{id: _}}
       end
 
       assert {:ok, connected} = RoomManager.get_room(room.code)
       assert connected.seats[position].status == :connected
-      send(RoomManager, :check_connections)
-      assert_receive {:connection_ping, %{id: id}}
+      expire_connection_checks()
+      assert_receive {:connection_ping, ^user, %{id: id}}
       assert :ok = GenServer.call(RoomManager, {:connection_pong, room.code, user, id})
 
-      send(RoomManager, :check_connections)
-      assert_receive {:connection_ping, %{id: _}}
-      send(RoomManager, :check_connections)
-      assert_receive {:connection_ping, %{id: _}}
+      expire_connection_checks()
+      assert_receive {:connection_ping, ^user, %{id: _}}
+      expire_connection_checks()
+      assert_receive {:connection_ping, ^user, %{id: _}}
       assert {:ok, connected} = RoomManager.get_room(room.code)
       assert connected.seats[position].status == :connected
-      send(RoomManager, :check_connections)
-      assert_receive {:connection_ping, %{id: last}}
+      expire_connection_checks()
+      assert_receive {:connection_ping, ^user, %{id: last}}
       assert {:ok, dropped} = RoomManager.get_room(room.code)
       assert dropped.seats[position].status == :reconnecting
       assert dropped.turn_timer == nil
@@ -81,6 +81,91 @@ defmodule PidroServer.Games.SeatEventsTest do
       assert returned.seats[position].status == :connected
       assert returned.turn_timer.duration_ms >= 10_000
       assert seat_events(user) == [{"drop", nil}, {"return", nil}]
+    end
+
+    test "an unreachable turn never triggers the consecutive-timeout penalty" do
+      {room, user} = bidding_room()
+      position = position_of(room, user)
+      expire_connection_checks()
+      assert_receive {:connection_ping, ^user, %{id: id}}
+      :ok = RoomManager.connection_activity(room.code, user, id)
+
+      :sys.replace_state(RoomManager, fn state ->
+        put_in(state.rooms[room.code].consecutive_timeouts, %{position => 2})
+      end)
+
+      timer = room.turn_timer
+      send(RoomManager, {:turn_timer_expired, room.code, timer.timer_id, timer.key})
+      assert {:ok, timed_out} = RoomManager.get_room(room.code)
+      assert timed_out.consecutive_timeouts[position] == 3
+      refute_receive {:force_disconnect, :timeout_threshold}
+
+      for _ <- 1..3 do
+        expire_connection_checks()
+        assert_receive {:connection_ping, ^user, %{id: _}}
+      end
+
+      assert {:ok, disconnected} = RoomManager.get_room(room.code)
+      assert disconnected.seats[position].status == :reconnecting
+      assert Map.get(disconnected.consecutive_timeouts, position, 0) == 0
+      refute_receive {:force_disconnect, :timeout_threshold}
+    end
+
+    test "a reachable idle player still reaches the timeout threshold" do
+      {room, user} = bidding_room()
+      position = position_of(room, user)
+      expire_connection_checks()
+      assert_receive {:connection_ping, ^user, %{id: id}}
+      :ok = RoomManager.connection_activity(room.code, user, id)
+
+      :sys.replace_state(RoomManager, fn state ->
+        put_in(state.rooms[room.code].consecutive_timeouts, %{position => 2})
+      end)
+
+      timer = room.turn_timer
+      send(RoomManager, {:turn_timer_expired, room.code, timer.timer_id, timer.key})
+      RoomManager.get_room(room.code)
+      expire_connection_checks()
+      assert_receive {:connection_ping, ^user, %{id: next}}
+      :ok = RoomManager.connection_activity(room.code, user, next)
+      assert_receive {:force_disconnect, :timeout_threshold}
+    end
+
+    test "queued check ticks cannot spend a fresh probe's reply window" do
+      {room, user} = bidding_room()
+      position = position_of(room, user)
+      expire_connection_checks()
+      assert_receive {:connection_ping, ^user, %{id: id}}
+      :ok = RoomManager.connection_activity(room.code, user, id)
+      expire_connection_checks()
+      assert_receive {:connection_ping, ^user, %{id: fresh}}
+      for _ <- 1..3, do: send(RoomManager, :check_connections)
+      assert {:ok, connected} = RoomManager.get_room(room.code)
+      assert connected.seats[position].status == :connected
+      assert connected.seats[position].pending_ping.id == fresh
+      :ok = RoomManager.connection_activity(room.code, user, fresh)
+      assert {:ok, answered} = RoomManager.get_room(room.code)
+      assert length(answered.seats[position].round_trips) == 2
+    end
+
+    test "game over retires a background hold before later socket loss" do
+      {room, user} = bidding_room()
+      position = position_of(room, user)
+      :ok = RoomManager.going_background(room.code, user)
+      {:ok, held} = RoomManager.get_room(room.code)
+      token = held.seats[position].background_token
+      send(RoomManager, {:game_over, room.code, :north_south, %{north_south: 62, east_west: 20}})
+      assert {:ok, finished} = RoomManager.get_room(room.code)
+      assert finished.status == :finished
+      assert finished.seats[position].background_token == nil
+      assert RoomManager.unregister_game_channel(room.code, user, self()) == :last_channel_closed
+      send(RoomManager, {:background_expired, room.code, user, token})
+      RoomManager.get_room(room.code)
+      absence = :sys.get_state(RoomManager).finished_absences[{room.code, user}]
+      assert is_reference(absence)
+      send(RoomManager, {:finished_absence, room.code, user, absence, :finished})
+      assert {:ok, reopened} = RoomManager.get_room(room.code)
+      refute user in Map.values(reopened.positions)
     end
 
     test "background holds quietly through socket loss, but expires into a normal drop" do
@@ -109,6 +194,31 @@ defmodule PidroServer.Games.SeatEventsTest do
       assert {:ok, dropped} = RoomManager.get_room(room.code)
       assert dropped.seats[position].status == :reconnecting
       assert seat_events(user) == [{"drop", nil}]
+    end
+
+    test "a late tap identifies the action the timer played for that exact turn" do
+      {room, user} = bidding_room()
+      timer = room.turn_timer
+      {:ok, snapshot} = GameAdapter.get_snapshot(room.code)
+      Phoenix.PubSub.subscribe(PidroServer.PubSub, "game:#{room.code}")
+
+      context = %{
+        action_id: "late",
+        expected_turn: {snapshot.game_instance_id, length(snapshot.state.events)}
+      }
+
+      send(RoomManager, {:turn_timer_expired, room.code, timer.timer_id, timer.key})
+      RoomManager.get_room(room.code)
+      assert_receive {:turn_auto_played, %{action: action}}
+
+      assert {:error, {:already_played_for_you, ^action}} =
+               RoomManager.apply_player_action(
+                 room.code,
+                 user,
+                 timer.actor_position,
+                 :pass,
+                 context
+               )
     end
 
     test "rejoin records the connection's reason and network on the return" do
@@ -292,7 +402,12 @@ defmodule PidroServer.Games.SeatEventsTest do
       expire_phase(room.code, position, :phase2_start)
       assert {:ok, _} = RoomManager.handle_player_reconnect(room.code, user)
 
-      assert seat_events(user) == [{"drop", nil}, {"return", nil}]
+      assert seat_events(user) == [
+               {"bot_took_seat", nil},
+               {"drop", nil},
+               {"return", nil},
+               {"seat_taken_back", nil}
+             ]
     end
 
     test "a player gone past the grace period can still return" do
@@ -306,7 +421,12 @@ defmodule PidroServer.Games.SeatEventsTest do
       assert {:ok, _} =
                RoomManager.handle_player_reconnect(room.code, user)
 
-      assert seat_events(user) == [{"drop", nil}, {"return", nil}]
+      assert seat_events(user) == [
+               {"bot_took_seat", nil},
+               {"drop", nil},
+               {"return", nil},
+               {"seat_taken_back", nil}
+             ]
     end
 
     test "a seat held in a waiting room is neither a drop nor a return" do
@@ -372,6 +492,28 @@ defmodule PidroServer.Games.SeatEventsTest do
       assert {:ok, _} = RoomManager.apply_player_action(room.code, "solo", :north, action)
       assert seat_events("solo") == []
     end
+  end
+
+  defp expire_connection_checks do
+    :sys.replace_state(RoomManager, fn state ->
+      rooms =
+        Map.new(state.rooms, fn {code, room} ->
+          seats =
+            Map.new(room.seats, fn {position, seat} ->
+              ping =
+                if seat.pending_ping,
+                  do: %{seat.pending_ping | sent_at: System.monotonic_time(:millisecond) - 15_001}
+
+              {position, %{seat | pending_ping: ping}}
+            end)
+
+          {code, %{room | seats: seats}}
+        end)
+
+      %{state | rooms: rooms}
+    end)
+
+    send(RoomManager, :check_connections)
   end
 
   # A four-player table in bidding, and the player whose turn it is.

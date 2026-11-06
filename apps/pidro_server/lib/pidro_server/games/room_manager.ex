@@ -166,6 +166,7 @@ defmodule PidroServer.Games.RoomManager do
       bot_personas: Seat.bot_personas(),
       turn_timer: nil,
       paused_turn: nil,
+      auto_played_turns: [],
       consecutive_timeouts: %{},
       last_hand_number: nil,
       game: nil,
@@ -237,6 +238,18 @@ defmodule PidroServer.Games.RoomManager do
   end
 
   ## Client API
+
+  @doc "Acknowledges a game-channel probe, or a live action from the seated user."
+  @spec connection_activity(String.t(), String.t(), :action | String.t()) :: :ok
+  def connection_activity(code, user_id, pong \\ :action) do
+    GenServer.call(__MODULE__, {:connection_pong, code, user_id, pong})
+  end
+
+  @doc "Holds a playing human's seat quietly for thirty seconds."
+  @spec going_background(String.t(), String.t()) :: :ok
+  def going_background(code, user_id) do
+    GenServer.call(__MODULE__, {:going_background, code, user_id})
+  end
 
   @doc """
   Starts the RoomManager GenServer.
@@ -1452,6 +1465,7 @@ defmodule PidroServer.Games.RoomManager do
     schedule_cleanup()
     send(self(), :startup_sweep)
     schedule_health_check()
+    :timer.send_interval(15_000, :check_connections)
     Process.send_after(self(), :save_rooms, @save_interval_ms)
     Process.send_after(self(), :room_store_sweep, @room_store_interval_ms)
     # Know other nodes' rooms from the start, so writes to them answer
@@ -1933,6 +1947,59 @@ defmodule PidroServer.Games.RoomManager do
   end
 
   @impl true
+  def handle_call({:going_background, code, user_id}, _from, state) do
+    with %Room{status: :playing} = room <- state.rooms[code],
+         position when not is_nil(position) <- Positions.get_position(room, user_id),
+         %Seat{occupant_type: :human, status: :connected, background_token: nil} = seat <-
+           room.seats[position] do
+      token = make_ref()
+      Process.send_after(self(), {:background_expired, code, user_id, token}, 30_000)
+      seat = %{seat | background_token: token, pending_ping: nil, missed_pings: 0}
+      room = put_in(room.seats[position], seat) |> pause_active_turn_timer(code, position)
+      {:reply, :ok, put_in(state.rooms[code], room)}
+    else
+      _ -> {:reply, :ok, state}
+    end
+  end
+
+  def handle_call({:connection_pong, code, user_id, id}, _from, state) do
+    with %Room{status: :playing} = room <- state.rooms[code],
+         {position, seat} <- connection_seat(room, user_id),
+         true <- id == :action or match?(%{id: ^id}, seat.pending_ping) do
+      round_trips =
+        if id == :action do
+          seat.round_trips
+        else
+          elapsed = max(0, System.monotonic_time(:millisecond) - seat.pending_ping.sent_at)
+          Enum.take([elapsed | seat.round_trips], 20)
+        end
+
+      seat = %{
+        seat
+        | round_trips: round_trips,
+          pending_ping: nil,
+          missed_pings: 0,
+          liveness_enabled: seat.liveness_enabled or id != :action
+      }
+
+      state = put_in(state.rooms[code].seats[position], seat)
+      state = resume_connection(state, code, user_id)
+      room = state.rooms[code]
+
+      state =
+        if id != :action and timeout_threshold_reached?(room, position) do
+          {_room, state} = maybe_force_disconnect(room, code, position, state)
+          state
+        else
+          state
+        end
+
+      {:reply, :ok, state}
+    else
+      _ -> {:reply, :ok, state}
+    end
+  end
+
   def handle_call(
         {:register_game_channel, room_code, user_id, pid, client},
         _from,
@@ -1941,14 +2008,24 @@ defmodule PidroServer.Games.RoomManager do
     if Map.has_key?(state.rooms, room_code) do
       room = state.rooms[room_code]
 
+      new_channel? =
+        not MapSet.member?(Map.get(state.channel_pids, {room_code, user_id}, MapSet.new()), pid)
+
       seats =
         Map.new(room.seats, fn {position, seat} ->
           if seat.user_id == user_id or seat.reserved_for == user_id do
+            seat =
+              if new_channel?,
+                do: %{seat | liveness_enabled: false, pending_ping: nil, missed_pings: 0},
+                else: seat
+
             {position,
              %{
                seat
                | app_version: client[:app_version] || seat.app_version,
-                 platform: client[:platform] || seat.platform
+                 platform: client[:platform] || seat.platform,
+                 reason: client[:reason] || seat.reason,
+                 network: client[:network] || seat.network
              }}
           else
             {position, seat}
@@ -1956,7 +2033,8 @@ defmodule PidroServer.Games.RoomManager do
         end)
 
       state = put_in(state.rooms[room_code].seats, seats)
-      {:reply, :ok, register_channel_pid(state, room_code, user_id, pid)}
+      state = register_channel_pid(state, room_code, user_id, pid)
+      {:reply, :ok, resume_background(state, room_code, user_id)}
     else
       {:reply, {:error, :room_not_found}, state}
     end
@@ -2034,6 +2112,17 @@ defmodule PidroServer.Games.RoomManager do
     case result do
       {:replayed, original} ->
         {:reply, {:ok, original}, state}
+
+      {:error, :stale_turn} ->
+        key = {diagnostics[:expected_turn], user_id}
+
+        reply =
+          case List.keyfind(state.rooms[room_code].auto_played_turns, key, 0) do
+            {^key, played} -> {:error, {:already_played_for_you, played}}
+            nil -> {:error, :not_your_turn}
+          end
+
+        {:reply, reply, state}
 
       {:ok, _} ->
         room = reset_timeout_counter(state.rooms[room_code], position)
@@ -2624,6 +2713,7 @@ defmodule PidroServer.Games.RoomManager do
             {:ok, grace_seat} = Seat.start_grace(seat, grace_expires_at)
 
             {:ok, bot_seat} = Seat.substitute_bot(grace_seat, bot_pid)
+            Stats.record_seat_event(seat.user_id, room_code, "bot_took_seat", nil, seat)
 
             # Schedule Phase 3 (gone/permanent) timer
             timer_ref =
@@ -2927,6 +3017,11 @@ defmodule PidroServer.Games.RoomManager do
           |> maybe_cancel_turn_timer()
           |> Map.put(:status, :finished)
           |> Map.put(:phase_timers, %{})
+          |> Map.update!(:seats, fn seats ->
+            Map.new(seats, fn {position, seat} ->
+              {position, %{seat | background_token: nil, pending_ping: nil}}
+            end)
+          end)
           |> stop_substitute_bots()
           |> reset_readiness()
           |> bump_seat_lifecycle_revision()
@@ -3022,6 +3117,64 @@ defmodule PidroServer.Games.RoomManager do
   end
 
   @impl true
+  def handle_info(:check_connections, state) do
+    keys =
+      for {code, %{status: :playing} = room} <- state.rooms,
+          {_position, seat} <- room.seats,
+          user = seat.user_id || seat.reserved_for,
+          not is_nil(user),
+          seat.background_token == nil,
+          do: {code, user}
+
+    state =
+      Enum.reduce(keys, state, fn {code, user}, acc ->
+        {position, seat} = connection_seat(acc.rooms[code], user)
+        pids = Map.get(acc.channel_pids, {code, user}, MapSet.new())
+        now = System.monotonic_time(:millisecond)
+        due? = seat.pending_ping == nil or now - seat.pending_ping.sent_at >= 15_000
+
+        if MapSet.size(pids) > 0 and due? do
+          missed = if seat.pending_ping, do: seat.missed_pings + 1, else: 0
+          id = Ecto.UUID.generate()
+
+          seat = %{
+            seat
+            | missed_pings: missed,
+              pending_ping: %{id: id, sent_at: System.monotonic_time(:millisecond)}
+          }
+
+          acc = put_in(acc.rooms[code].seats[position], seat)
+          Enum.each(pids, &send(&1, {:connection_ping, user, %{id: id}}))
+
+          if seat.liveness_enabled and missed >= 2 and Seat.connected_human?(seat) do
+            room = reset_timeout_counter(acc.rooms[code], position)
+            room = put_in(room.seats[position].reason, "heartbeat_timeout")
+            acc = put_in(acc.rooms[code], room)
+            {:reply, _, acc} = handle_call({:player_disconnect, code, user}, nil, acc)
+            acc
+          else
+            acc
+          end
+        else
+          acc
+        end
+      end)
+
+    {:noreply, state}
+  end
+
+  def handle_info({:background_expired, code, user, token}, state) do
+    with %Room{status: :playing} = room <- state.rooms[code],
+         {position, %Seat{background_token: ^token} = seat} <- connection_seat(room, user) do
+      seat = %{seat | background_token: nil, reason: "backgrounded"}
+      state = put_in(state.rooms[code].seats[position], seat)
+      {:reply, _, state} = handle_call({:player_disconnect, code, user}, nil, state)
+      {:noreply, state}
+    else
+      _ -> {:noreply, state}
+    end
+  end
+
   def handle_info({:DOWN, ref, :process, pid, _reason}, %State{} = state) do
     case Map.pop(state.channel_monitors, ref) do
       {nil, _} ->
@@ -4169,6 +4322,7 @@ defmodule PidroServer.Games.RoomManager do
         case Seat.reclaim(seat, user_id) do
           {:ok, reclaimed} ->
             Stats.record_seat_event(user_id, room_code, "return", nil, seat)
+            Stats.record_seat_event(user_id, room_code, "seat_taken_back", nil, seat)
 
             reclaimed_room =
               %{
@@ -5992,10 +6146,53 @@ defmodule PidroServer.Games.RoomManager do
     end
   end
 
+  defp connection_seat(room, user) do
+    Enum.find(room.seats, fn {_position, seat} ->
+      seat.user_id == user or seat.reserved_for == user
+    end)
+  end
+
+  defp resume_background(state, code, user) do
+    case connection_seat(state.rooms[code], user) do
+      {position, %Seat{background_token: token} = seat} when not is_nil(token) ->
+        room = state.rooms[code]
+        room = put_in(room.seats[position], %{seat | background_token: nil})
+        {room, state} = reconcile_turn_timer_for_current_state(room, code, state)
+        put_in(state.rooms[code], room)
+
+      _ ->
+        state
+    end
+  end
+
+  defp resume_connection(state, code, user) do
+    state = resume_background(state, code, user)
+
+    case find_seat_for_user(state.rooms[code], user) do
+      {position, seat} ->
+        {:reply, _, state} =
+          handle_seat_reconnection(state.rooms[code], code, user, position, seat, state)
+
+        state
+
+      nil ->
+        state
+    end
+  end
+
   defp disconnect_after_last_channel(state, room_code, user_id, close \\ :closed) do
     case Map.get(state.rooms, room_code) do
       %Room{} = room ->
-        case disconnect_player(state, room, room_code, user_id, close) do
+        held? =
+          room.status == :playing and
+            Enum.any?(room.seats, fn {_position, seat} ->
+              seat.user_id == user_id and seat.background_token != nil
+            end)
+
+        case if(held?,
+               do: {:held, state},
+               else: disconnect_player(state, room, room_code, user_id, close)
+             ) do
           {:ok, updated, next} ->
             broadcast_room(room_code, updated)
             broadcast_lobby_event({:room_updated, updated})
@@ -6186,7 +6383,7 @@ defmodule PidroServer.Games.RoomManager do
           actions = if position, do: Engine.legal_actions(game_state, position), else: []
 
           if seat && seat.occupant_type == :human &&
-               seat.status == :connected && actions != [] do
+               seat.status == :connected && seat.background_token == nil && actions != [] do
             {:ok, {:seat, position, phase, event_seq}, :seat, position, phase,
              turn_timer_duration_ms(phase)}
           else
@@ -6256,7 +6453,7 @@ defmodule PidroServer.Games.RoomManager do
 
   defp pause_active_turn_timer(%Room{} = room, room_code, position) do
     case room.turn_timer do
-      %{scope: :seat, actor_position: ^position} = timer ->
+      %{actor_position: ^position} = timer ->
         room
         |> cancel_active_turn_timer(room_code, :disconnected)
         |> Map.put(:paused_turn, %{
@@ -6295,6 +6492,19 @@ defmodule PidroServer.Games.RoomManager do
           {updated_room, incremented?} =
             maybe_increment_timeout_counter(cleared_room, scope, actor_position)
 
+          turn = {state.active_game_instances[room_code], TurnTimer.event_seq(key)}
+          user = updated_room.seats[actor_position].user_id
+
+          history =
+            Enum.take(
+              [
+                {{turn, user}, serialize_action(resolved_action)} | updated_room.auto_played_turns
+              ],
+              128
+            )
+
+          updated_room = %{updated_room | auto_played_turns: history}
+
           if incremented? do
             Stats.record_seat_event(
               updated_room.seats[actor_position].user_id,
@@ -6316,7 +6526,8 @@ defmodule PidroServer.Games.RoomManager do
             | rooms: Map.put(cleared_state.rooms, room_code, updated_room)
           }
 
-          if incremented? and timeout_threshold_reached?(updated_room, actor_position) do
+          if incremented? and not updated_room.seats[actor_position].liveness_enabled and
+               timeout_threshold_reached?(updated_room, actor_position) do
             maybe_force_disconnect(updated_room, room_code, actor_position, updated_state)
           else
             {updated_room, updated_state}
@@ -6444,7 +6655,9 @@ defmodule PidroServer.Games.RoomManager do
 
   defp all_human_table?(%Room{seats: seats}) do
     map_size(seats) == @max_players and
-      Enum.all?(seats, fn {_position, seat} -> Seat.connected_human?(seat) end)
+      Enum.all?(seats, fn {_position, seat} ->
+        Seat.connected_human?(seat) and seat.background_token == nil
+      end)
   end
 
   defp first_connected_human_position(%Room{seats: seats}) do

@@ -291,6 +291,7 @@ defmodule PidroServerWeb.GameChannel do
          # A departure can race the snapshot fetch. A queued disconnect cannot
          # retract a join reply, so recheck authority before revealing the hand.
          {:ok, current_room} <- RoomManager.get_room(room_code),
+         :ok <- require_playing_snapshot(current_room, game_snapshot),
          true <- current_room.id == room.id and user_authorized?(user_id, current_room, role),
          true <- role == :spectator or get_player_position(current_room, user_id) == position do
       socket =
@@ -334,8 +335,23 @@ defmodule PidroServerWeb.GameChannel do
         end
 
       Diagnostics.emit(:channel_joined, diagnostic_fields(socket, %{join_type: join_type}))
+
+      if role == :player do
+        PidroServer.Stats.record_seat_event(
+          user_id,
+          room_code,
+          "join",
+          nil,
+          socket.assigns.client_build
+        )
+      end
+
       {:ok, reply_data, socket}
     else
+      {:error, :game_unavailable} ->
+        {:error,
+         ErrorContract.add(%{reason: "game_unavailable"}, :game_unavailable, :action_failed)}
+
       {:error, :room_not_found} ->
         {:error, ErrorContract.add(%{reason: "Room not found"}, :room_not_found, :action_failed)}
 
@@ -352,9 +368,12 @@ defmodule PidroServerWeb.GameChannel do
   defp fetch_game_snapshot(room_code) do
     case GameAdapter.get_snapshot(room_code) do
       {:ok, snapshot} -> snapshot
-      {:error, :not_found} -> nil
+      {:error, _reason} -> nil
     end
   end
+
+  defp require_playing_snapshot(%{status: :playing}, nil), do: {:error, :game_unavailable}
+  defp require_playing_snapshot(_room, _snapshot), do: :ok
 
   @doc """
   Handles game actions from players.
@@ -373,6 +392,16 @@ defmodule PidroServerWeb.GameChannel do
   @impl true
   def handle_in(event, params, socket)
 
+  def handle_in("pong", %{"id" => id}, socket) when is_binary(id) do
+    RoomManager.connection_activity(socket.assigns.room_code, socket.assigns.user_id, id)
+    {:reply, :ok, socket}
+  end
+
+  def handle_in("going_background", _params, socket) do
+    RoomManager.going_background(socket.assigns.room_code, socket.assigns.user_id)
+    {:reply, :ok, socket}
+  end
+
   # The recursive dispatch leaves legacy payload parsing and replies untouched.
   # Only this bounded, server-created context crosses the RoomManager boundary.
   def handle_in(event, params, %{assigns: assigns} = socket)
@@ -381,9 +410,12 @@ defmodule PidroServerWeb.GameChannel do
     started = System.monotonic_time(:millisecond)
     action_id = if is_map(params), do: Diagnostics.action_id(params["action_id"])
     context = diagnostic_fields(socket, %{action: event, action_id: action_id})
+    context = Map.put(context, :expected_turn, expected_turn(params))
     Diagnostics.emit(:action_received, context, :debug)
 
     try do
+      RoomManager.connection_activity(socket.assigns[:room_code], socket.assigns.user_id)
+
       {:reply, reply, updated} =
         handle_in(event, params, assign(socket, :diagnostic_context, context))
 
@@ -917,6 +949,11 @@ defmodule PidroServerWeb.GameChannel do
   @impl true
   def handle_info(msg, socket)
 
+  def handle_info({:connection_ping, user_id, payload}, socket) do
+    if socket.assigns.user_id == user_id, do: push(socket, "ping", payload)
+    {:noreply, socket}
+  end
+
   def handle_info(
         {:state_update, room_code, payload},
         %{assigns: %{room_code: room_code}} = socket
@@ -1357,6 +1394,15 @@ defmodule PidroServerWeb.GameChannel do
         # State update is broadcast via PubSub subscription
         {:reply, :ok, socket}
 
+      {:error, {:already_played_for_you, played}} ->
+        {:reply,
+         {:error,
+          ErrorContract.add(
+            %{reason: "already_played_for_you", action: played},
+            :already_played_for_you,
+            :action_failed
+          )}, socket}
+
       {:error, reason} ->
         {:reply,
          {:error, ErrorContract.add(%{reason: format_error(reason)}, reason, :action_failed)},
@@ -1514,6 +1560,7 @@ defmodule PidroServerWeb.GameChannel do
   defp client_snapshot_payload(snapshot, position) do
     %{
       state: GameStateSerializer.serialize(snapshot.state, position),
+      turn_event_seq: length(snapshot.state.events),
       legal_actions: legal_actions_for_state(snapshot.state, position),
       transition_delay_ms: Map.get(snapshot, :transition_delay_ms, 0)
     }
@@ -1596,11 +1643,32 @@ defmodule PidroServerWeb.GameChannel do
 
   defp push_moments(socket, _snapshot), do: socket
 
+  defp expected_turn(%{"game_instance_id" => id, "turn_event_seq" => seq})
+       when is_binary(id) and is_integer(seq) and seq >= 0, do: {id, seq}
+
+  defp expected_turn(params) when is_map(params) do
+    if Map.has_key?(params, "turn_event_seq") or Map.has_key?(params, "game_instance_id"),
+      do: :invalid
+  end
+
+  defp expected_turn(_), do: nil
+
   defp client_build(params) when is_map(params) do
     %{
       app_version: Diagnostics.token(params["app_version"]),
       app_build: Diagnostics.token(params["app_build"]),
-      platform: Diagnostics.token(params["platform"])
+      platform: Diagnostics.token(params["platform"]),
+      reason:
+        if(
+          params["reason"] in ~w(backgrounded network_lost heartbeat_timeout push_timeout unknown),
+          do: params["reason"],
+          else: "unknown"
+        ),
+      network:
+        if(params["network"] in ~w(wifi cellular none unknown),
+          do: params["network"],
+          else: "unknown"
+        )
     }
   end
 

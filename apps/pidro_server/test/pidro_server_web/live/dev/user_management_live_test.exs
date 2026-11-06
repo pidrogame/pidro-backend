@@ -22,12 +22,19 @@ defmodule PidroServerWeb.Dev.UserManagementLiveTest do
         user_id: user.id,
         room_code: "L5V3",
         kind: kind,
+        reason: "heartbeat_timeout",
+        network: "cellular",
+        platform: "android",
+        app_version: "3.2.3",
         inserted_at: DateTime.add(now, -days, :day) |> DateTime.to_naive()
       })
     end
 
     {:ok, view, _} = live(conn, ~p"/admin/users/#{user.id}")
     assert has_element?(view, "#connection-quality", "2 drops, 1 auto-plays in the last 7 days")
+    assert has_element?(view, "#connection-timeline", "heartbeat_timeout · cellular")
+    assert has_element?(view, "#connection-timeline", "android 3.2.3")
+    assert has_element?(view, "#connection-timeline", "UTC")
   end
 
   test "lists players with search filters and summary stats", %{conn: conn} do

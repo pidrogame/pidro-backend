@@ -165,7 +165,7 @@ defmodule PidroServer.Games.RoomHandoverTest do
     # East had dropped before the deploy and a substitute covers the seat.
     RoomManager.handle_player_disconnect(code, east)
     {:ok, _} = RoomManagerCase.expire_phase(code, :east, :phase2_start)
-    wait(fn -> event_count(SeatEvent) == 1 end)
+    wait(fn -> event_count(SeatEvent) == 2 end)
 
     new_node()
     {:ok, room} = RoomManager.find_room(code)
@@ -179,9 +179,9 @@ defmodule PidroServer.Games.RoomHandoverTest do
     assert Process.alive?(bot)
     assert is_reference(room.phase_timers.east)
 
-    # Only east's own drop is on record; the deploy added none.
+    # Only east's drop and bot takeover are on record; the deploy added none.
     Process.sleep(100)
-    assert event_count(SeatEvent) == 1
+    assert event_count(SeatEvent) == 2
     assert event_count(AbandonmentEvent) == 0
 
     assert {:ok, back} = RoomManager.handle_player_reconnect(code, north)

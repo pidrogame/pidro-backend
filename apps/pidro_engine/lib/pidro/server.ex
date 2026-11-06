@@ -178,6 +178,9 @@ defmodule Pidro.Server do
   retained for this game process. A duplicate returns `{:replayed, outcome}`
   without applying an action. Rejections are not retained. The cache is not
   checkpointed: a process restart or restored room loses deduplication history.
+
+  An optional `{game_instance_id, event_count}` fences a retained tap to its
+  original turn. Successful replays take precedence over this fence.
   """
   @spec apply_action_with_snapshot(
           GenServer.server(),
@@ -193,8 +196,28 @@ defmodule Pidro.Server do
           {String.t(), String.t()} | nil
         ) ::
           {:ok, GameState.t(), map()} | {:replayed, GameState.t()} | {:error, term()}
-  def apply_action_with_snapshot(server, position, action, timeout \\ 5_000, action_key \\ nil) do
-    GenServer.call(server, {:apply_action_with_snapshot, position, action, action_key}, timeout)
+  @spec apply_action_with_snapshot(
+          GenServer.server(),
+          Types.position(),
+          Types.action(),
+          timeout(),
+          {String.t(), String.t()} | nil,
+          {String.t(), non_neg_integer()} | nil | :invalid
+        ) ::
+          {:ok, GameState.t(), map()} | {:replayed, GameState.t()} | {:error, term()}
+  def apply_action_with_snapshot(
+        server,
+        position,
+        action,
+        timeout \\ 5_000,
+        action_key \\ nil,
+        turn \\ nil
+      ) do
+    GenServer.call(
+      server,
+      {:apply_action_with_snapshot, position, action, action_key, turn},
+      timeout
+    )
   end
 
   @doc """
@@ -458,6 +481,20 @@ defmodule Pidro.Server do
           other ->
             other
         end
+    end
+  end
+
+  def handle_call({:apply_action_with_snapshot, position, action, key, turn}, from, state) do
+    replay? =
+      case key do
+        {user, id} -> List.keymember?(Map.get(state.recent_actions, user, []), id, 0)
+        nil -> false
+      end
+
+    if replay? or turn == nil or turn == {state.game_instance_id, length(state.game_state.events)} do
+      handle_call({:apply_action_with_snapshot, position, action, key}, from, state)
+    else
+      {:reply, {:error, :stale_turn}, state}
     end
   end
 

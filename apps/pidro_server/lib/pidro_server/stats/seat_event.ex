@@ -12,7 +12,7 @@ defmodule PidroServer.Stats.SeatEvent do
   use Ecto.Schema
   import Ecto.Changeset
 
-  @kinds ~w(drop return turn timeout)
+  @kinds ~w(join drop return turn timeout bot_took_seat seat_taken_back)
 
   @primary_key {:id, :binary_id, autogenerate: true}
 
@@ -23,6 +23,8 @@ defmodule PidroServer.Stats.SeatEvent do
     field :elapsed_ms, :integer
     field :app_version, :string
     field :platform, :string
+    field :reason, :string
+    field :network, :string
 
     timestamps(updated_at: false)
   end
@@ -30,9 +32,23 @@ defmodule PidroServer.Stats.SeatEvent do
   @doc false
   def changeset(event, attrs) do
     event
-    |> cast(attrs, [:user_id, :room_code, :kind, :elapsed_ms, :app_version, :platform])
+    |> cast(attrs, [
+      :user_id,
+      :room_code,
+      :kind,
+      :elapsed_ms,
+      :app_version,
+      :platform,
+      :reason,
+      :network
+    ])
     |> validate_required([:user_id, :room_code, :kind])
     |> validate_inclusion(:kind, @kinds)
+    |> validate_inclusion(
+      :reason,
+      ~w(backgrounded network_lost heartbeat_timeout push_timeout unknown)
+    )
+    |> validate_inclusion(:network, ~w(wifi cellular none unknown))
     |> validate_number(:elapsed_ms, greater_than_or_equal_to: 0)
   end
 end

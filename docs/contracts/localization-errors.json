@@ -121,6 +121,7 @@
     {"code":"game_unavailable","params":{},"sources":["actions","rooms"],"meaning":"The game is temporarily unavailable."},
     {"code":"invalid_phase","params":{},"sources":["actions"],"meaning":"This action is not allowed in the current game phase."},
     {"code":"not_your_turn","params":{},"sources":["actions"],"meaning":"It is another player's turn."},
+    {"code":"already_played_for_you","params":{},"sources":["actions"],"meaning":"The turn timer already acted for this turn. The action field names what was played."},
     {"code":"invalid_action","params":{},"sources":["actions"],"meaning":"This action is not allowed now."},
     {"code":"invalid_bid_amount","params":{},"sources":["actions"],"meaning":"The bid amount is invalid."},
     {"code":"bid_too_low","params":{},"sources":["actions"],"meaning":"The bid must exceed the current bid."},

@@ -1,5 +1,15 @@
 import Config
 
+config :pidro_server,
+       :minimum_native_versions,
+       for(
+         {platform, env} <- [{"android", "MINIMUM_NATIVE_ANDROID"}, {"ios", "MINIMUM_NATIVE_IOS"}],
+         value = System.get_env(env),
+         is_binary(value) and value != "",
+         into: %{},
+         do: {platform, value}
+       )
+
 case System.get_env("LEAGUES_START_AT") do
   nil ->
     if config_env() == :prod, do: config(:pidro_server, :leagues_start_at, nil)

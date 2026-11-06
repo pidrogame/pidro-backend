@@ -27,7 +27,7 @@ defmodule PidroServerWeb.ErrorContract do
     room_code_exhausted invalid_room_params seat_permanently_filled grace_period_expired
     player_not_disconnected spectator_action_forbidden invalid_readiness stale_readiness
     stale_identity table_not_full room_not_finished stale_decision game_unavailable
-    invalid_phase not_your_turn invalid_action invalid_bid_amount bid_too_low already_bid
+    invalid_phase not_your_turn already_played_for_you invalid_action invalid_bid_amount bid_too_low already_bid
     already_passed already_acted dealer_must_bid invalid_suit trump_already_declared
     trump_not_declared invalid_card card_not_in_hand cards_not_in_hand must_follow_suit
     cannot_play_non_trump cannot_discard_trump can_only_kill_trump cannot_kill_point_cards

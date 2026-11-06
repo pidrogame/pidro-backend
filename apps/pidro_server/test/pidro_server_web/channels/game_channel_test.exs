@@ -1356,6 +1356,70 @@ defmodule PidroServerWeb.GameChannelTest do
       %{private_state: state, watcher_socket: watcher_socket}
     end
 
+    test "ping, quiet background resume and late card refusal use the public wire contract",
+         ctx do
+      {:ok, snapshot} = GameAdapter.get_snapshot(ctx.room_code)
+      send(RoomManager, {:state_update, ctx.room_code, snapshot})
+      RoomManager.get_room(ctx.room_code)
+
+      {:ok, joined, socket} =
+        subscribe_and_join(ctx.sockets[ctx.user1.id], GameChannel, "game:#{ctx.room_code}", %{
+          "reason" => "network_lost",
+          "network" => "cellular",
+          "app_version" => "3.2.4",
+          "platform" => "android"
+        })
+
+      assert joined.state_revision == snapshot.state_revision
+      assert joined.game_instance_id == snapshot.game_instance_id
+      send(RoomManager, :check_connections)
+      assert_push "ping", %{id: id}
+      ref = push(socket, "pong", %{"id" => id})
+      assert_reply ref, :ok, %{}
+      ref = push(socket, "going_background", %{})
+      assert_reply ref, :ok, %{}
+      assert_push "turn_timer_cancelled", _
+      close(socket)
+
+      {:ok, resumed, socket} =
+        subscribe_and_join(ctx.sockets[ctx.user1.id], GameChannel, "game:#{ctx.room_code}", %{})
+
+      assert resumed.turn_timer.event_seq == joined.turn_timer.event_seq
+      {:ok, room} = RoomManager.get_room(ctx.room_code)
+      timer = room.turn_timer
+      send(RoomManager, {:turn_timer_expired, ctx.room_code, timer.timer_id, timer.key})
+      assert_push "turn_auto_played", %{action: played}
+
+      ref =
+        push(socket, "play_card", %{
+          "action_id" => "late-card",
+          "game_instance_id" => joined.game_instance_id,
+          "turn_event_seq" => joined.turn_timer.event_seq,
+          "card" => %{"rank" => 14, "suit" => "hearts"}
+        })
+
+      assert_reply ref, :error, %{
+        reason: "already_played_for_you",
+        error_code: "already_played_for_you",
+        action: ^played
+      }
+
+      assert played.type == :play_card
+      assert %{rank: _, suit: :hearts} = played.card
+    end
+
+    test "a playing join without a game snapshot fails retryably", ctx do
+      :ok = PidroServer.Games.GameSupervisor.stop_game(ctx.room_code)
+
+      assert {:error, %{error_code: "game_unavailable"}} =
+               subscribe_and_join(
+                 ctx.sockets[ctx.user1.id],
+                 GameChannel,
+                 "game:#{ctx.room_code}",
+                 %{}
+               )
+    end
+
     test "joins and pushes reveal only the authenticated seat, never a requested seat", ctx do
       for user <- ctx.users do
         {:ok, reply, socket} =
