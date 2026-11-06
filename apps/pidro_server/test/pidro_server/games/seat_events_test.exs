@@ -194,6 +194,9 @@ defmodule PidroServer.Games.SeatEventsTest do
     test "an unreachable turn never triggers the consecutive-timeout penalty" do
       {room, user} = bidding_room()
       position = position_of(room, user)
+      # A periodic probe may arrive before the test forces the next tick.
+      send(RoomManager, :check_connections)
+      RoomManager.get_room(room.code)
       expire_connection_checks()
       assert_receive {:connection_ping, ^user, %{id: id}}
       :ok = RoomManager.connection_activity(room.code, user, id)
@@ -603,23 +606,36 @@ defmodule PidroServer.Games.SeatEventsTest do
   end
 
   defp expire_connection_checks do
-    :sys.replace_state(RoomManager, fn state ->
-      rooms =
-        Map.new(state.rooms, fn {code, room} ->
-          seats =
-            Map.new(room.seats, fn {position, seat} ->
-              ping =
-                if seat.pending_ping,
-                  do: %{seat.pending_ping | sent_at: System.monotonic_time(:millisecond) - 15_001}
+    expired =
+      :sys.replace_state(RoomManager, fn state ->
+        rooms =
+          Map.new(state.rooms, fn {code, room} ->
+            seats =
+              Map.new(room.seats, fn {position, seat} ->
+                ping =
+                  if seat.pending_ping,
+                    do: %{
+                      seat.pending_ping
+                      | sent_at: System.monotonic_time(:millisecond) - 15_001
+                    }
 
-              {position, %{seat | pending_ping: ping}}
-            end)
+                {position, %{seat | pending_ping: ping}}
+              end)
 
-          {code, %{room | seats: seats}}
-        end)
+            {code, %{room | seats: seats}}
+          end)
 
-      %{state | rooms: rooms}
-    end)
+        %{state | rooms: rooms}
+      end)
+
+    for {_code, room} <- expired.rooms,
+        {_position, %{pending_ping: %{id: id}}} <- room.seats do
+      receive do
+        {:connection_ping, _user, %{id: ^id}} -> :ok
+      after
+        0 -> :ok
+      end
+    end
 
     send(RoomManager, :check_connections)
   end

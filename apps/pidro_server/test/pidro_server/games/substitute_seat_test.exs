@@ -72,6 +72,15 @@ defmodule PidroServer.Games.SubstituteSeatTest do
   describe "open_seat — owner opens a bot-filled seat" do
     test "a new human does not inherit the departing player's connection measurements" do
       {room, _} = create_playing_room()
+      position = position_for(room, "user2")
+
+      :sys.replace_state(RoomManager, fn state ->
+        update_in(
+          state.rooms[room.code].seats[position].connection_stats.started_ms,
+          &(&1 - 60_000)
+        )
+      end)
+
       send(RoomManager, :check_connections)
       RoomManager.get_room(room.code)
       assert_receive {:connection_ping, "user2", %{id: id}}
@@ -90,6 +99,7 @@ defmodule PidroServer.Games.SubstituteSeatTest do
       assert [new] = PidroServer.Stats.connection_games("replacement")
       assert old.checks_sent == 1
       assert old.drops == 1
+      assert old.duration_seconds >= 60
       assert new.checks_sent == 0
       assert new.drops == 0
       assert new.median_ms == nil
