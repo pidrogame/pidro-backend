@@ -49,6 +49,62 @@ defmodule PidroServer.Games.SeatEventsTest do
   end
 
   describe "drops and returns" do
+    test "game end saves one connection aggregate per player and game" do
+      {room, user} = bidding_room()
+
+      :ok =
+        RoomManager.register_game_channel(room.code, user, self(), %{
+          app_version: "3.2.4",
+          platform: "android",
+          network: "cellular"
+        })
+
+      expire_connection_checks()
+      assert_receive {:connection_ping, ^user, %{id: id}}
+      :ok = RoomManager.connection_activity(room.code, user, id)
+      :ok = RoomManager.handle_player_disconnect(room.code, user)
+      assert {:ok, _} = RoomManager.handle_player_reconnect(room.code, user)
+      send(RoomManager, {:game_over, room.code, :north_south, %{north_south: 62, east_west: 25}})
+      RoomManager.get_room(room.code)
+      await_tasks()
+
+      assert [saved] = PidroServer.Stats.connection_games(user)
+      assert saved.room_code == room.code
+      assert saved.checks_sent == 1
+      assert saved.unanswered_checks == 0
+      assert saved.drops == 1
+      assert is_number(saved.median_ms)
+      assert saved.p95_ms >= saved.median_ms
+      assert saved.network == "cellular"
+      assert saved.app_version == "3.2.4"
+      assert saved.platform == "android"
+
+      send(RoomManager, {:game_over, room.code, :north_south, %{north_south: 62, east_west: 25}})
+      RoomManager.get_room(room.code)
+      await_tasks()
+      assert [_] = PidroServer.Stats.connection_games(user)
+    end
+
+    test "leaving writes the player's aggregate without waiting for game over" do
+      {room, user} = bidding_room()
+      expire_connection_checks()
+      assert_receive {:connection_ping, ^user, %{id: id}}
+      :ok = RoomManager.connection_activity(room.code, user, id)
+      :ok = RoomManager.leave_room(room.code, user)
+      await_tasks()
+
+      assert [saved] = PidroServer.Stats.connection_games(user)
+      assert saved.checks_sent == 1
+      assert saved.drops == 0
+      assert is_number(saved.median_ms)
+      assert {:ok, %{status: :playing}} = RoomManager.get_room(room.code)
+
+      send(RoomManager, {:game_over, room.code, :north_south, %{north_south: 62, east_west: 25}})
+      RoomManager.get_room(room.code)
+      await_tasks()
+      assert [^saved] = PidroServer.Stats.connection_games(user)
+    end
+
     test "two missed probes pause a seat only after its first pong" do
       {room, user} = bidding_room()
       position = position_of(room, user)
