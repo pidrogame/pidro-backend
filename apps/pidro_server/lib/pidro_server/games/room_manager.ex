@@ -1471,7 +1471,7 @@ defmodule PidroServer.Games.RoomManager do
     schedule_cleanup()
     send(self(), :startup_sweep)
     schedule_health_check()
-    :timer.send_interval(15_000, :check_connections)
+    :timer.send_interval(Lifecycle.config(:connection_check_interval_ms), :check_connections)
     Process.send_after(self(), :save_rooms, @save_interval_ms)
     Process.send_after(self(), :room_store_sweep, @room_store_interval_ms)
     # Know other nodes' rooms from the start, so writes to them answer
@@ -3218,7 +3218,10 @@ defmodule PidroServer.Games.RoomManager do
         {position, seat} = connection_seat(acc.rooms[code], user)
         pids = Map.get(acc.channel_pids, {code, user}, MapSet.new())
         now = System.monotonic_time(:millisecond)
-        due? = seat.pending_ping == nil or now - seat.pending_ping.sent_at >= 15_000
+
+        due? =
+          seat.pending_ping == nil or
+            now - seat.pending_ping.sent_at >= Lifecycle.config(:connection_check_interval_ms)
 
         if MapSet.size(pids) > 0 and due? do
           missed =

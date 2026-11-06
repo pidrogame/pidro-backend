@@ -72,6 +72,7 @@ config :pidro_server,
 lifecycle_overrides =
   [
     {:hiccup_timeout_ms, "LIFECYCLE_HICCUP_TIMEOUT_MS"},
+    {:connection_check_interval_ms, "LIFECYCLE_CONNECTION_CHECK_INTERVAL_MS"},
     {:turn_pause_budget_ms, "LIFECYCLE_TURN_PAUSE_BUDGET_MS"},
     {:grace_timeout_ms, "LIFECYCLE_GRACE_TIMEOUT_MS"},
     {:solo_absence_timeout_ms, "LIFECYCLE_SOLO_ABSENCE_TIMEOUT_MS"},

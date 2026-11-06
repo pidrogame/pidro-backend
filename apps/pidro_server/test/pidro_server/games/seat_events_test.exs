@@ -495,6 +495,45 @@ defmodule PidroServer.Games.SeatEventsTest do
       assert_receive {:force_disconnect, :timeout_threshold}
     end
 
+    test "connection probes use the configured reply window without penalizing a short gap" do
+      Application.put_env(
+        :pidro_server,
+        Lifecycle,
+        Keyword.put(
+          Application.fetch_env!(:pidro_server, Lifecycle),
+          :connection_check_interval_ms,
+          500
+        )
+      )
+
+      {room, user} = bidding_room()
+      position = position_of(room, user)
+      expire_connection_checks()
+      assert_receive {:connection_ping, ^user, %{id: first}}
+      :ok = RoomManager.connection_activity(room.code, user, first)
+      expire_connection_checks()
+      assert_receive {:connection_ping, ^user, %{id: pending}}
+
+      send(RoomManager, :check_connections)
+      assert {:ok, fresh} = RoomManager.get_room(room.code)
+      assert fresh.seats[position].pending_ping.id == pending
+
+      :sys.replace_state(RoomManager, fn state ->
+        put_in(
+          state.rooms[room.code].seats[position].pending_ping.sent_at,
+          System.monotonic_time(:millisecond) - 501
+        )
+      end)
+
+      send(RoomManager, :check_connections)
+      assert_receive {:connection_ping, ^user, %{id: next}}
+      refute next == pending
+      assert {:ok, connected} = RoomManager.get_room(room.code)
+      assert connected.seats[position].status == :connected
+      :ok = RoomManager.connection_activity(room.code, user, next)
+      refute_receive {:force_disconnect, :timeout_threshold}
+    end
+
     test "queued check ticks cannot spend a fresh probe's reply window" do
       {room, user} = bidding_room()
       position = position_of(room, user)
