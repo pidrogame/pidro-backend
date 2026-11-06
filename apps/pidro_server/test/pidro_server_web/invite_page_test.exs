@@ -1,9 +1,67 @@
 defmodule PidroServerWeb.InvitePageTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   alias PidroServer.Invites.Invite
   alias PidroServerWeb.InvitePage
   alias PidroServerWeb.InvitePage.UserAgent
+
+  setup do
+    urls = Application.get_env(:pidro_server, :native_store_urls)
+    on_exit(fn -> Application.put_env(:pidro_server, :native_store_urls, urls) end)
+  end
+
+  test "all store destinations follow configuration while preserving install referrers" do
+    for android <- [
+          "https://example.com/android",
+          "https://example.com/android?id=public#install",
+          "https://example.com/android?id=public&referrer=campaign&referrer=old#install"
+        ] do
+      Application.put_env(:pidro_server, :native_store_urls, %{
+        "ios" => "https://example.com/ios?campaign=launch",
+        "android" => android
+      })
+
+      invite = InvitePage.present(preview(:open), :android)
+      player = InvitePage.player(%{display_name: "Aino", avatar_url: nil}, "aino", :android)
+
+      for {page, referrer} <- [{invite, "invite=AAAAAAAA"}, {player, "friend=aino"}] do
+        assert page.iphone_install_url == "https://example.com/ios?campaign=launch"
+        uri = URI.parse(page.play_store_url)
+        base = URI.parse(android)
+        assert %{uri | query: nil} == %{base | query: nil}
+
+        assert URI.decode_query(uri.query) ==
+                 Map.put(URI.decode_query(base.query || ""), "referrer", referrer)
+
+        assert uri.query
+               |> URI.query_decoder()
+               |> Enum.filter(fn {key, _} -> key == "referrer" end) ==
+                 [{"referrer", referrer}]
+
+        assert page.android_url =~
+                 "S.browser_fallback_url=#{URI.encode_www_form(page.play_store_url)};"
+      end
+
+      for page <- [InvitePage.not_found(:ios), InvitePage.player(nil, "unknown", :desktop)] do
+        assert page.iphone_install_url == "https://example.com/ios?campaign=launch"
+        assert page.play_store_url == android
+      end
+    end
+  end
+
+  test "missing store destinations never fall back to a beta listing" do
+    Application.put_env(:pidro_server, :native_store_urls, %{})
+
+    for page <- [
+          InvitePage.present(preview(:open), :android),
+          InvitePage.player(%{display_name: "Aino", avatar_url: nil}, "aino", :android)
+        ] do
+      assert page.iphone_install_url == nil
+      assert page.play_store_url == nil
+      assert page.android_url =~ "package=com.oneapps.pidro.beta;end"
+      refute page.android_url =~ "browser_fallback_url"
+    end
+  end
 
   describe "present/2" do
     test "open copy includes live seat context and only desktop builds a QR" do

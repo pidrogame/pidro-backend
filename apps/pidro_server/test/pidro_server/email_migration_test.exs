@@ -26,6 +26,39 @@ defmodule PidroServer.EmailMigrationTest do
     :ok
   end
 
+  test "store placeholders use current server settings, including studio samples" do
+    urls = Application.get_env(:pidro_server, :native_store_urls)
+    on_exit(fn -> Application.put_env(:pidro_server, :native_store_urls, urls) end)
+
+    template = %PidroServer.Emails.EmailTemplate{
+      kind: :campaign,
+      subject: "Install Pidro",
+      html_body: ~s(<a href="{{app_store_url}}">iOS</a><a href="{{play_store_url}}">Android</a>)
+    }
+
+    Application.put_env(:pidro_server, :native_store_urls, %{
+      "ios" => "https://example.com/ios",
+      "android" => "https://example.com/android?id=public"
+    })
+
+    sample = Emails.sample_variables()
+    assert sample["app_store_url"] == "https://example.com/ios"
+    assert sample["play_store_url"] == "https://example.com/android?id=public"
+
+    assert {:ok, rendered} =
+             Emails.render_template(template, %{app_store_url: "https://old.example.com"})
+
+    assert rendered.html_body ==
+             ~s(<a href="https://example.com/ios">iOS</a><a href="https://example.com/android?id=public">Android</a>)
+
+    Application.put_env(:pidro_server, :native_store_urls, %{
+      "android" => "https://example.com/android"
+    })
+
+    assert {:error, {:missing_variables, ["app_store_url"]}} =
+             Emails.render_template(template, sample)
+  end
+
   test "sample data covers every variable group and renders every seeded template" do
     sample = Emails.sample_variables()
 

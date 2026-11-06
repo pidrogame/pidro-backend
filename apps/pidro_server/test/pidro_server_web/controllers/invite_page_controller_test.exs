@@ -19,6 +19,48 @@ defmodule PidroServerWeb.InvitePageControllerTest do
     :ok
   end
 
+  test "invite and player pages omit unconfigured stores without losing app handoff" do
+    urls = Application.get_env(:pidro_server, :native_store_urls)
+    on_exit(fn -> Application.put_env(:pidro_server, :native_store_urls, urls) end)
+    {host, room} = host_and_room()
+    invite = mint!(room, host)
+
+    for {configured, expected} <- [
+          {%{"ios" => "https://example.com/ios"}, ["apple"]},
+          {%{"android" => "https://example.com/android"}, ["google"]},
+          {%{}, []}
+        ] do
+      Application.put_env(:pidro_server, :native_store_urls, configured)
+
+      for {path, status} <- [
+            {~p"/j/#{invite.code}", 200},
+            {~p"/play/#{host.share_slug}", 200},
+            {~p"/j/ZZZZZZZZ", 404},
+            {~p"/play/unknown-player", 404}
+          ] do
+        document =
+          build_conn()
+          |> put_req_header("user-agent", "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0)")
+          |> get(path)
+          |> html_response(status)
+          |> LazyHTML.from_document()
+
+        assert document |> LazyHTML.query("[data-store]") |> LazyHTML.attribute("data-store") ==
+                 expected
+
+        if status == 200 do
+          assert attribute(document, "[data-primary-action]", "href") ==
+                   "pidro-mobile-beta:/" <> path
+        end
+
+        if expected == [] do
+          assert LazyHTML.query(document, ".invite-store-label, [data-ios-fallback]")
+                 |> Enum.empty?()
+        end
+      end
+    end
+  end
+
   describe "GET /j/:code" do
     test "renders an open invite with canonical social metadata and no side effects", %{
       conn: conn
@@ -79,7 +121,9 @@ defmodule PidroServerWeb.InvitePageControllerTest do
         |> LazyHTML.from_document()
 
       assert attribute(ios, "[data-open-ios]", "href") == "pidro-mobile-beta://j/#{invite.code}"
-      assert attribute(ios, "[data-ios-fallback] a", "href") == "https://www.pidro.online/beta"
+
+      assert attribute(ios, "[data-ios-fallback] a", "href") ==
+               "https://testflight.apple.com/join/2JR95b65"
 
       assert attribute(ios, "[data-ios-fallback] a", "data-deferred-capture") ==
                "http://localhost:4002/j/#{invite.code}/deferred"
@@ -125,7 +169,8 @@ defmodule PidroServerWeb.InvitePageControllerTest do
         |> html_response(200)
         |> LazyHTML.from_document()
 
-      assert attribute(document, "[data-store=apple]", "href") == "https://www.pidro.online/beta"
+      assert attribute(document, "[data-store=apple]", "href") ==
+               "https://testflight.apple.com/join/2JR95b65"
 
       assert attribute(document, "[data-store=google]", "href") =~
                "play.google.com/store/apps/details?id=com.oneapps.pidro.beta&referrer="
@@ -230,7 +275,8 @@ defmodule PidroServerWeb.InvitePageControllerTest do
         refute html =~ "package=com.oneapps.pidro;", "#{page} on #{device} opens Classic"
         refute html =~ "pidro-mobile://", "#{page} on #{device} opens Classic"
 
-        assert html =~ "https://www.pidro.online/beta", "#{page} on #{device} lost the beta link"
+        assert html =~ "https://testflight.apple.com/join/2JR95b65",
+               "#{page} on #{device} lost the beta link"
       end
     end
 
@@ -250,7 +296,9 @@ defmodule PidroServerWeb.InvitePageControllerTest do
       assert LazyHTML.query(document, "[data-open-ios], [data-open-android]")
              |> LazyHTML.to_tree() == []
 
-      assert attribute(document, "[data-store=apple]", "href") == "https://www.pidro.online/beta"
+      assert attribute(document, "[data-store=apple]", "href") ==
+               "https://testflight.apple.com/join/2JR95b65"
+
       assert attribute(document, "[data-store=apple]", "data-deferred-capture") == nil
       assert LazyHTML.query(document, "[data-invite-privacy]") |> LazyHTML.to_tree() == []
     end
@@ -262,7 +310,9 @@ defmodule PidroServerWeb.InvitePageControllerTest do
       assert LazyHTML.text(LazyHTML.query(document, "h1")) =~ "invite"
       assert attribute(document, "meta[property='og:title']", "content") == "Come play Pidro"
       refute html_response(conn, 404) =~ "ZZZZZZZZ"
-      assert attribute(document, "[data-store=apple]", "href") == "https://www.pidro.online/beta"
+
+      assert attribute(document, "[data-store=apple]", "href") ==
+               "https://testflight.apple.com/join/2JR95b65"
     end
 
     test "limits each invite independently from the API preview and other invite codes", %{

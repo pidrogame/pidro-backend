@@ -37,6 +37,12 @@ Both minimums are empty until Marcel confirms a store build is live. An empty
 URL also disables the notice; an unset URL uses the beta default above.
 At public launch, replace the beta/TestFlight URLs with the public store listings.
 
+These same URLs drive invite/play page downloads and email `app_store_url` /
+`play_store_url` placeholders (including studio previews). Missing URLs hide page
+download links; email templates requiring a missing URL report a missing variable
+instead of reusing a stale destination. Android invite/friend install referrers
+are appended to the configured destination.
+
 The lobby join reply keeps `minimum_native_versions` and adds `native_store_urls`,
 both maps keyed by `android`/`ios`. The app requires both entries for its platform
 and opens only the supplied URL; old clients can ignore the new field.

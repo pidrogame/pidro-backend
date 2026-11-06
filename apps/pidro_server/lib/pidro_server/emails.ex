@@ -191,7 +191,11 @@ defmodule PidroServer.Emails do
   end
 
   def render_template(%EmailTemplate{} = template, variables \\ %{}) do
-    variables = normalize_variables(variables)
+    variables =
+      variables
+      |> normalize_variables()
+      |> Map.drop(["app_store_url", "play_store_url"])
+      |> Map.merge(store_variables())
 
     missing_variables =
       template
@@ -379,8 +383,6 @@ defmodule PidroServer.Emails do
       "reset_url" => "https://play.pidro.online/reset-password?token=sample-only",
       "unsubscribe_url" => "https://play.pidro.online/unsubscribe?token=sample-only",
       "offer_url" => "https://play.pidro.online",
-      "app_store_url" => "https://apps.apple.com/",
-      "play_store_url" => "https://play.google.com/store/apps",
       "support_email" => delivery_setup().reply_to,
       "purchase_platform" => "Apple App Store",
       "renewal_date" => "2026-11-24",
@@ -389,6 +391,16 @@ defmodule PidroServer.Emails do
       "details" => "I played with friends in 2012.\nMy Classic name was Aino.",
       "user_line" => "Signed in as player: 00000000-0000-4000-8000-000000000286"
     }
+    |> Map.merge(store_variables())
+  end
+
+  defp store_variables do
+    urls = Application.get_env(:pidro_server, :native_store_urls, %{})
+
+    for {key, platform} <- [{"app_store_url", "ios"}, {"play_store_url", "android"}],
+        url = urls[platform],
+        into: %{},
+        do: {key, url}
   end
 
   @doc "Reports placeholders used but undeclared, and declarations absent from the content."
