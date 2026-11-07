@@ -21,7 +21,7 @@ defmodule Pidro.Bot.SelfPlay do
   release gate refuses.
   """
 
-  alias Pidro.Bot.{Knowledge, RandomPolicy, Rulebook}
+  alias Pidro.Bot.{Knowledge, RandomPolicy, Rulebook, Search}
   alias Pidro.Core.{GameState, SeatView, Types}
   alias Pidro.Game.{DealerRob, Dealing, Engine}
 
@@ -63,6 +63,29 @@ defmodule Pidro.Bot.SelfPlay do
     fn view, legal ->
       {action, _reason} = Rulebook.decide(view, legal)
       action
+    end
+  end
+
+  @doc """
+  Returns the research search bot (`Pidro.Bot.Search`) as a policy.
+
+  Takes `Pidro.Bot.Search` options (`:worlds`, `:veto`, `:threshold`,
+  `:seed`) and `:critic`, an `Agent` that collects every position where
+  search overruled the rulebook (`Pidro.Bot.Search.disagreement/2`).
+  """
+  @spec search_policy(keyword()) :: policy()
+  def search_policy(opts \\ []) do
+    {critic, opts} = Keyword.pop(opts, :critic)
+
+    fn view, legal ->
+      analysis = Search.analyse(view, legal, opts)
+
+      if critic && analysis.choice != analysis.rulebook do
+        record = Search.disagreement(view, analysis)
+        Agent.update(critic, &[record | &1])
+      end
+
+      analysis.choice
     end
   end
 
