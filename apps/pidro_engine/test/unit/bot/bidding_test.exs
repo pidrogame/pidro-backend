@@ -178,8 +178,8 @@ defmodule Pidro.Bot.BiddingTest do
     end
 
     test "raises partner with a better hand, never with the competition allowance" do
-      strong = hand(suit(:hearts, [14, 13, 5]))
-      assert Bidding.estimate(strong, :hearts, false) == 7.25
+      strong = hand(suit(:hearts, [14, 13, 5, 2]))
+      assert Bidding.estimate(strong, :hearts, false) == 8.5
       state = Scenario.bidding(me: :south, bids: [north: 6, east: :pass], hand: strong)
       assert {{:bid, 7}, _} = decide(state)
 
@@ -273,16 +273,16 @@ defmodule Pidro.Bot.BiddingTest do
                bid_amount(decide(Scenario.bidding(me: :north, hand: one)))
     end
 
-    test "a fractional estimate rounds down" do
+    test "a fractional estimate rounds down in the reason, and the bid is the minimum" do
       cards = hand(suit(:hearts, [14, 13, 11, 5, 4]))
       estimate = Bidding.estimate(cards, :hearts, false)
       assert estimate != trunc(estimate)
 
-      assert {{:bid, amount}, _} = decide(Scenario.bidding(me: :north, hand: cards))
-      assert amount == trunc(estimate)
+      assert {{:bid, 6}, reason} = decide(Scenario.bidding(me: :north, hand: cards))
+      assert reason =~ "worth about #{trunc(estimate)},"
     end
 
-    test "the same hand bids one higher as dealer than in first seat" do
+    test "first seat and dealer both bid the lowest legal bid; the bonus moves only the estimate" do
       cards = hand(suit(:hearts, [14, 13, 5]))
 
       {{:bid, first}, _} = decide(Scenario.bidding(me: :north, hand: cards))
@@ -297,23 +297,29 @@ defmodule Pidro.Bot.BiddingTest do
           )
         )
 
-      assert dealer == first + Thresholds.get(:dealer_bonus)
+      assert {first, dealer} == {6, 7}
+
+      assert Bidding.estimate(cards, :hearts, true) ==
+               Bidding.estimate(cards, :hearts, false) + Thresholds.get(:dealer_bonus)
     end
 
     test "passes when an opponent has already bid above its estimate" do
       cards = hand(suit(:hearts, [14, 13, 5]))
-      {{:bid, own}, _} = decide(Scenario.bidding(me: :north, hand: cards))
+      own = trunc(Bidding.estimate(cards, :hearts, false))
 
       state = Scenario.bidding(me: :south, bids: [east: own], dealer: :north, hand: cards)
       assert {:pass, reason} = decide(state)
       assert reason =~ "below the #{own + 1} needed"
     end
 
-    test "overbids partner only with a clear margin" do
+    test "raises partner by one step, however strong the hand" do
       strong = hand(suit(:hearts, [14, 13, 12, 11, 10, 5, 2]) ++ [{5, :diamonds}])
+
+      assert Bidding.estimate(strong, :hearts, false) >=
+               7 + Thresholds.get(:overbid_partner_margin)
+
       state = Scenario.bidding(me: :south, bids: [north: 7, east: :pass], hand: strong)
-      assert {{:bid, amount}, _} = decide(state)
-      assert amount >= 7 + Thresholds.get(:overbid_partner_margin)
+      assert {{:bid, 8}, _} = decide(state)
     end
 
     test "equal estimates resolve to the same suit on every run" do
@@ -334,14 +340,14 @@ defmodule Pidro.Bot.BiddingTest do
       assert {:pass, _} = decide(state)
     end
 
-    test "a dealer that is not forced bids its estimate rounded down" do
+    test "a dealer that is not forced bids one over the table, however strong" do
       strong = hand(suit(:hearts, [14, 13, 12, 11, 10, 5, 2]) ++ [{5, :diamonds}])
 
       state =
         Scenario.bidding(me: :west, bids: [north: :pass, east: :pass, south: 6], hand: strong)
 
-      {{:bid, amount}, _} = decide(state)
-      assert amount == min(trunc(Bidding.estimate(strong, :hearts, true)), 14)
+      assert Bidding.estimate(strong, :hearts, true) >= 13
+      assert {{:bid, 7}, _} = decide(state)
     end
 
     test "always returns a legal action in the bidding states of real games" do

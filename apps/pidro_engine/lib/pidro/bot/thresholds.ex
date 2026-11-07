@@ -6,7 +6,7 @@ defmodule Pidro.Bot.Thresholds do
   protected they are, half-credit for the Jack and Ten, a bonus for holding
   the top trumps, and a bonus for the dealer. Finnish adds trump length and
   an allowance to contest cheap opposing bids. Louisiana keeps the original
-  estimate and partner margin.
+  estimate.
 
   The original calibration valued a protected Five at 3 and gave one top
   trump control credit from three trumps. PID-271 tuned length, competition
@@ -14,6 +14,14 @@ defmodule Pidro.Bot.Thresholds do
   272 and 273: 51.9% and 52.4% wins against the original bidder. Four updated
   seats made 75.8% of contracts versus 76.5% before. The half-point competition
   allowance kept nearly all the gain of larger margins with fewer sets.
+
+  PID-365 made the estimate a ceiling: the bot bids the minimum it needs,
+  one more to shut out an opponent still to speak when the estimate clears
+  the minimum by three, and raises a partner by one step. With the raise
+  capped, a partner margin of two beat one on seed 365 (50.3% of 6,000
+  games, fewer sets, 75.4% of raises made against 73.6%), so both variants
+  use two. On held-out seeds 366 and 367 the new bidder beat the PID-271
+  bidder; see `docs/bot-difficulty.md`.
   """
 
   @values %{
@@ -31,7 +39,8 @@ defmodule Pidro.Bot.Thresholds do
     trump_length: 0.25,
     trump_length_cap: 0.75,
     cheap_contract_margin: 0.5,
-    overbid_partner_margin: 1
+    overbid_partner_margin: 2,
+    shut_out_margin: 3
   }
 
   @typedoc "The name of a bidding constant."
@@ -51,6 +60,7 @@ defmodule Pidro.Bot.Thresholds do
           | :trump_length_cap
           | :cheap_contract_margin
           | :overbid_partner_margin
+          | :shut_out_margin
 
   @doc """
   Returns the value of one bidding constant.
@@ -69,12 +79,14 @@ defmodule Pidro.Bot.Thresholds do
   - `:cheap_contract_margin` - Finnish allowance below the next bid when
     contesting an opponent's 6 or 7; never applied over a partner
   - `:overbid_partner_margin` - how far above partner's bid the estimate must
-    reach before the Finnish bot overbids partner (Louisiana keeps two)
+    reach before the bot raises partner by one
+  - `:shut_out_margin` - how far above the minimum the estimate must reach
+    before a seat with an opponent still to speak bids one more
 
   ## Examples
 
       iex> Pidro.Bot.Thresholds.get(:overbid_partner_margin)
-      1
+      2
   """
   @spec get(name()) :: number()
   def get(name), do: Map.fetch!(@values, name)

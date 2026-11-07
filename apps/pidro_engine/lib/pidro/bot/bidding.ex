@@ -3,17 +3,26 @@ defmodule Pidro.Bot.Bidding do
   How the rulebook bot bids and names trump.
 
   Each suit gets a point estimate from the nine-card hand, counting the
-  same-colour Five as trump (see `Pidro.Bot.Thresholds`). The bot bids its
-  best suit's estimate rounded down, passes when that is below the lowest
-  legal bid, and lets its partner's standing bid stand unless its own
-  estimate clears it by the overbid margin. A dealer forced to bid takes the
-  minimum. Declaring trump recomputes the best suit from the current hand, so
-  a substitute that inherits an undeclared bid names its own best suit.
+  same-colour Five as trump (see `Pidro.Bot.Thresholds`). The estimate is a
+  ceiling, not the bid. A made contract scores the points the team took and
+  a failed one loses the bid, so a higher bid never earns a point: it only
+  raises the penalty and tells the table what the hand holds. Bidding is one
+  round with the dealer last, so the bot bids the lowest legal bid its
+  estimate covers and passes otherwise.
 
-  Finnish bids include a small trump-length bonus and an allowance to take
-  a cheap contract away from an opponent. The competition allowance never
-  raises a partner. Louisiana retains the original estimates and two-point
-  partner margin. The same view and legal actions always give the same bid.
+  The dealer has nothing left to shut out and takes the minimum; one forced
+  to bid takes it whatever it holds. Any other seat has an opponent still to
+  speak, and with an estimate the shut-out margin above the minimum it bids
+  one more, never two. Over a partner's standing bid it raises by one only
+  when its estimate clears that bid by the partner margin, and passes
+  otherwise. Declaring trump recomputes the best suit from the current hand,
+  so a substitute that inherits an undeclared bid names its own best suit.
+
+  Finnish estimates include a small trump-length bonus, and the Finnish bot
+  takes a cheap contract from an opponent's 6 or 7 on an estimate half a
+  point short of the minimum. The allowance never raises a partner.
+  Louisiana keeps the original estimates and bids by the same rules. The
+  same view and legal actions always give the same bid.
   """
 
   alias Pidro.Bot.Thresholds
@@ -79,36 +88,39 @@ defmodule Pidro.Bot.Bidding do
   def decide_bid(%SeatView{} = view, legal) do
     dealer? = view.current_dealer == view.position
     {suit, est} = best_suit(own_hand(view), dealer?, view.variant)
-    bids = for {:bid, amount} <- legal, do: amount
-    worth = "#{suit_name(suit)} are worth about #{trunc(est)} points"
+    {lowest, highest} = Enum.min_max(for({:bid, n} <- legal, do: n), fn -> {nil, nil} end)
+    worth = "#{suit_name(suit)} are worth about #{trunc(est)}"
+    mine = "my #{String.downcase(suit_name(suit))} are worth about #{trunc(est)}"
 
     cond do
-      bids == [] ->
+      lowest == nil ->
         {:pass, "No higher bid is left, so I pass."}
 
       :pass not in legal ->
-        min = Enum.min(bids)
-        {{:bid, min}, "Everyone passed, so as dealer I must bid and take the minimum #{min}."}
+        {{:bid, lowest},
+         "Everyone passed, so as dealer I must bid and take the minimum #{lowest}."}
 
       partner_bid = partner_standing_bid(view) ->
-        margin = if view.variant == :finnish, do: t(:overbid_partner_margin), else: 2
-
-        if est >= partner_bid + margin do
-          bid(est, bids, "#{worth}, well above partner's #{partner_bid}")
+        if est >= partner_bid + t(:overbid_partner_margin) do
+          {{:bid, lowest}, "Partner bid #{partner_bid} and #{mine}, so I raise to #{lowest}."}
         else
-          {:pass, "Partner's #{partner_bid} stands, and my #{worth}, not enough to go over it."}
+          {:pass, "Partner's #{partner_bid} stands; #{mine}, not enough to go over it."}
         end
 
-      contest?(view, est, Enum.min(bids)) ->
-        min = Enum.min(bids)
-        {{:bid, min}, "#{worth}; taking the cheap contract from the opponents is worth #{min}."}
+      contest?(view, est, lowest) ->
+        {{:bid, lowest},
+         "#{worth}; taking the cheap contract from the opponents is worth #{lowest}."}
 
-      trunc(est) < Enum.min(bids) ->
+      est < lowest ->
         {:pass,
-         "My best suit is not enough: #{worth}, below the #{Enum.min(bids)} needed, so I pass."}
+         "My best suit is not enough: #{worth} points, below the #{lowest} needed, so I pass."}
+
+      not dealer? and est >= lowest + t(:shut_out_margin) ->
+        amount = min(lowest + 1, highest)
+        {{:bid, amount}, "#{worth}, so I bid #{amount} to keep #{still_to_speak(view)} out."}
 
       true ->
-        bid(est, bids, worth)
+        {{:bid, lowest}, "#{worth}, so I bid the #{lowest} that takes it."}
     end
   end
 
@@ -133,9 +145,15 @@ defmodule Pidro.Bot.Bidding do
     end
   end
 
-  defp bid(est, bids, worth) do
-    amount = est |> trunc() |> min(Enum.max(bids))
-    {{:bid, amount}, "#{worth}, so I bid #{amount}."}
+  # Seats alternate teams and the dealer speaks last, so every seat but the
+  # dealer has an opponent still to speak: the dealer when it is next, the
+  # seat on the left when the dealer is partner, both opponents otherwise.
+  defp still_to_speak(%SeatView{position: me, current_dealer: dealer}) do
+    cond do
+      Types.next_position(me) == dealer -> "the dealer"
+      Types.partner_position(me) == dealer -> "the opponent on my left"
+      true -> "the opponents"
+    end
   end
 
   defp partner_standing_bid(%SeatView{} = view) do

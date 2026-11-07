@@ -65,6 +65,29 @@ improvement, preserve a frozen reference, develop on separate seeds, and reserve
 held-out seeds before tuning. Record partnership cases, contracts and Five
 outcomes alongside wins. Human play remains necessary to assess partner trust.
 
+## PID-365: bid what the contract needs
+
+The bot used to bid its estimate; now it bids the minimum, one more to shut
+out an opponent still to speak (estimate at least three over the minimum),
+and raises a partner by one. Measured against the frozen PID-271 bidder: the
+`Pidro.Bot.Bidding` of commit `7de5c8a`, compiled under another module name as
+a candidate policy for `SelfPlay.run/1` (bidding only; play and trump
+unchanged), 3,000 pairs per seed with teams swapped. Seed 365 chose the
+partner margin (2 over 1); 366 and 367 were held out. Seeds 365–368 are used;
+do not report them as unseen.
+
+| Finnish, new / old  | seed 366        | seed 367        |
+| ------------------- | --------------- | --------------- |
+| wins                | 51.0% / 49.0%   | 51.2% / 48.8%   |
+| contracts made      | 79.0% / 75.9%   | 79.7% / 76.5%   |
+| sets                | 5,183 / 6,464   | 5,031 / 6,308   |
+| points lost to sets | 32,498 / 44,874 | 31,486 / 43,833 |
+| average winning bid | 6.22 / 6.70     | 6.21 / 6.71     |
+| partner raises made | 79.0% / 68.3%   | 80.8% / 72.2%   |
+
+Louisiana (seed 368, 1,000 pairs): 51.0% wins, 2,369 sets against 2,460.
+Rulebook against random stays at 99.0% (`--pairs 1000 --seed 71`).
+
 ## Why one bot
 
 The [PR #49](https://github.com/marcelfahle/pidro-backend/pull/49) experiment gave
