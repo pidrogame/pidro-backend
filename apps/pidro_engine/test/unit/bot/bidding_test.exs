@@ -15,7 +15,154 @@ defmodule Pidro.Bot.BiddingTest do
     cards ++ Enum.take(filler -- cards, 9 - length(cards))
   end
 
+  # A-K-7-5-2 of hearts and the 5 of diamonds: about 11 points, 12 as dealer.
+  defp big, do: hand(suit(:hearts, [14, 13, 7, 5, 2]) ++ [{5, :diamonds}])
+
   defp decide(state), do: Bidding.decide_bid(Scenario.view(state), Scenario.legal(state))
+
+  describe "the estimate is a ceiling, not the bid" do
+    test "a dealer over a 6 with a 12-point hand bids 7" do
+      assert trunc(Bidding.estimate(big(), :hearts, true)) == 12
+
+      state =
+        Scenario.bidding(
+          me: :west,
+          dealer: :west,
+          bids: [north: :pass, east: :pass, south: 6],
+          hand: big()
+        )
+
+      assert {{:bid, 7}, reason} = decide(state)
+      assert reason == "Hearts are worth about 12, so I bid the 7 that takes it."
+    end
+
+    test "a forced dealer with a 12-point hand bids 6" do
+      state =
+        Scenario.bidding(
+          me: :west,
+          dealer: :west,
+          bids: [north: :pass, east: :pass, south: :pass],
+          hand: big()
+        )
+
+      assert {{:bid, 6}, _} = decide(state)
+    end
+
+    test "third to speak after two passes bids one over the minimum to keep the dealer out" do
+      assert trunc(Bidding.estimate(big(), :hearts, false)) == 11
+
+      state =
+        Scenario.bidding(
+          me: :south,
+          dealer: :west,
+          bids: [north: :pass, east: :pass],
+          hand: big()
+        )
+
+      assert {{:bid, 7}, reason} = decide(state)
+      assert reason == "Hearts are worth about 11, so I bid 7 to keep the dealer out."
+    end
+
+    test "below the shut-out margin the bot bids the minimum" do
+      cards = hand(suit(:hearts, [14, 13, 5]))
+      assert Bidding.estimate(cards, :hearts, false) == 7.25
+
+      state =
+        Scenario.bidding(
+          me: :south,
+          dealer: :west,
+          bids: [north: :pass, east: :pass],
+          hand: cards
+        )
+
+      assert {{:bid, 6}, reason} = decide(state)
+      assert reason == "Hearts are worth about 7, so I bid the 6 that takes it."
+
+      first = Scenario.bidding(me: :north, dealer: :west, hand: cards)
+      assert {{:bid, 6}, _} = decide(first)
+    end
+
+    test "first to speak shuts out the opponents by one, never more" do
+      state = Scenario.bidding(me: :north, dealer: :west, hand: big())
+      assert {{:bid, 7}, reason} = decide(state)
+      assert reason =~ "so I bid 7 to keep the opponents out."
+    end
+
+    test "the dealer's partner shuts out the one opponent still to speak" do
+      state = Scenario.bidding(me: :east, dealer: :west, bids: [north: :pass], hand: big())
+      assert {{:bid, 7}, reason} = decide(state)
+      assert reason =~ "so I bid 7 to keep the opponent on my left out."
+    end
+
+    test "the shut-out takes an estimate three over the minimum" do
+      three_over = hand(suit(:hearts, [13, 11, 5]) ++ [{5, :diamonds}])
+      just_short = hand(suit(:hearts, [14, 13, 12, 5, 2]))
+      assert Bidding.estimate(three_over, :hearts, false) == 9.0
+      assert Bidding.estimate(just_short, :hearts, false) == 8.75
+
+      assert {{:bid, 7}, _} =
+               decide(Scenario.bidding(me: :north, dealer: :west, hand: three_over))
+
+      assert {{:bid, 6}, _} =
+               decide(Scenario.bidding(me: :north, dealer: :west, hand: just_short))
+
+      over_seven = Scenario.bidding(me: :east, dealer: :west, bids: [north: 7], hand: big())
+      assert {{:bid, 9}, _} = decide(over_seven)
+    end
+
+    test "a partner's 7 stands against an 8-point hand; a 9-point hand raises it by one" do
+      eight = hand(suit(:hearts, [14, 13, 5, 2]))
+      nine = hand(suit(:hearts, [14, 13, 11, 5, 2]))
+      assert trunc(Bidding.estimate(eight, :hearts, false)) == 8
+      assert trunc(Bidding.estimate(nine, :hearts, false)) == 9
+
+      state = Scenario.bidding(me: :south, bids: [north: 7, east: :pass], hand: eight)
+      assert {:pass, reason} = decide(state)
+
+      assert reason ==
+               "Partner's 7 stands; my hearts are worth about 8, not enough to go over it."
+
+      state = Scenario.bidding(me: :south, bids: [north: 7, east: :pass], hand: nine)
+      assert {{:bid, 8}, reason} = decide(state)
+      assert reason == "Partner bid 7 and my hearts are worth about 9, so I raise to 8."
+    end
+
+    test "the bid never passes the highest legal bid" do
+      view = Scenario.view(Scenario.bidding(me: :north, dealer: :west, hand: big()))
+      assert {{:bid, 6}, _} = Bidding.decide_bid(view, [{:bid, 6}, :pass])
+    end
+
+    test "Louisiana bids the minimum of 7, one more to shut out, and raises a partner by one" do
+      louisiana = fn state ->
+        %{state | variant: :louisiana, config: %{state.config | min_bid: 7}}
+      end
+
+      assert Bidding.estimate(big(), :hearts, false, :louisiana) == 11.0
+
+      first = louisiana.(Scenario.bidding(me: :north, dealer: :west, hand: big()))
+      assert {{:bid, 8}, _} = decide(first)
+
+      dealer =
+        louisiana.(
+          Scenario.bidding(
+            me: :west,
+            dealer: :west,
+            bids: [north: :pass, east: :pass, south: 7],
+            hand: big()
+          )
+        )
+
+      assert {{:bid, 8}, _} = decide(dealer)
+
+      nine = hand(suit(:hearts, [14, 13, 11, 10, 5, 2]))
+      assert Bidding.estimate(nine, :hearts, false, :louisiana) == 9.0
+
+      partner =
+        louisiana.(Scenario.bidding(me: :south, bids: [north: 7, east: :pass], hand: nine))
+
+      assert {{:bid, 8}, _} = decide(partner)
+    end
+  end
 
   describe "Finnish bidding competition" do
     test "length makes a protected Five worth contesting an opponent's 6" do
