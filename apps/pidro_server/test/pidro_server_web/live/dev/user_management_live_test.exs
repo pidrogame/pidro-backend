@@ -223,6 +223,63 @@ defmodule PidroServerWeb.Dev.UserManagementLiveTest do
     assert has_element?(view, "h1", "detail_renamed")
   end
 
+  test "the Push section lists the phones and sends a test push to them", %{conn: conn} do
+    user = AccountsFixtures.user_fixture()
+    gone = "ExpoPushToken[gone]"
+
+    for {token, platform} <- [{"ExponentPushToken[phone]", "ios"}, {gone, "android"}] do
+      {:ok, _} =
+        PidroServer.Push.register(user, %{
+          "token" => token,
+          "platform" => platform,
+          "app_version" => "3.3.0"
+        })
+    end
+
+    PidroServer.Repo.update_all(
+      from(t in PidroServer.Push.Token, where: t.token == ^gone),
+      set: [disabled_at: DateTime.utc_now(), disabled_reason: "DeviceNotRegistered"]
+    )
+
+    test = self()
+
+    Req.Test.stub(PidroServer.Push.Expo, fn conn ->
+      {:ok, body, conn} = Plug.Conn.read_body(conn)
+      send(test, {:sent, Jason.decode!(body)})
+      Req.Test.json(conn, %{"data" => [%{"status" => "ok", "id" => "ticket-1"}]})
+    end)
+
+    {:ok, view, html} = live(conn, ~p"/admin/users/#{user.id}")
+    assert html =~ "Push"
+    assert view |> element("#push-tokens") |> render() =~ "ios"
+    assert view |> element("#push-tokens") |> render() =~ "3.3.0"
+    assert view |> element("#push-tokens") |> render() =~ "DeviceNotRegistered"
+    assert view |> element("#push-tickets") |> render() =~ "No pushes sent yet"
+
+    view
+    |> form("#push-form", push: %{title: "Hello", body: "From admin", url: "/friends"})
+    |> render_submit()
+
+    assert_received {:sent, [message]}
+
+    assert message["to"] == "ExponentPushToken[phone]"
+    assert message["title"] == "Hello" and message["body"] == "From admin"
+    assert message["data"] == %{"url" => "/friends"}
+    assert view |> element("#push-result") |> render() =~ "Sent to 1 phone, 0 failed"
+    assert view |> element("#push-tickets") |> render() =~ "Hello"
+    assert view |> element("#push-tickets") |> render() =~ "Waiting for receipt"
+
+    Req.Test.stub(PidroServer.Push.Expo, &Req.Test.transport_error(&1, :econnrefused))
+
+    ExUnit.CaptureLog.capture_log(fn ->
+      view
+      |> form("#push-form", push: %{title: "Again", body: "B", url: ""})
+      |> render_submit()
+    end)
+
+    assert view |> element("#push-result") |> render() =~ "Could not reach Expo"
+  end
+
   test "admin name edits enforce the same policy and reservation errors as registration", %{
     conn: conn
   } do

@@ -156,6 +156,27 @@ gh secret set ANTHROPIC_API_KEY
 The next deploy hands it to the app. For `just deploy`, set it in
 `.kamal/secrets-common` (empty keeps translation off).
 
+`EXPO_ACCESS_TOKEN` is optional too (PID-392). The server sends pushes through
+Expo's push API; when the token is set it goes with each request as a bearer
+token. Without it Expo still accepts them as long as the Expo project does not turn on enhanced push
+security. To set it, create an access token on expo.dev and:
+
+```bash
+gh secret set EXPO_ACCESS_TOKEN
+```
+
+The app registers its phone with `POST /api/v1/me/push-tokens` (Expo push
+token, platform, install id, app version) and forgets it with
+`DELETE /api/v1/me/push-tokens/:token` on sign-out. A token signed in from
+another account moves to that account. In `/admin/users/:id` the **Push**
+section lists the player's phones and has **Send a test push** (title, body,
+optional URL in `data.url`); it shows how many phones got it and the latest
+pushes with their receipt, which the server reads every 5 minutes once a push
+is 15 minutes old. A phone Expo reports as `DeviceNotRegistered` stops getting
+pushes until the app registers it again. iOS tokens work with the store build
+that carries `expo-notifications` (PID-390); Android tokens also need Marcel's
+Firebase (FCM) setup for that build.
+
 The four store credentials are also **optional**, outside the required secret
 check. Missing credentials show “App Store Connect not connected” or “Google
 Play not connected” without affecting the app or deployment:

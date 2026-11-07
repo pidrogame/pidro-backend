@@ -12,6 +12,7 @@ defmodule PidroServerWeb.Dev.UserDetailLive do
   alias PidroServer.Games.Room.Seat
   alias PidroServer.Games.RoomManager
   alias PidroServer.Profiles
+  alias PidroServer.Push
   alias PidroServer.Rating.Tier
   alias PidroServer.Stats
   alias PidroServerWeb.CardHelpers
@@ -36,6 +37,9 @@ defmodule PidroServerWeb.Dev.UserDetailLive do
          |> assign(:user, user)
          |> assign(:show_delete_modal, false)
          |> assign_form(Auth.change_user(user))
+         |> assign(:push_form, to_form(%{"title" => "", "body" => "", "url" => ""}, as: :push))
+         |> assign(:push_result, nil)
+         |> load_push()
          |> load_user_context()}
     end
   end
@@ -82,6 +86,24 @@ defmodule PidroServerWeb.Dev.UserDetailLive do
          |> assign_form(Map.put(changeset, :action, :validate))
          |> put_flash(:error, "Fix the highlighted fields and save again.")}
     end
+  end
+
+  @impl true
+  def handle_event("send_push", %{"push" => params}, socket) do
+    url = String.trim(params["url"] || "")
+
+    result =
+      Push.send(socket.assigns.user.id, %{
+        title: params["title"],
+        body: params["body"],
+        data: if(url == "", do: %{}, else: %{url: url})
+      })
+
+    {:noreply,
+     socket
+     |> assign(:push_form, to_form(params, as: :push))
+     |> assign(:push_result, push_result(result))
+     |> load_push()}
   end
 
   @impl true
@@ -546,6 +568,111 @@ defmodule PidroServerWeb.Dev.UserDetailLive do
               <% end %>
             </div>
           </section>
+          <section id="push" class="rounded-lg border border-stone-200 bg-white">
+            <div class="border-b border-stone-200 px-4 py-3">
+              <h2 class="text-base font-semibold text-stone-950">Push</h2>
+              <p class="mt-1 text-xs text-stone-600">
+                Phones the app registered for push, and the latest pushes sent to them.
+              </p>
+            </div>
+
+            <div class="space-y-5 p-4">
+              <div id="push-tokens" class="overflow-x-auto">
+                <p :if={@push_tokens == []} class="text-sm text-stone-600">
+                  No phone registered for push.
+                </p>
+                <table :if={@push_tokens != []} class="min-w-full divide-y divide-stone-200">
+                  <thead class="bg-stone-50">
+                    <tr>
+                      <th class="px-3 py-3 text-left text-xs font-medium text-stone-600">
+                        Platform
+                      </th>
+                      <th class="px-3 py-3 text-left text-xs font-medium text-stone-600">
+                        App version
+                      </th>
+                      <th class="px-3 py-3 text-left text-xs font-medium text-stone-600">
+                        Registered
+                      </th>
+                      <th class="px-3 py-3 text-left text-xs font-medium text-stone-600">
+                        Last used
+                      </th>
+                      <th class="px-3 py-3 text-left text-xs font-medium text-stone-600">
+                        Status
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody class="divide-y divide-stone-100 text-sm">
+                    <tr :for={token <- @push_tokens}>
+                      <td class="px-3 py-3 font-semibold text-stone-950">{token.platform}</td>
+                      <td class="px-3 py-3 text-stone-700">{token.app_version || "unknown"}</td>
+                      <td class="whitespace-nowrap px-3 py-3 text-stone-600">
+                        {Calendar.strftime(token.inserted_at, "%d %b %H:%M")}
+                      </td>
+                      <td class="whitespace-nowrap px-3 py-3 text-stone-600">
+                        {Calendar.strftime(token.last_used_at, "%d %b %H:%M")}
+                      </td>
+                      <td class="px-3 py-3">
+                        <span
+                          :if={is_nil(token.disabled_at)}
+                          class="rounded-md bg-emerald-50 px-2 py-1 text-xs font-bold text-emerald-700"
+                        >
+                          Active
+                        </span>
+                        <span
+                          :if={token.disabled_at}
+                          class="rounded-md bg-rose-50 px-2 py-1 text-xs font-bold text-rose-700"
+                        >
+                          Off
+                        </span>
+                        <p :if={token.disabled_at} class="mt-1 text-xs text-rose-700">
+                          {token.disabled_reason}
+                        </p>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+              <.form
+                for={@push_form}
+                id="push-form"
+                phx-submit="send_push"
+                class="space-y-3 rounded-lg border border-stone-200 bg-stone-50/70 p-4"
+              >
+                <h3 class="text-sm font-semibold text-stone-950">Send a test push</h3>
+                <div class="grid gap-3 sm:grid-cols-2">
+                  <.input field={@push_form[:title]} label="Title" required />
+                  <.input field={@push_form[:url]} label="URL" placeholder="/friends" />
+                </div>
+                <.input field={@push_form[:body]} label="Body" required />
+                <div class="flex flex-wrap items-center gap-3">
+                  <button
+                    type="submit"
+                    class="inline-flex items-center gap-2 rounded-md bg-stone-950 px-4 py-2 text-sm font-bold text-white shadow-sm hover:bg-orange-700"
+                  >
+                    <.icon name="hero-paper-airplane" class="size-4" /> Send test push
+                  </button>
+                  <p :if={@push_result} id="push-result" class="text-sm font-semibold text-stone-700">
+                    {@push_result}
+                  </p>
+                </div>
+              </.form>
+
+              <div id="push-tickets">
+                <h3 class="text-sm font-semibold text-stone-950">Latest pushes</h3>
+                <p :if={@push_tickets == []} class="mt-2 text-sm text-stone-600">
+                  No pushes sent yet.
+                </p>
+                <ol class="mt-2 divide-y divide-stone-200 text-sm">
+                  <li :for={ticket <- @push_tickets} class="flex flex-wrap gap-x-4 gap-y-1 py-2">
+                    <span class="font-semibold text-stone-950">{ticket.title}</span>
+                    <span class="text-stone-600">{format_datetime_full(ticket.sent_at)}</span>
+                    <span class={receipt_class(ticket.receipt_status)}>{receipt_label(ticket)}</span>
+                  </li>
+                </ol>
+              </div>
+            </div>
+          </section>
         </div>
 
         <aside class="space-y-4">
@@ -702,6 +829,36 @@ defmodule PidroServerWeb.Dev.UserDetailLive do
   defp assign_form(socket, changeset) do
     assign(socket, :form, to_form(changeset, as: :user))
   end
+
+  defp load_push(socket) do
+    user_id = socket.assigns.user.id
+
+    socket
+    |> assign(:push_tokens, Push.devices(user_id))
+    |> assign(:push_tickets, Push.latest_tickets(user_id))
+  end
+
+  defp push_result({:ok, %{sent: 0, failed: 0}}), do: "No active phone to send to."
+
+  defp push_result({:ok, %{sent: sent, failed: failed}}),
+    do: "Sent to #{sent} #{if sent == 1, do: "phone", else: "phones"}, #{failed} failed."
+
+  defp push_result({:error, {:status, status, codes}}),
+    do: "Expo answered HTTP #{status} #{Enum.join(codes, ", ")}. Nothing sent."
+
+  defp push_result({:error, %{__exception__: true} = error}),
+    do: "Could not reach Expo: #{Exception.message(error)}"
+
+  defp push_result({:error, reason}), do: "Could not send: #{inspect(reason)}"
+
+  defp receipt_label(%{receipt_status: nil}), do: "Waiting for receipt"
+  defp receipt_label(%{receipt_status: "ok"}), do: "Delivered to Apple or Google"
+  defp receipt_label(%{receipt_status: "expired"}), do: "No receipt within a day"
+  defp receipt_label(%{receipt_error: error}), do: "Failed · #{error}"
+
+  defp receipt_class(nil), do: "text-stone-600"
+  defp receipt_class("ok"), do: "font-semibold text-emerald-700"
+  defp receipt_class(_status), do: "font-semibold text-rose-700"
 
   defp load_user_context(socket) do
     user = socket.assigns.user
