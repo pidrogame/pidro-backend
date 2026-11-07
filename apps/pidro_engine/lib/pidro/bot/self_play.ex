@@ -37,6 +37,7 @@ defmodule Pidro.Bot.SelfPlay do
   @type hand_record :: %{
           team: Types.team(),
           bid: Types.bid_amount(),
+          bids_made: pos_integer(),
           forced?: boolean(),
           made?: boolean(),
           partner_raise?: boolean(),
@@ -141,7 +142,10 @@ defmodule Pidro.Bot.SelfPlay do
   an opponent's standing 6 or 7, or a partner's standing bid. Raises count
   bids on those turns, even if later outbid. A partner raise's made rate
   counts only raises that won the contract, not those later outbid. The
-  forced-dealer-6 share uses all scored hands as its denominator.
+  forced-dealer-6 share uses all scored hands as its denominator, as do
+  volunteered contracts (any contract but a forced dealer bid) and auctions
+  (hands with two or more bids). The volunteered-6 made rate counts
+  unforced contracts of exactly 6.
 
   Paired runs also include each pair's seed and winners, sweep/split counts
   and incomplete pairs. Pairing fixes cuts and deck order per hand; different
@@ -217,6 +221,7 @@ defmodule Pidro.Bot.SelfPlay do
           wins            #{t.wins}/#{summary.complete} (#{pct(t.win_rate)})
           contracts       #{t.contracts} (#{t.forced} forced), average winning bid #{Float.round(t.average_bid, 2)}
           made / set      #{t.made} / #{t.set} (#{pct(t.made_rate)}; #{pct(t.made_rate_unforced)} unforced), #{t.set_points} points lost to sets
+          volunteered 6s  #{t.volunteered_sixes_made}/#{t.volunteered_sixes} made (#{pct(t.volunteered_six_made_rate)})
           cheap contests  #{t.cheap_contests}/#{t.cheap_opportunities} (#{pct(t.cheap_contest_rate)})
           partner raises  #{t.partner_raises}/#{t.partner_opportunities} (#{pct(t.partner_raise_rate)}); won #{t.partner_raise_contracts}, made #{t.partner_raises_made} (#{pct(t.partner_raise_made_rate)})
           Fives           #{t.fives_captured} captured, #{t.fives_taken} taken from opponents, #{t.fives_lost} lost
@@ -226,7 +231,7 @@ defmodule Pidro.Bot.SelfPlay do
 
     """
     Self-play: #{summary.games} games, seed #{summary.seed}
-    Scored hands: #{summary.hands}; forced dealer 6: #{summary.forced_sixes} (#{pct(ratio(summary.forced_sixes, summary.hands))})
+    Scored hands: #{summary.hands}; forced dealer 6: #{summary.forced_sixes} (#{pct(ratio(summary.forced_sixes, summary.hands))}); volunteered contracts #{Float.round(ratio(summary.volunteered, summary.hands), 3)} per hand; two or more bids: #{summary.auctions} (#{pct(ratio(summary.auctions, summary.hands))})
     #{format_pairs(summary)}#{Enum.join(teams)}
     complete #{summary.complete}, illegal #{summary.illegal}, crashed #{summary.crashed}, stalled #{summary.stalled}, capped #{summary.capped}
     """
@@ -330,6 +335,7 @@ defmodule Pidro.Bot.SelfPlay do
           contract = %{
             team: Types.position_to_team(pos),
             bid: amount,
+            bids_made: Enum.count(hand.bids, &is_integer/1),
             forced?: forced?,
             partner_raise?: hand.partner_raise?,
             bidding: hand.bidding
@@ -430,6 +436,8 @@ defmodule Pidro.Bot.SelfPlay do
         wins = Enum.count(complete, fn {teams, r} -> teams[r.winner] == label end)
         unforced = Enum.reject(hands, & &1.forced?)
         raises = Enum.filter(hands, & &1.partner_raise?)
+        volunteered_sixes = Enum.filter(unforced, &(&1.bid == 6))
+        volunteered_sixes_made = Enum.count(volunteered_sixes, & &1.made?)
         raised_made = Enum.count(raises, & &1.made?)
 
         decisions =
@@ -469,6 +477,9 @@ defmodule Pidro.Bot.SelfPlay do
            set_points: hands |> Enum.reject(& &1.made?) |> Enum.map(& &1.bid) |> Enum.sum(),
            made_rate: ratio(Enum.count(hands, & &1.made?), length(hands)),
            made_rate_unforced: ratio(Enum.count(unforced, & &1.made?), length(unforced)),
+           volunteered_sixes: length(volunteered_sixes),
+           volunteered_sixes_made: volunteered_sixes_made,
+           volunteered_six_made_rate: ratio(volunteered_sixes_made, length(volunteered_sixes)),
            average_bid: ratio(Enum.sum(Enum.map(hands, & &1.bid)), length(hands))
          }}
       end)
@@ -489,6 +500,8 @@ defmodule Pidro.Bot.SelfPlay do
       labels: labels,
       hands: length(all_hands),
       forced_sixes: Enum.count(all_hands, &(&1.forced? and &1.bid == 6)),
+      volunteered: Enum.count(all_hands, &(not &1.forced?)),
+      auctions: Enum.count(all_hands, &(&1.bids_made >= 2)),
       complete: length(complete),
       teams: team_stats,
       illegal: Enum.count(results, &match?({_, %{outcome: {:illegal_action, _, _}}}, &1)),

@@ -89,6 +89,9 @@ defmodule Pidro.Integration.SelfPlayTest do
       assert summary.complete == 20
       total = fn key -> summary.teams.a[key] + summary.teams.b[key] end
       assert summary.forced_sixes == 0
+      assert summary.volunteered == summary.hands
+      assert summary.auctions == summary.hands
+      assert total.(:volunteered_sixes) == 0
       assert total.(:cheap_opportunities) == summary.hands * 2
       assert total.(:cheap_contests) == if(contest?, do: summary.hands, else: 0)
       assert total.(:partner_opportunities) == summary.hands
@@ -98,6 +101,29 @@ defmodule Pidro.Integration.SelfPlayTest do
       assert summary.teams.a.average_bid == if(contest?, do: 8.0, else: 7.0)
       assert total.(:set_points) == total.(:set) * if(contest?, do: 8, else: 7)
       assert summary.teams.b.average_bid == if(contest?, do: 8.0, else: 7.0)
+    end
+  end
+
+  test "a dealer's forced 6 is not volunteered; a first seat's 6 with no reply is not an auction" do
+    for open? <- [false, true] do
+      play = SelfPlay.rulebook_policy()
+
+      policy = fn
+        %{phase: :bidding, bids: bids}, legal ->
+          if :pass not in legal or (open? and bids == []), do: {:bid, 6}, else: :pass
+
+        view, legal ->
+          play.(view, legal)
+      end
+
+      summary = SelfPlay.run(games: 20, seed: 377, a: {:a, policy}, b: {:b, policy})
+      assert summary.complete == 20
+      total = fn key -> summary.teams.a[key] + summary.teams.b[key] end
+      assert summary.forced_sixes == if(open?, do: 0, else: summary.hands)
+      assert summary.volunteered == if(open?, do: summary.hands, else: 0)
+      assert summary.auctions == 0
+      assert total.(:volunteered_sixes) == summary.volunteered
+      assert total.(:volunteered_sixes_made) == if(open?, do: total.(:made), else: 0)
     end
   end
 
