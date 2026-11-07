@@ -305,6 +305,10 @@ defmodule PidroServer.Dev.ReplayController do
     "#{format_position(player)} went cold"
   end
 
+  defp format_event({:hand_settled, player, cards}) do
+    "#{format_position(player)} laid down #{length(cards)} trumps"
+  end
+
   defp format_event({:hand_scored, team, points}) do
     "Hand scored: #{format_team(team)} earned #{points} points"
   end

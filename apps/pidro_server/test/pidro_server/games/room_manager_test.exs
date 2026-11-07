@@ -1302,20 +1302,24 @@ defmodule PidroServer.Games.RoomManagerTest do
     end
   end
 
-  describe "settled hand sweep" do
+  describe "settled hand" do
     setup do
       previous = Application.get_env(:pidro_server, Lifecycle, [])
 
       Application.put_env(
         :pidro_server,
         Lifecycle,
-        Keyword.merge(previous, trick_transition_delay_ms: 600, sweep_trick_delay_ms: 60)
+        Keyword.merge(previous,
+          trick_transition_delay_ms: 0,
+          bot_delay_ms: 300,
+          settle_presentation_ms: 700
+        )
       )
 
       on_exit(fn -> Application.put_env(:pidro_server, Lifecycle, previous) end)
     end
 
-    test "plays out a lone trump holder's trumps quickly once the others are out, then scores the hand" do
+    test "a lone trump holder lays the rest down in one step, a bot beat after the last real trick" do
       room_code = create_playing_room()
       {:ok, pid} = GameAdapter.get_game(room_code)
       :ok = GenServer.call(pid, {:set_state, west_about_to_go_cold()})
@@ -1325,46 +1329,79 @@ defmodule PidroServer.Games.RoomManagerTest do
 
       # West's last trump completes an ordinary trick, and west is still in.
       {_, after_last_trump} = receive_state_update()
-      assert after_last_trump.transition_delay_ms == 600
       refute after_last_trump.state.players.west.eliminated?
 
       # South leads the next trick on an ordinary turn; west goes out on theirs.
       assert_receive {:turn_timer_started, %{position: :south, phase: :playing}}, 1_000
       {:ok, _} = GameAdapter.apply_action(room_code, :south, {:play_card, {14, :hearts}})
 
-      # South's ace takes the trick alone; their last three follow as a sweep.
-      updates = for _ <- 1..4, do: receive_state_update()
-      [{_, west_out} | sweep] = updates
-
-      assert west_out.transition_delay_ms == 600
+      {west_out_at, west_out} = receive_state_update()
       assert west_out.state.players.west.eliminated?
+      assert west_out.state.current_trick == nil
+      turns = :sys.get_state(RoomManager).rooms[room_code].table_outcome.turns
 
-      assert Enum.map(sweep, &elem(&1, 1).transition_delay_ms) ==
-               [
-                 60,
-                 60,
-                 Lifecycle.config(:hand_transition_delay_ms) +
-                   Lifecycle.config(:deal_transition_delay_ms)
-               ]
+      # South's last three go down together, in the next revision.
+      {settled_at, settled} = receive_state_update()
+      refute_receive {:state_update, _, _}, 200
 
-      arrivals = Enum.map(updates, &elem(&1, 0))
-      gaps = Enum.zip_with(arrivals, tl(arrivals), &(&2 - &1))
-      # The settled hand waits out the ordinary trick, then runs well inside it.
-      # Gaps are measured on receipt, so the lower bounds allow delivery jitter.
-      assert hd(gaps) >= 550
-      assert Enum.all?(tl(gaps), &(&1 in 40..450))
+      # Measured on receipt, so the bounds allow delivery jitter; the beat,
+      # not the lay-down hold (700).
+      assert (settled_at - west_out_at) in 280..600
+      assert settled.state_revision == west_out.state_revision + 1
+      assert settled.state.hand_number == 2
 
-      {_, %{state: scored}} = List.last(updates)
-      assert scored.hand_number == 2
-      assert scored.cumulative_scores == %{north_south: 8, east_west: 1}
+      assert settled.state.last_hand.settled == %{
+               position: :south,
+               cards: [{10, :hearts}, {5, :hearts}, {2, :hearts}]
+             }
 
-      assert for({:card_played, :south, card} <- scored.events, do: card) ==
+      assert settled.state.cumulative_scores == %{north_south: 8, east_west: 1}
+
+      assert for({:card_played, :south, card} <- settled.state.events, do: card) ==
                [{14, :hearts}, {10, :hearts}, {5, :hearts}, {2, :hearts}]
 
+      # The next deal waits for the lay-down as well as the hand's result.
+      assert settled.transition_delay_ms ==
+               700 + Lifecycle.config(:hand_transition_delay_ms) +
+                 Lifecycle.config(:deal_transition_delay_ms)
+
       refute_received {:turn_timer_started, %{position: :south, phase: :playing}}
+
+      # The table's stats count one turn per card laid, as for any card played.
+      assert :sys.get_state(RoomManager).rooms[room_code].table_outcome.turns == turns + 3
     end
 
-    test "a bot holding the last trumps leaves them to the sweep once the others are out" do
+    test "the holder's own card during the beat wins over the settlement" do
+      room_code = create_playing_room()
+      {:ok, pid} = GameAdapter.get_game(room_code)
+
+      {:ok, last_trump} =
+        Pidro.Game.Engine.apply_action(west_about_to_go_cold(), :west, {:play_card, {4, :hearts}})
+
+      :ok = GenServer.call(pid, {:set_state, last_trump})
+      Phoenix.PubSub.subscribe(PidroServer.PubSub, "game:#{room_code}")
+
+      {:ok, _} = GameAdapter.apply_action(room_code, :south, {:play_card, {14, :hearts}})
+      {_, west_out} = receive_state_update()
+      assert {:south, _} = Pidro.Game.Play.settled_play(west_out.state)
+
+      # Inside the beat, south taps their ten: an ordinary one-card trick.
+      Process.sleep(100)
+      {:ok, _} = GameAdapter.apply_action(room_code, :south, {:play_card, {10, :hearts}})
+      {tapped_at, tapped} = receive_state_update()
+      assert tapped.state.hand_number == 1
+
+      # The beat starts again from the tap; only the rest is laid down.
+      {settled_at, settled} = receive_state_update()
+      refute_receive {:state_update, _, _}, 400
+      assert (settled_at - tapped_at) in 280..600
+      assert settled.state.last_hand.settled.cards == [{5, :hearts}, {2, :hearts}]
+
+      assert for({:hand_settled, _, _} = event <- settled.state.events, do: event) ==
+               [{:hand_settled, :south, [{5, :hearts}, {2, :hearts}]}]
+    end
+
+    test "a bot holding the last trumps leaves them to the settlement once the others are out" do
       {:ok, last_trump} =
         Pidro.Game.Engine.apply_action(west_about_to_go_cold(), :west, {:play_card, {4, :hearts}})
 

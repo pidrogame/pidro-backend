@@ -209,7 +209,7 @@ defmodule PidroServer.Games.Bots.SubstituteTakeoverTest do
 
         # Every substitute move came from a rule, not the fallback. A hand is
         # settled when the bidder leads with every other seat cold; the room
-        # sweeps those plays (PID-220), so they carry no reasoning.
+        # lays those cards down (PID-366), so they carry no reasoning.
         reasons = collect_reasons(bidder)
 
         cold =
@@ -286,7 +286,13 @@ defmodule PidroServer.Games.Bots.SubstituteTakeoverTest do
       hands = watch_hands(room.code, Map.new(room.positions), %{})
 
       for {hand, dealt_delay} <- [{1, @hold_ms}, {2, 1 + @hold_ms}] do
-        %{dealt_at: dealt_at, bids: bids, delays: [delay | later]} = Map.fetch!(hands, hand)
+        %{dealt_at: dealt_at, bids: bids, delays: [delay | later], settled: settled} =
+          Map.fetch!(hands, hand)
+
+        # A hand that ended settled also holds its lay-down (PID-366).
+        dealt_delay =
+          dealt_delay + if settled, do: Lifecycle.config(:settle_presentation_ms), else: 0
+
         bot_bids = for {position, at} <- bids, position != :north, do: at - dealt_at
 
         assert length(bot_bids) >= 3
@@ -323,7 +329,9 @@ defmodule PidroServer.Games.Bots.SubstituteTakeoverTest do
 
   defp record(hands, %{phase: :bidding, hand_number: hand} = game, at, delay)
        when not is_map_key(hands, hand) do
-    record(Map.put(hands, hand, %{dealt_at: at, bids: [], delays: []}), game, at, delay)
+    settled = match?(%{last_hand: %{settled: %{}}}, game)
+    entry = %{dealt_at: at, bids: [], delays: [], settled: settled}
+    record(Map.put(hands, hand, entry), game, at, delay)
   end
 
   defp record(hands, %{hand_number: hand} = game, at, delay) when is_map_key(hands, hand) do

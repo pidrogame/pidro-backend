@@ -90,8 +90,8 @@ lifecycle_overrides =
     {:bot_delay_variance_ms, "LIFECYCLE_BOT_DELAY_VARIANCE_MS"},
     {:bot_min_delay_ms, "LIFECYCLE_BOT_MIN_DELAY_MS"},
     {:trick_transition_delay_ms, "LIFECYCLE_TRICK_TRANSITION_DELAY_MS"},
-    {:sweep_trick_delay_ms, "LIFECYCLE_SWEEP_TRICK_DELAY_MS"},
     {:hand_transition_delay_ms, "LIFECYCLE_HAND_TRANSITION_DELAY_MS"},
+    {:settle_presentation_ms, "LIFECYCLE_SETTLE_PRESENTATION_MS"},
     {:second_deal_transition_delay_ms, "LIFECYCLE_SECOND_DEAL_TRANSITION_DELAY_MS"},
     {:deal_transition_delay_ms, "LIFECYCLE_DEAL_TRANSITION_DELAY_MS"}
   ]

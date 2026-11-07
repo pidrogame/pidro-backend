@@ -221,7 +221,13 @@ defmodule PidroServerWeb.Serializers.GameStateSerializer do
     |> Map.put(:bids, serialize_bids(Map.get(last_hand, :bids, [])))
     |> Map.put(:trump, Map.get(last_hand, :trump))
     |> Map.put(:tricks, serialize_tricks(Map.get(last_hand, :tricks, [])))
+    |> Map.put(:settled, serialize_settled(Map.get(last_hand, :settled)))
   end
+
+  defp serialize_settled(%{position: position, cards: cards}),
+    do: %{position: position, cards: serialize_cards(cards)}
+
+  defp serialize_settled(nil), do: nil
 
   # A scored hand's point cards use the payload card shape.
   @spec serialize_hand(map()) :: map()

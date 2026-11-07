@@ -99,7 +99,7 @@ defmodule PidroServerWeb.OwnPaceTest do
     end
   end
 
-  test "a human's lone trumps are not swept and an existing turn timer cannot take over" do
+  test "a human's lone trumps are not settled and an existing turn timer cannot take over" do
     {room, user, socket} = solo_table(:finnish, false, 5_000)
     RoomFixtures.ready_room(room.code)
     {:ok, pid} = GameAdapter.get_game(room.code)
@@ -140,7 +140,7 @@ defmodule PidroServerWeb.OwnPaceTest do
     :ok = GenServer.call(pid, {:set_state, settled})
     assert {:north, _} = Pidro.Game.Play.settled_play(settled)
     assert BotBrain.should_make_move?(settled, :north)
-    send(RoomManager, {:sweep_play, room.code, length(settled.events), 3})
+    send(RoomManager, {:settle_hand, room.code, length(settled.events), 3})
     Process.sleep(150)
     assert {:ok, ^settled} = GameAdapter.get_state(room.code)
     assert {:ok, current} = RoomManager.get_room(room.code)

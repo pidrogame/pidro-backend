@@ -15,8 +15,9 @@ defmodule PidroServer.Games.Lifecycle do
   invites is still live (`LIFECYCLE_INVITED_WAITING_TTL_MS`); without a live
   invite the sweep keeps its five-minute grace period.
 
-  `sweep_trick_delay_ms` paces a settled hand: once one player alone holds
-  trumps, the server plays their remaining trumps one trick this far apart.
+  A settled hand (one player alone holds trumps) ends one `bot_delay_ms` after
+  its last real trick, in one step; `settle_presentation_ms` then holds the
+  next deal while the table shows the cards laid down.
   """
 
   @type timeout_key ::
@@ -43,8 +44,8 @@ defmodule PidroServer.Games.Lifecycle do
           | :dealer_selection_delay_ms
           | :trick_transition_delay_ms
           | :own_trick_transition_delay_ms
-          | :sweep_trick_delay_ms
           | :hand_transition_delay_ms
+          | :settle_presentation_ms
           | :second_deal_transition_delay_ms
           | :deal_transition_delay_ms
 
@@ -74,10 +75,13 @@ defmodule PidroServer.Games.Lifecycle do
     dealer_selection_delay_ms: 3_000,
     trick_transition_delay_ms: 0,
     own_trick_transition_delay_ms: 2_500,
-    sweep_trick_delay_ms: 500,
     # The hand's result stays ~6 s with no button; the next hand's deal then
     # adds deal_transition_delay_ms.
     hand_transition_delay_ms: 6_000,
+    # A settled hand first lays the holder's cards down: the client fans them
+    # face up (0.4 s), holds them (1.2 s), gathers them (0.5 s), plus a breath,
+    # before the hand's result.
+    settle_presentation_ms: 2_500,
     # As long as the client plays the second deal out (Classic's pace): each
     # player's throw, the piles to count, the refill card by card, the
     # dealer's pile held 2 s (~10.96 s for a 12-card refill), plus a breath

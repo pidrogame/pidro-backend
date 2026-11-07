@@ -1033,6 +1033,17 @@ defmodule PidroServerWeb.Schemas.RoomSchemas do
             items: Trick,
             description:
               "Every completed trick of the finished hand, including the final one, in the live `tricks` shape"
+          },
+          settled: %Schema{
+            type: :object,
+            nullable: true,
+            description:
+              "Set when one player alone held trumps and laid them down in one step (their one-card tricks are in `tricks`); null when the hand was played out",
+            properties: %{
+              position: %Schema{type: :string, enum: [:north, :south, :east, :west]},
+              cards: %Schema{type: :array, items: Card, description: "Highest first"}
+            },
+            required: [:position, :cards]
           }
         }),
       required: HandSummary.schema().required ++ [:bids, :tricks],

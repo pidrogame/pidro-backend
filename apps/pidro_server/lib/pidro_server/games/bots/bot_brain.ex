@@ -21,7 +21,7 @@ defmodule PidroServer.Games.Bots.BotBrain do
   Checks that the phase is active (not :complete, :hand_complete or nil) and that either
   `current_turn` matches the bot's position or the phase is :dealer_selection.
 
-  At quick pace a settled hand is the RoomManager's to sweep. At own pace
+  At quick pace a settled hand is the RoomManager's to settle. At own pace
   the bot plays its last trumps at its normal delay.
 
   Note: Does NOT check paused state — callers that support pausing should

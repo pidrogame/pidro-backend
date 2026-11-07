@@ -243,6 +243,14 @@ user, so `just rollback` must never cross that release.
   of that release, not before 2026-10-02; whoever deploys writes the literal
   date into the legacy clause in `token.ex`.
 
+### Settled hands rollback
+
+Since PID-366 a game that settles a hand keeps a `{:hand_settled, …}` event and
+a `settled` key in `last_hand`. A release built before it cannot decode those
+atoms, so a rollback across PID-366 loses every live table whose game has
+settled a hand (it restores as `room_not_found`). Fix forward instead; roll
+back across it only when losing those tables is the lesser harm.
+
 ## Database backups
 
 Backups are stored on the server in `/var/backups/pidro` as PostgreSQL custom

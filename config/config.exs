@@ -43,8 +43,8 @@ config :pidro_server, PidroServer.Games.Lifecycle,
   bot_delay_variance_ms: 0,
   bot_min_delay_ms: 300,
   trick_transition_delay_ms: 0,
-  sweep_trick_delay_ms: 500,
   hand_transition_delay_ms: 6_000,
+  settle_presentation_ms: 2_500,
   second_deal_transition_delay_ms: 11_500,
   deal_transition_delay_ms: 5_000
 

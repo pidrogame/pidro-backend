@@ -32,7 +32,7 @@ defmodule PidroServer.Games.GameAdapter do
   """
 
   require Logger
-  alias Pidro.Game.{Play, Replay}
+  alias Pidro.Game.Replay
   alias PidroServer.Diagnostics
   alias PidroServer.Games.{GameRegistry, GameSupervisor, Lifecycle}
 
@@ -468,18 +468,16 @@ defmodule PidroServer.Games.GameAdapter do
       Map.get(new_state, :phase) == :complete ->
         0
 
-      # The hand's result, then the next hand's deal.
+      # A settled hand's lay-down, the hand's result, then the next hand's deal.
       hand_completed?(old_state, new_state) ->
-        Lifecycle.config(:hand_transition_delay_ms) + Lifecycle.config(:deal_transition_delay_ms)
+        settle_presentation_ms(new_state) + Lifecycle.config(:hand_transition_delay_ms) +
+          Lifecycle.config(:deal_transition_delay_ms)
 
       second_deal_completed?(old_state, new_state) ->
         Lifecycle.config(:second_deal_transition_delay_ms)
 
       trick_completed?(old_state, new_state) and match?(%{config: %{pace: :own}}, new_state) ->
         Lifecycle.config(:own_trick_transition_delay_ms)
-
-      trick_completed?(old_state, new_state) and Play.settled_play(old_state) != nil ->
-        Lifecycle.config(:sweep_trick_delay_ms)
 
       trick_completed?(old_state, new_state) ->
         Lifecycle.config(:trick_transition_delay_ms)
@@ -488,6 +486,11 @@ defmodule PidroServer.Games.GameAdapter do
         0
     end
   end
+
+  defp settle_presentation_ms(%{last_hand: %{settled: %{}}}),
+    do: Lifecycle.config(:settle_presentation_ms)
+
+  defp settle_presentation_ms(_state), do: 0
 
   @spec trick_completed?(map(), map()) :: boolean()
   defp trick_completed?(old_state, new_state) do

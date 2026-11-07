@@ -96,7 +96,13 @@ defmodule PidroServer.Games.TableCleanupTest do
     assert {:error, :not_in_room} = RoomManager.leave_room(departed.id)
   end
 
-  test "a settled bot hand resumes its automatic sweep after the human returns" do
+  test "a settled bot hand settles in one step once the human returns" do
+    Application.put_env(
+      :pidro_server,
+      Lifecycle,
+      Keyword.put(Application.fetch_env!(:pidro_server, Lifecycle), :bot_delay_ms, 20)
+    )
+
     {room, user} = bot_table(true, :quick)
     {:ok, pid} = GameSupervisor.get_game(room.code)
     base = Pidro.Core.GameState.new(seed: 1)
@@ -124,12 +130,16 @@ defmodule PidroServer.Games.TableCleanupTest do
     :ok = GenServer.call(pid, {:set_state, settled})
     {:ok, snapshot} = GameAdapter.get_snapshot(room.code)
     send(RoomManager, {:state_update, room.code, Map.put(snapshot, :transition_delay_ms, 0)})
-    send(RoomManager, {:sweep_play, room.code, 0, 0})
+    send(RoomManager, {:settle_hand, room.code, 0, 0})
     RoomManager.list_rooms()
-    Process.sleep(Lifecycle.config(:sweep_trick_delay_ms) + 50)
+    Process.sleep(Lifecycle.config(:bot_delay_ms) + 50)
     assert {:ok, ^settled} = GameAdapter.get_state(room.code)
     {:ok, _} = RoomManager.handle_player_reconnect(room.code, user.id)
     wait_for_progress(room.code, settled)
+
+    {:ok, game} = GameAdapter.get_state(room.code)
+    assert game.hand_number == settled.hand_number + 1
+    assert game.last_hand.settled == %{position: :south, cards: [{14, :hearts}, {10, :hearts}]}
   end
 
   test "bots stop moving while the human is away, including a move already scheduled" do

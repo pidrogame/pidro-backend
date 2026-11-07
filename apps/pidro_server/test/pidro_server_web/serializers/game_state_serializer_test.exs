@@ -104,21 +104,59 @@ defmodule PidroServerWeb.Serializers.GameStateSerializerTest do
       assert payload.last_hand.trump == live.trump_suit
       assert payload.last_hand.trump in [:hearts, :diamonds, :clubs, :spades]
 
-      assert Map.drop(payload.last_hand, [:bids, :trump, :tricks, :point_cards]) ==
+      assert Map.drop(payload.last_hand, [:bids, :trump, :tricks, :point_cards, :settled]) ==
                Map.drop(last_hand, [:bids, :trump, :tricks, :point_cards])
+
+      # Played out to the last card, not laid down.
+      assert payload.last_hand.settled == nil
 
       assert payload.last_hand.point_cards ==
                Enum.map(last_hand.point_cards, fn %{card: {rank, suit}} = point_card ->
                  %{point_card | card: %{rank: rank, suit: suit}}
                end)
 
-      assert payload.hand_history == [Map.drop(payload.last_hand, [:bids, :tricks])]
+      assert payload.hand_history == [Map.drop(payload.last_hand, [:bids, :tricks, :settled])]
 
       wire = payload |> Jason.encode!() |> Jason.decode!()
       live_wire = live |> Jason.encode!() |> Jason.decode!()
       assert wire["last_hand"]["tricks"] == live_wire["tricks"]
       assert wire["last_hand"]["bids"] == live_wire["bids"]
       assert wire["last_hand"]["trump"] == live_wire["trump_suit"]
+    end
+
+    test "a settled hand names its holder and the cards laid down, highest first" do
+      state =
+        Pidro.Test.Scenario.playing(
+          me: :east,
+          hands: %{east: [2, :off5, 14]},
+          cold: [:north, :south, :west],
+          tricks: [[north: 13, east: 12, south: 8, west: 11]]
+        )
+
+      {:ok, settled} = Engine.settle_hand(state)
+      payload = GameStateSerializer.serialize(settled)
+
+      assert payload.last_hand.settled == %{
+               position: :east,
+               cards: [
+                 %{rank: 14, suit: :hearts},
+                 %{rank: 5, suit: :diamonds},
+                 %{rank: 2, suit: :hearts}
+               ]
+             }
+
+      # The one-card tricks stay in the hand log.
+      assert Enum.map(payload.last_hand.tricks, &length(&1.plays)) == [4, 1, 1, 1]
+
+      assert payload |> Jason.encode!() |> Jason.decode!() |> get_in(["last_hand", "settled"]) ==
+               %{
+                 "position" => "east",
+                 "cards" => [
+                   %{"rank" => 14, "suit" => "hearts"},
+                   %{"rank" => 5, "suit" => "diamonds"},
+                   %{"rank" => 2, "suit" => "hearts"}
+                 ]
+               }
     end
 
     test "folded faces stay with their owner, including after scoring and in history" do
