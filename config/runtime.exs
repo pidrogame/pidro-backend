@@ -608,6 +608,13 @@ if deferred_invites_enabled != nil and
          )
 end
 
+# Watching tables (PID-389): WATCHING_TABLES replaces the default only when set.
+watching_tables = System.get_env("WATCHING_TABLES")
+
+if watching_tables != nil do
+  config :pidro_server, :watching_tables, watching_tables in ~w(true TRUE 1 yes YES)
+end
+
 # News translation in /admin/news (PID-349). Without a key the button is off;
 # the test suite configures its own stub in test.exs.
 if config_env() != :test do

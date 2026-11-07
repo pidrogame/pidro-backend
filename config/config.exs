@@ -22,6 +22,9 @@ config :pidro_server, :game_report_archive_lookup, PidroServer.GameArchive
 
 config :pidro_server, PidroServer.Games.RoomManager, grace_period_ms: 120_000
 
+# Watching tables (PID-389) is off until WATCHING_TABLES in config/deploy.yml turns it on.
+config :pidro_server, :watching_tables, false
+
 # Lifecycle timeouts for the disconnect cascade and room lifecycle.
 # All values are in milliseconds. Override per-environment or via env vars in runtime.exs.
 config :pidro_server, PidroServer.Games.Lifecycle,

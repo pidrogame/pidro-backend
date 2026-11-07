@@ -606,6 +606,13 @@ defmodule PidroServer.Games.RoomManager do
   def visible_in_lobby?(%Room{} = room), do: not single_player_room?(room)
 
   @doc """
+  Whether anyone may watch a table: `WATCHING_TABLES` in config/deploy.yml.
+  Off, the lobby lists no table to watch and Watch is refused.
+  """
+  @spec watching_tables?() :: boolean()
+  def watching_tables?, do: Application.get_env(:pidro_server, :watching_tables, false)
+
+  @doc """
   Returns categorized lobby data for the given user.
 
   ## Categories
@@ -613,7 +620,8 @@ defmodule PidroServer.Games.RoomManager do
   - `:my_rejoinable` - Playing rooms where the user has a reserved seat (can reclaim)
   - `:open_tables` - Waiting rooms with vacant seats
   - `:substitute_needed` - Playing rooms with vacant seats opened by owner
-  - `:spectatable` - Playing rooms with spectator capacity remaining
+  - `:spectatable` - Playing rooms with spectator capacity remaining, while
+    `watching_tables?/0`
 
   Rooms with zero connected humans appear in no category.
 
@@ -2288,6 +2296,9 @@ defmodule PidroServer.Games.RoomManager do
       not Map.has_key?(state.rooms, room_code) ->
         # Not here: missing, or another node's to change.
         {:reply, fetch_room(state, room_code), state}
+
+      not watching_tables?() ->
+        {:reply, {:error, :room_not_available_for_spectators}, state}
 
       Map.has_key?(state.player_rooms, spectator_id) ->
         {:reply, {:error, :already_in_room}, state}
@@ -5866,7 +5877,8 @@ defmodule PidroServer.Games.RoomManager do
       room.status == :playing && available_positions(room) != [] ->
         :substitute_needed
 
-      room.status == :playing && length(room.spectator_ids) < room.max_spectators ->
+      room.status == :playing && length(room.spectator_ids) < room.max_spectators &&
+          watching_tables?() ->
         :spectatable
 
       true ->

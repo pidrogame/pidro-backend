@@ -90,6 +90,19 @@ defmodule PidroServerWeb.Dev.GameSettingsLiveTest do
       end
     end
 
+    test "shows whether watching tables is on and where it is switched", %{conn: conn} do
+      on_exit(fn -> Application.put_env(:pidro_server, :watching_tables, true) end)
+      Application.put_env(:pidro_server, :watching_tables, false)
+
+      {:ok, view, _html} = live(conn, ~p"/admin/game-settings")
+      assert has_element?(view, "#watching-tables-state", ~r/^\s*Off\s*$/)
+      assert has_element?(view, "#watching-tables", "WATCHING_TABLES")
+
+      Application.put_env(:pidro_server, :watching_tables, true)
+      {:ok, view, _html} = live(conn, ~p"/admin/game-settings")
+      assert has_element?(view, "#watching-tables-state", ~r/^\s*On\s*$/)
+    end
+
     test "reset restores every lifecycle pacing default", %{conn: conn} do
       PacingSettings.save(Map.new(PacingSettings.field_specs(), &{&1.key, &1.max}))
       {:ok, view, _html} = live(conn, ~p"/admin/game-settings")

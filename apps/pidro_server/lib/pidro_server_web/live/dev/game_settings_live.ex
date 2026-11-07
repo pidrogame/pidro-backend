@@ -4,11 +4,15 @@ defmodule PidroServerWeb.Dev.GameSettingsLive do
   use PidroServerWeb, :live_view
   import PidroServerWeb.Dev.AdminComponents
 
-  alias PidroServer.Games.PacingSettings
+  alias PidroServer.Games.{PacingSettings, RoomManager}
 
   @impl true
   def mount(_params, _session, socket) do
-    {:ok, socket |> assign(:page_title, "Game Settings") |> assign_pacing_settings()}
+    {:ok,
+     socket
+     |> assign(:page_title, "Game Settings")
+     |> assign(:watching_tables, RoomManager.watching_tables?())
+     |> assign_pacing_settings()}
   end
 
   @impl true
@@ -107,6 +111,33 @@ defmodule PidroServerWeb.Dev.GameSettingsLive do
             >Reset to Defaults</button>
           </div>
         </form>
+      </section>
+      <section
+        id="watching-tables"
+        class="mt-6 rounded-lg border border-stone-200 bg-white p-4 sm:p-6"
+      >
+        <div class="flex items-center justify-between gap-4">
+          <h2 class="text-base font-semibold text-stone-950">Watching tables</h2>
+          <span
+            id="watching-tables-state"
+            class={[
+              "rounded-full px-2.5 py-0.5 text-xs font-semibold",
+              if(@watching_tables,
+                do: "bg-emerald-100 text-emerald-800",
+                else: "bg-stone-100 text-stone-700"
+              )
+            ]}
+          >
+            {if @watching_tables, do: "On", else: "Off"}
+          </span>
+        </div>
+        <p class="mt-1 text-sm text-stone-600">
+          On, the lobby lists playing tables to watch and anyone can join one as a spectator.
+          Off, no table is listed to watch and Watch is refused.
+        </p>
+        <p class="mt-2 text-xs text-stone-600">
+          Set <code>WATCHING_TABLES</code> in config/deploy.yml; the next deploy applies it.
+        </p>
       </section>
     </.admin_shell>
     """

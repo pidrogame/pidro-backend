@@ -56,6 +56,8 @@ env:
     # Public launch: replace the beta/TestFlight URLs with the public store listings.
     # Phase 4 privacy disclosure is live and verified on the canonical site.
     DEFERRED_INVITES_ENABLED: "true"
+    # Watching tables (PID-389): "true" lists playing tables to watch and lets anyone watch.
+    WATCHING_TABLES: "false"
     # Weekly leagues (PID-350): must be a Sunday 19:00 UTC; unset means off.
     LEAGUES_START_AT: "2026-11-01T19:00:00Z"
     DB_HOST: postgres

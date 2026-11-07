@@ -9,6 +9,9 @@ config :bcrypt_elixir, log_rounds: 4
 
 config :pidro_server, PidroServer.Invites.DeferredMatcher, enabled: true
 
+# Tests cover watching as it works when switched on; the tests of the switch turn it off.
+config :pidro_server, :watching_tables, true
+
 config :pidro_server, PidroServer.Accounts.ClassicClient,
   base_url: "https://classic.test",
   secret: "classic-test-secret",

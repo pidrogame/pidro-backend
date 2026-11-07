@@ -93,6 +93,8 @@ defmodule PidroServerWeb.API.RoomController do
       description: """
       Returns rooms grouped into four categories for the lobby UI:
       my_rejoinable, open_tables, substitute_needed, and spectatable.
+      spectatable is empty while watching tables is off, and Watch then answers
+      ROOM_NOT_AVAILABLE_FOR_SPECTATORS.
 
       Playing rooms include `game: {hand, scores: {north_south, east_west}}`.
       Other rooms omit `game`. Vacant substitute seats include `vacated_by`,
@@ -1020,7 +1022,8 @@ defmodule PidroServerWeb.API.RoomController do
   - `my_rejoinable` - Playing rooms where the user has a reserved seat
   - `open_tables` - Waiting rooms with vacant seats
   - `substitute_needed` - Playing rooms with vacant seats opened by the owner
-  - `spectatable` - Playing rooms with spectator capacity remaining
+  - `spectatable` - Playing rooms with spectator capacity remaining; empty while
+    watching tables is off (`RoomManager.watching_tables?/0`)
 
   Requires authentication via Bearer token.
 

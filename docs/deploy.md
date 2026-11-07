@@ -107,6 +107,14 @@ start, then ask again next cold start. `POST /api/v1/news/seen` still marks
 only the feed read, not pop-ups. Do not infer update policy from `data.posts`:
 the feed is capped; use the lobby's `native_update_popup` flag.
 
+## Watching tables (PID-389)
+
+`WATCHING_TABLES` in `config/deploy.yml` is off (`"false"`) for the beta: the
+lobby's `spectatable` list is empty and Watch answers
+`ROOM_NOT_AVAILABLE_FOR_SPECTATORS`. Set it to `"true"` and push to turn watching
+back on; admin Game Settings shows which it is. The app's CI journeys run with
+it on.
+
 ## Secrets
 
 The deploy job reads these GitHub Actions repository secrets

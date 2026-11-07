@@ -217,6 +217,57 @@ defmodule PidroServer.Games.LobbyFilteringTest do
     end
   end
 
+  describe "with watching tables off" do
+    setup do
+      on_exit(fn -> Application.put_env(:pidro_server, :watching_tables, true) end)
+      Application.put_env(:pidro_server, :watching_tables, false)
+    end
+
+    test "a playing room with spectator capacity is in no category and cannot be watched" do
+      room = create_playing_room()
+      _open = create_waiting_room("host2")
+
+      lobby = RoomManager.list_lobby(nil)
+
+      assert lobby.spectatable == []
+      refute room.code in Enum.map(Enum.concat(Map.values(lobby)), & &1.code)
+      assert [_open_table] = lobby.open_tables
+
+      assert RoomManager.join_spectator_room(room.code, "watcher") ==
+               {:error, :room_not_available_for_spectators}
+
+      {:ok, after_refusal} = RoomManager.get_room(room.code)
+      assert after_refusal.spectator_ids == []
+    end
+
+    test "the player's own seat, substitute seats and open tables are listed as before" do
+      room = create_playing_room("host1")
+      {_room, _position} = trigger_disconnect(room.code, "host1_p2")
+      opened = create_playing_room("host3")
+      {_room, position} = trigger_full_cascade(opened.code, "host3_p2")
+      {:ok, _} = RoomManager.open_seat(opened.code, position, "host3")
+      waiting = create_waiting_room("host4")
+
+      lobby = RoomManager.list_lobby("host1_p2")
+
+      assert Enum.map(lobby.my_rejoinable, & &1.code) == [room.code]
+      assert Enum.map(lobby.substitute_needed, & &1.code) == [opened.code]
+      assert Enum.map(lobby.open_tables, & &1.code) == [waiting.code]
+      assert lobby.spectatable == []
+    end
+
+    test "turning it back on restores today's lobby and watching" do
+      room = create_playing_room()
+      Application.put_env(:pidro_server, :watching_tables, true)
+
+      assert [%{code: code}] = RoomManager.list_lobby(nil).spectatable
+      assert code == room.code
+
+      assert {:ok, %{spectator_ids: ["watcher"]}} =
+               RoomManager.join_spectator_room(code, "watcher")
+    end
+  end
+
   describe "rooms with zero connected humans" do
     test "appear in no category" do
       room = create_playing_room("user1")

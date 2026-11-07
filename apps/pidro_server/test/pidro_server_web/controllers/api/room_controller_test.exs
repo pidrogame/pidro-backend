@@ -1031,6 +1031,22 @@ defmodule PidroServerWeb.API.RoomControllerTest do
       refute RoomManager.is_spectator?(room.code, watcher.id)
     end
 
+    test "with watching tables off, Watch answers as for a room nobody may watch", %{conn: conn} do
+      on_exit(fn -> Application.put_env(:pidro_server, :watching_tables, true) end)
+      Application.put_env(:pidro_server, :watching_tables, false)
+      [host | others] = Enum.map(1..4, fn _ -> AccountsFixtures.guest_fixture() end)
+      {:ok, room} = RoomManager.create_room(host.id)
+      for user <- others, do: assert({:ok, _, _} = RoomManager.join_room(room.code, user.id))
+      PidroServer.RoomFixtures.ready_room(room.code)
+      auth = as_user(conn, AccountsFixtures.user_fixture())
+
+      assert %{"errors" => [%{"code" => "ROOM_NOT_AVAILABLE_FOR_SPECTATORS"} = error]} =
+               auth |> post(~p"/api/v1/rooms/#{room.code}/watch") |> json_response(422)
+
+      assert error["title"] == "Room not available for spectators"
+      assert %{"spectatable" => []} = auth |> get(~p"/api/v1/lobby") |> data(200)
+    end
+
     test "a guest watcher cannot claim an opened substitute seat", %{conn: conn} do
       [host, leaver, south, west, watcher] =
         Enum.map(1..5, fn _ -> AccountsFixtures.guest_fixture() end)

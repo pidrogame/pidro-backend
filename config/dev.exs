@@ -6,6 +6,8 @@ config :pidro_server, :leagues_start_at, ~U[2026-01-04 19:00:00Z]
 # Keep ordinary development and all production builds at bcrypt's default cost.
 if System.get_env("CI") in ["1", "true"] and System.get_env("PIDRO_E2E") == "1" do
   config :bcrypt_elixir, log_rounds: 4
+  # The app's Watch journey watches a table while watching is off in production.
+  config :pidro_server, :watching_tables, true
 end
 
 # Configure your database

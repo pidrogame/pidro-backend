@@ -87,6 +87,36 @@ defmodule PidroServer.StandInsConfigTest do
     refute Keyword.has_key?(bcrypt_config(:prod), :log_rounds)
   end
 
+  test "watching tables boots off in production until deploy config turns it on" do
+    saved = System.get_env("WATCHING_TABLES")
+
+    on_exit(fn ->
+      if saved,
+        do: System.put_env("WATCHING_TABLES", saved),
+        else: System.delete_env("WATCHING_TABLES")
+    end)
+
+    System.delete_env("WATCHING_TABLES")
+    assert compile_config(:prod)[:watching_tables] == false
+    refute Keyword.has_key?(runtime_config(:prod), :watching_tables)
+
+    System.put_env("WATCHING_TABLES", "true")
+    assert runtime_config(:prod)[:watching_tables] == true
+    System.put_env("WATCHING_TABLES", "false")
+    assert runtime_config(:prod)[:watching_tables] == false
+
+    # The app's journeys watch a table on the development server they boot.
+    assert compile_config(:dev)[:watching_tables] == true
+    System.delete_env("PIDRO_E2E")
+    assert compile_config(:dev)[:watching_tables] == false
+  end
+
+  defp compile_config(env) do
+    @compile_config
+    |> Config.Reader.read!(env: env, target: :host)
+    |> Keyword.fetch!(:pidro_server)
+  end
+
   defp bcrypt_config(env) do
     @compile_config
     |> Config.Reader.read!(env: env, target: :host)

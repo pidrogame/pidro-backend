@@ -220,6 +220,33 @@ defmodule PidroServerWeb.LobbyChannelTest do
     RoomManager.close_room(room.code)
   end
 
+  test "with watching tables off, the lobby lists and pushes no table to watch", %{
+    socket: socket
+  } do
+    on_exit(fn -> Application.put_env(:pidro_server, :watching_tables, true) end)
+    Application.put_env(:pidro_server, :watching_tables, false)
+
+    [host | others] = Enum.map(1..4, fn _ -> PidroServer.AccountsFixtures.user_fixture() end)
+    {:ok, room} = RoomManager.create_room(host.id)
+    for player <- others, do: {:ok, _, _} = RoomManager.join_room(room.code, player.id)
+    PidroServer.RoomFixtures.ready_room(room.code)
+
+    {:ok, reply, _socket} = subscribe_and_join(socket, LobbyChannel, "lobby", %{})
+    assert reply.lobby.spectatable == []
+    refute room.code in Enum.map(Enum.concat(Map.values(reply.lobby)), & &1.code)
+
+    :ok = RoomManager.handle_player_disconnect(room.code, hd(others).id)
+    assert_push "room_updated", %{room: %{code: code}, category: nil}
+    assert code == room.code
+
+    Application.put_env(:pidro_server, :watching_tables, true)
+    {:ok, reply, _socket} = subscribe_and_join(socket, LobbyChannel, "lobby", %{})
+    assert [%{code: ^code}] = reply.lobby.spectatable
+    :ok = RoomManager.handle_player_disconnect(room.code, List.last(others).id)
+    assert_push "room_updated", %{room: %{code: ^code}, category: "spectatable"}
+    RoomManager.close_room(room.code)
+  end
+
   test "seat invitations reach every invited lobby only, from create through release and seating",
        %{user: host} do
     friend = PidroServer.AccountsFixtures.user_fixture()
