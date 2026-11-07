@@ -3,7 +3,7 @@ defmodule PidroServer.BotCatalogueTest do
   alias PidroServer.BotCatalogue
   alias PidroServer.BotCatalogue.Profile
   alias PidroServer.Games.Room.Seat
-  alias PidroServer.Games.{RoomManager, Bots.BotManager}
+  alias PidroServer.Games.{Lifecycle, RoomManager, Bots.BotManager}
   alias PidroServer.Games.Bots.Strategies.{RandomStrategy, RulebookStrategy}
 
   setup do
@@ -135,5 +135,146 @@ defmodule PidroServer.BotCatalogueTest do
     assert Seat.serialize(rematch.seats.east).bot_profile.name == "Renamed"
     refute Repo.get_by(PidroServer.Profiles.PlayerProfile, user_id: profile.id)
     assert Repo.aggregate(PidroServer.Accounts.User, :count) == 1
+  end
+
+  describe "tempo" do
+    # Each bot's move lands on a room without that turn, and says so.
+    @describetag :capture_log
+
+    setup do
+      original = Application.get_env(:pidro_server, Lifecycle, [])
+
+      Application.put_env(
+        :pidro_server,
+        Lifecycle,
+        Keyword.merge(original,
+          bot_delay_ms: 600,
+          own_bot_delay_ms: 800,
+          bot_delay_variance_ms: 0,
+          bot_min_delay_ms: 5,
+          turn_timer_bid_ms: 60_000,
+          turn_timer_play_ms: 60_000
+        )
+      )
+
+      on_exit(fn -> Application.put_env(:pidro_server, Lifecycle, original) end)
+    end
+
+    test "the legacy crew is steady, and public profiles carry the tempo" do
+      assert Enum.map(BotCatalogue.list(), & &1.tempo) == ~w(steady steady steady)
+      assert BotCatalogue.public(BotCatalogue.profile("marcel")).tempo == "steady"
+    end
+
+    test "each character acts on its tempo's beat, at quick and at own pace" do
+      tempos = %{"marcel" => "quick", "antti" => "steady", "jocke" => "slow"}
+
+      for {id, tempo} <- tempos,
+          do: {:ok, _} = BotCatalogue.save(BotCatalogue.get!(id), %{tempo: tempo})
+
+      {:ok, room} = RoomManager.create_room("host", %{})
+
+      bots =
+        for pos <- [:east, :south, :west] do
+          {:ok, pid} = BotManager.start_bot(room.code, pos, :basic)
+          {:ok, seated} = RoomManager.get_room(room.code)
+          {seated.seats[pos].bot_persona, pid, pos}
+        end
+
+      assert Enum.sort(for {persona, _, _} <- bots, do: persona) == ~w(antti jocke marcel)
+
+      expected = %{
+        quick: %{"marcel" => 450, "antti" => 600, "jocke" => 780},
+        own: %{"marcel" => 600, "antti" => 800, "jocke" => 1040}
+      }
+
+      for pace <- [:quick, :own] do
+        beats = beats(room.code, bots, pace)
+        for {persona, ms} <- expected[pace], do: assert_beat(beats[persona], ms)
+      end
+    end
+
+    test "the dev panel's fixed delay beats the character's tempo" do
+      # Quick, so a tempo applied on top of the fixed delay (188 ms) falls outside the beat.
+      Repo.update_all(Profile, set: [tempo: "quick"])
+      BotCatalogue.refresh()
+      {:ok, room} = RoomManager.create_room("host", %{})
+      {:ok, pid} = BotManager.start_bot(room.code, :east, :basic, 250)
+      assert_beat(beats(room.code, [{:east, pid, :east}], :quick)[:east], 250)
+    end
+
+    test "a character with no tempo, or no character, is steady" do
+      :persistent_term.put(BotCatalogue, Enum.map(BotCatalogue.defaults(), &%{&1 | tempo: nil}))
+      {:ok, room} = RoomManager.create_room("host", %{})
+      {:ok, pid} = BotManager.start_bot(room.code, :east, :basic)
+      assert_beat(beats(room.code, [{:east, pid, :east}], :quick)[:east], 600)
+      assert_beat(beats(room.code, [{:east, pid, :east}], :own)[:east], 800)
+    end
+
+    test "a substitute keeps its seat's character's tempo; one for a human is steady" do
+      Repo.update_all(Profile, set: [tempo: "slow"])
+      BotCatalogue.refresh()
+      [host, south, west] = Enum.map(1..3, fn _ -> Ecto.UUID.generate() end)
+      {:ok, room} = RoomManager.create_room(host, %{})
+      # A character whose process dies mid-game, so its departure seats a substitute.
+      character = spawn(fn -> receive do: (:never -> :ok) end)
+      bot_id = "bot_#{room.code}_east"
+      {:ok, _, :east} = RoomManager.join_bot(room.code, bot_id, character, :east)
+      {:ok, _, :south} = RoomManager.join_room(room.code, south, :south)
+      {:ok, _, :west} = RoomManager.join_room(room.code, west, :west)
+      PidroServer.RoomFixtures.ready_room(room.code)
+      assert {:ok, %{status: :playing}} = RoomManager.get_room(room.code)
+
+      ref = Process.monitor(character)
+      Process.exit(character, :kill)
+      assert_receive {:DOWN, ^ref, :process, _, :killed}
+      :ok = RoomManager.leave_room(bot_id)
+      :ok = RoomManager.leave_room(south)
+      {:ok, room} = RoomManager.get_room(room.code)
+      assert %{status: :bot_substitute, bot_persona: persona} = room.seats.east
+      assert is_binary(persona)
+      assert %{status: :bot_substitute, bot_persona: nil} = room.seats.south
+
+      subs = for pos <- [:east, :south], do: {pos, room.seats[pos].bot_pid, pos}
+      beats = beats(room.code, subs, :quick)
+      assert_beat(beats[:east], 780)
+      assert_beat(beats[:south], 600)
+    end
+  end
+
+  # When each bot acts once the turn reaches it, read from its own mailbox:
+  # from the update that gives it the turn to its own `:make_move`.
+  defp beats(room_code, bots, pace) do
+    for {_key, pid, _pos} <- bots do
+      wait_until_idle(pid)
+      :erlang.trace(pid, true, [:receive, :monotonic_timestamp])
+    end
+
+    for {_key, pid, pos} <- bots do
+      turn = %{phase: :bidding, current_turn: pos, config: %{pace: pace}}
+      send(pid, {:state_update, room_code, %{state: turn, transition_delay_ms: 0}})
+    end
+
+    Map.new(bots, &beat/1)
+  end
+
+  defp beat({key, pid, _pos}) do
+    assert_receive {:trace_ts, ^pid, :receive, {:state_update, _, %{state: _}}, from}, 1_000
+    assert_receive {:trace_ts, ^pid, :receive, :make_move, to}, 3_000
+    :erlang.trace(pid, false, [:receive, :monotonic_timestamp])
+    {key, System.convert_time_unit(to - from, :native, :millisecond)}
+  end
+
+  # A move already pending from the real game must not stand in for ours.
+  defp wait_until_idle(pid, attempts \\ 300) do
+    cond do
+      not :sys.get_state(pid).move_scheduled? -> :ok
+      attempts == 0 -> flunk("the bot never finished its pending move")
+      true -> Process.sleep(10) && wait_until_idle(pid, attempts - 1)
+    end
+  end
+
+  defp assert_beat(ms, expected) do
+    assert ms in (expected - 1)..(expected + 100),
+           "expected a #{expected} ms beat, got #{inspect(ms)} ms"
   end
 end

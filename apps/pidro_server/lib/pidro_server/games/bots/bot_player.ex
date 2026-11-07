@@ -58,31 +58,33 @@ defmodule PidroServer.Games.Bots.BotPlayer do
 
     bot_user_id = "bot_#{room_code}_#{position}"
 
-    strategy_module =
+    {strategy_module, persona} =
       case PidroServer.Games.RoomManager.join_bot(room_code, bot_user_id, self(), position) do
         {:ok, room, ^position} ->
           Logger.info("Bot #{bot_user_id} joined room #{room_code} at #{position}")
-          room.seats[position].bot_strategy || Strategy.resolve(strategy)
+          seat = room.seats[position]
+          {seat.bot_strategy || Strategy.resolve(strategy), seat.bot_persona}
 
         {:ok, _room, other_position} ->
           Logger.warning(
             "Bot #{bot_user_id} requested #{position} but got #{other_position} in room #{room_code}"
           )
 
-          Strategy.resolve(strategy)
+          {Strategy.resolve(strategy), nil}
 
         {:error, reason} ->
           Logger.warning(
             "Bot #{bot_user_id} could not join room #{room_code}: #{inspect(reason)}"
           )
 
-          Strategy.resolve(strategy)
+          {Strategy.resolve(strategy), nil}
       end
 
+    tempo_factor = PidroServer.BotCatalogue.tempo_factor(persona)
     :ok = GameAdapter.subscribe(room_code)
 
     Logger.info(
-      "BotPlayer started for room #{room_code}, position #{position}, strategy #{inspect(strategy_module)}"
+      "BotPlayer started for room #{room_code}, position #{position}, strategy #{inspect(strategy_module)}, persona #{persona}, tempo factor #{tempo_factor}"
     )
 
     state = %{
@@ -91,6 +93,7 @@ defmodule PidroServer.Games.Bots.BotPlayer do
       user_id: bot_user_id,
       strategy: strategy_module,
       delay_ms_override: delay_ms_override,
+      tempo_factor: tempo_factor,
       move_scheduled?: false,
       paused?: paused?
     }
@@ -257,7 +260,7 @@ defmodule PidroServer.Games.Bots.BotPlayer do
     end
   end
 
-  defp schedule_opts(%{delay_ms_override: nil}), do: []
+  defp schedule_opts(%{delay_ms_override: nil, tempo_factor: factor}), do: [tempo_factor: factor]
 
   defp schedule_opts(%{delay_ms_override: delay_ms}) do
     [base_delay_ms: delay_ms, variance_ms: 0, min_delay_ms: delay_ms]

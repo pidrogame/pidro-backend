@@ -31,12 +31,17 @@ defmodule PidroServer.Games.Bots.SubstituteBot do
   Starts a substitute bot for the given room and position.
 
   Returns `{:ok, pid}` on success. The bot is started under `BotSupervisor`.
+  `tempo_factor` is the seat's character's tempo (`BotCatalogue.tempo_factor/1`).
   """
-  @spec start(String.t(), atom(), atom()) :: {:ok, pid()} | {:error, term()}
-  def start(room_code, position, difficulty \\ :basic) do
+  @spec start(String.t(), atom(), atom(), float()) :: {:ok, pid()} | {:error, term()}
+  def start(room_code, position, difficulty \\ :basic, tempo_factor \\ 1.0) do
     DynamicSupervisor.start_child(
       PidroServer.Games.Bots.BotSupervisor,
-      {__MODULE__, room_code: room_code, position: position, difficulty: difficulty}
+      {__MODULE__,
+       room_code: room_code,
+       position: position,
+       difficulty: difficulty,
+       tempo_factor: tempo_factor}
     )
   end
 
@@ -60,6 +65,7 @@ defmodule PidroServer.Games.Bots.SubstituteBot do
       room_code: room_code,
       position: position,
       strategy: Strategy.resolve(Keyword.get(opts, :difficulty, :basic)),
+      tempo_factor: Keyword.get(opts, :tempo_factor, 1.0),
       move_scheduled?: false
     }
 
@@ -174,7 +180,8 @@ defmodule PidroServer.Games.Bots.SubstituteBot do
   defp maybe_schedule_move(game_state, state, transition_delay_ms \\ 0) do
     if BotBrain.should_make_move?(game_state, state.position) do
       BotBrain.schedule_move_once(state, transition_delay_ms,
-        pace: Map.get(game_state.config, :pace, :quick)
+        pace: Map.get(game_state.config, :pace, :quick),
+        tempo_factor: state.tempo_factor
       )
     else
       state

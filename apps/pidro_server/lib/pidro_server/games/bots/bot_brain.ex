@@ -56,13 +56,19 @@ defmodule PidroServer.Games.Bots.BotBrain do
   @doc """
   Schedules a `:make_move` message using the current pacing config.
 
-  `transition_delay_ms` is added on top of the computed bot delay. Optional
-  schedule opts allow tests or explicit callers to override the base delay.
+  `transition_delay_ms` is added on top of the computed bot delay. The
+  `:tempo_factor` of the bot's character scales the pace's base delay; an
+  explicit `:base_delay_ms` (tests, the dev panel's fixed delay) replaces it.
   """
   @spec schedule_move(non_neg_integer(), keyword()) :: reference()
   def schedule_move(transition_delay_ms \\ 0, opts \\ []) do
     delay_key = if Keyword.get(opts, :pace) == :own, do: :own_bot_delay_ms, else: :bot_delay_ms
-    base_ms = Keyword.get(opts, :base_delay_ms, Lifecycle.config(delay_key))
+
+    base_ms =
+      Keyword.get_lazy(opts, :base_delay_ms, fn ->
+        round(Lifecycle.config(delay_key) * Keyword.get(opts, :tempo_factor, 1.0))
+      end)
+
     variance_ms = Keyword.get(opts, :variance_ms, Lifecycle.config(:bot_delay_variance_ms))
     min_ms = Keyword.get(opts, :min_delay_ms, Lifecycle.config(:bot_min_delay_ms))
     delay_ms = compute_delay(base_ms, variance_ms, min_ms) + transition_delay_ms

@@ -8,6 +8,8 @@ defmodule PidroServer.BotCatalogue do
 
   @topic "bot_catalogue"
   @legacy ~w(marcel antti jocke)
+  # How long a character thinks over a move, against the lifecycle's bot delay.
+  @tempo_factors %{"quick" => 0.75, "steady" => 1.0, "slow" => 1.3}
 
   def start_link(opts), do: GenServer.start_link(__MODULE__, opts, name: __MODULE__)
 
@@ -114,6 +116,14 @@ defmodule PidroServer.BotCatalogue do
 
   def strategy("random"), do: RandomStrategy
   def strategy(_), do: RulebookStrategy
+
+  @doc "The factor on the room's bot beat for a persona's tempo; without one a bot is steady."
+  def tempo_factor(persona) do
+    case profile(persona) do
+      %{tempo: tempo} -> Map.get(@tempo_factors, tempo, 1.0)
+      _ -> 1.0
+    end
+  end
 
   def fetch_image(id, version) do
     Repo.one(
