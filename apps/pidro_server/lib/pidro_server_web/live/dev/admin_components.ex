@@ -239,6 +239,9 @@ defmodule PidroServerWeb.Dev.AdminComponents do
           <.link navigate={~p"/admin/news"} class={nav_item_class(@active == "news")}>
             <.icon name="hero-newspaper" class="size-4" /> News
           </.link>
+          <.link navigate={~p"/admin/store-builds"} class={nav_item_class(@active == "store-builds")}>
+            <.icon name="hero-device-phone-mobile" class="size-4" /> Store builds
+          </.link>
           <.link navigate={~p"/admin/admins"} class={nav_item_class(@active == "admins")}>
             <.icon name="hero-lock-closed" class="size-4" /> Admins
           </.link>

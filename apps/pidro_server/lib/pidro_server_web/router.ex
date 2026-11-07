@@ -324,6 +324,7 @@ defmodule PidroServerWeb.Router do
       live "/beta", BetaLive
       live "/feedback", FeedbackLive
       live "/news", NewsLive
+      live "/store-builds", StoreBuildsLive
       live "/bots", BotCatalogueLive
     end
   end

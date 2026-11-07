@@ -12,14 +12,19 @@ defmodule PidroServerWeb.Dev.NewsLive do
 
   alias PidroServer.News
   alias PidroServer.News.Post
+  alias PidroServer.StoreBuilds
+  alias PidroServer.StoreBuilds.Cache
   alias PidroServer.Translate
 
   @impl true
   def mount(_params, _session, socket) do
+    if connected?(socket), do: Cache.subscribe()
+
     {:ok,
      socket
      |> assign(
        page_title: "News",
+       stores: Cache.snapshot(),
        post: nil,
        form: nil,
        preview: "en",
@@ -36,6 +41,30 @@ defmodule PidroServerWeb.Dev.NewsLive do
   end
 
   @impl true
+  def handle_params(%{"app_update" => "true"}, _uri, socket) do
+    post = %Post{app_update: true}
+
+    params =
+      StoreBuilds.live_versions(
+        socket.assigns.stores,
+        News.native_update_policy().minimum_native_versions
+      )
+
+    {:noreply, socket |> edit(post) |> assign(form: to_form(News.change(post, params)))}
+  end
+
+  def handle_params(_params, _uri, socket), do: {:noreply, socket}
+
+  @impl true
+  def handle_info({:store_builds, stores}, socket), do: {:noreply, assign(socket, stores: stores)}
+
+  @impl true
+  def handle_event("refresh_store", %{"platform" => platform}, socket)
+      when platform in ~w(ios android) do
+    Cache.refresh(platform)
+    {:noreply, socket}
+  end
+
   def handle_event("new", _params, socket), do: {:noreply, edit(socket, %Post{})}
 
   def handle_event("edit", %{"id" => id}, socket), do: {:noreply, edit(socket, News.get!(id))}
@@ -405,11 +434,17 @@ defmodule PidroServerWeb.Dev.NewsLive do
               label="Android: show below version"
               placeholder="3.2.4"
             />
+            <.store_hint
+              store={@stores["android"]}
+              version={@form[:show_below_android].value}
+              platform="android"
+            />
             <.input
               field={@form[:show_below_ios]}
               label="iPhone: show below version"
               placeholder="3.2.4"
             />
+            <.store_hint store={@stores["ios"]} version={@form[:show_below_ios].value} platform="ios" />
             <p class="text-xs text-stone-500">
               Empty = nobody on that platform. Set a version only when it is live in the store. The app supplies the Update button and the store link from server settings.
             </p>
@@ -517,6 +552,45 @@ defmodule PidroServerWeb.Dev.NewsLive do
         </div>
       </section>
     </.admin_shell>
+    """
+  end
+
+  attr :store, :map, required: true
+  attr :version, :any, required: true
+  attr :platform, :string, required: true
+
+  defp store_hint(assigns) do
+    assigns = assign(assigns, live: get_in(assigns.store, [:data, :live, :version]))
+
+    ~H"""
+    <div id={"store-hint-#{@platform}"} class="text-xs leading-5 text-stone-500">
+      <p>{StoreBuilds.hint(@store)}</p>
+      <p :if={@store.checked_at}>
+        Checked {Calendar.strftime(@store.checked_at, "%Y-%m-%d %H:%M UTC")}
+      </p>
+      <button
+        type="button"
+        phx-click="refresh_store"
+        phx-value-platform={@platform}
+        disabled={@store.refreshing}
+        class="font-medium underline disabled:opacity-50"
+      >
+        {if @store.refreshing, do: "Checking…", else: "Refresh #{StoreBuilds.store_name(@platform)}"}
+      </button>
+      <p :if={@platform == "android"}>
+        Uses the EAS submit account: don't refresh while an Android build is being submitted.
+      </p>
+      <p :if={StoreBuilds.above?(@version, @live)} role="alert" class="font-medium text-amber-800">
+        Players would be sent to a store that doesn't have {@version} yet. This is a warning, not a block.
+      </p>
+      <p
+        :if={@version not in [nil, ""] and is_nil(@live)}
+        role="alert"
+        class="font-medium text-amber-800"
+      >
+        The store has no confirmed live version. Verify {@version} in the console before publishing.
+      </p>
+    </div>
     """
   end
 

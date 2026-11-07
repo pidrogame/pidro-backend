@@ -1,5 +1,30 @@
 import Config
 
+# Store credentials are optional. Tests never inherit real store credentials.
+if config_env() != :test do
+  store_secret = fn name ->
+    case System.get_env(name <> "_BASE64") do
+      encoded when is_binary(encoded) and encoded != "" ->
+        case Base.decode64(encoded) do
+          {:ok, value} -> value
+          :error -> "invalid encoded credential"
+        end
+
+      _ ->
+        System.get_env(name)
+    end
+  end
+
+  config :pidro_server, PidroServer.StoreBuilds.Client,
+    asc_key_id: System.get_env("ASC_KEY_ID"),
+    asc_issuer_id: System.get_env("ASC_ISSUER_ID"),
+    asc_private_key: store_secret.("ASC_PRIVATE_KEY"),
+    play_service_account_json: store_secret.("PLAY_SERVICE_ACCOUNT_JSON")
+
+  config :pidro_server, PidroServer.StoreBuilds.Cache,
+    play_auto_refresh: System.get_env("PLAY_AUTO_REFRESH", "false") == "true"
+end
+
 config :pidro_server,
        :minimum_native_versions,
        for(

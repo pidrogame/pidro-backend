@@ -25,6 +25,23 @@ is already running is never cancelled.
 
 ## Native store notice
 
+Look at **[Store builds](https://app.pidro.online/admin/store-builds)** before
+and after every store release. It compares TestFlight's external **Friends**
+group and Play's **open testing** (`beta`) track with the effective News
+minimums and distinct players per version over the last seven days. Internal
+TestFlight builds do not reach players; a Play production draft is information,
+not a beta release warning. The page cannot see EAS builds not yet uploaded.
+Apple checks run every ten minutes or with **Refresh**. Google Play is checked
+only by its **Refresh** button on this page or in the News editor's hint—not
+at startup, on page load, or on a timer. Errors retain the last good snapshot
+and its timestamp. The cache is node-local and resets on deployment/restart.
+Play tracks do not expose upload/release dates.
+
+**New app-update post** fills both platforms from their live store builds.
+Review both values before publishing: that post owns both minimums, including
+empty ones. The News editor warns, without blocking, when a version exceeds
+the live build. See the frontend's `docs/store-builds.md` for the release steps.
+
 When a store build is live, publish an **App update** post in `/admin/news`.
 Set **Android: show below version** and **iPhone: show below version** to the
 live versions (for example `3.2.4`). Leave a platform empty until its build is
@@ -130,6 +147,47 @@ gh secret set ANTHROPIC_API_KEY
 
 The next deploy hands it to the app. For `just deploy`, set it in
 `.kamal/secrets-common` (empty keeps translation off).
+
+The four store credentials are also **optional**, outside the required secret
+check. Missing credentials show “App Store Connect not connected” or “Google
+Play not connected” without affecting the app or deployment:
+
+| GitHub Actions secret | Value |
+| --- | --- |
+| `ASC_KEY_ID` | App Store Connect API key ID |
+| `ASC_ISSUER_ID` | App Store Connect issuer ID |
+| `ASC_PRIVATE_KEY` | The complete multiline `.p8` PEM for that key |
+| `PLAY_SERVICE_ACCOUNT_JSON` | The complete multiline Google service-account JSON with access to `com.oneapps.pidro.beta` |
+
+The current Play credential is the same `eas-submit` account EAS uses.
+**Do not press Refresh while an Android build is being submitted.** Google
+permits one open edit per user: creating a new read edit invalidates that user's
+previous edit, including an unfinished publishing edit. Both Refresh controls
+show this warning; Apple reads have no such side effect.
+
+A **dedicated read-only Play service account is preferred**. Swap the same
+`PLAY_SERVICE_ACCOUNT_JSON` secret when it is available; no client code changes
+are needed. Once it is isolated from publishing and other pollers, the timer
+can return by setting `PLAY_AUTO_REFRESH=true` in `config/deploy.yml`'s
+`env.clear`. It defaults to **false** (`StoreBuilds.Cache`'s `play_auto_refresh`
+config flag). Coordinate polling before scaling to multiple nodes.
+See [Google's edit lifecycle](https://developers.google.com/android-publisher/edits).
+
+Name each Play release exactly after its native version (for example `3.2.4`).
+The tracks API exposes this editable name, not the binary's `versionName`.
+The dashboard only accepts a semantic version as a minimum candidate; other
+names show an unknown-version warning. Verify the name matches the binary.
+
+Deploy passes the two IDs unchanged. It base64-encodes the PEM and JSON into
+`ASC_PRIVATE_KEY_BASE64` and `PLAY_SERVICE_ACCOUNT_JSON_BASE64`, masks those
+values, and passes them through Kamal's secret environment file as single
+lines. `runtime.exs` decodes them in memory. Local development may instead use
+the original multiline environment variables; tests ignore all four. Never
+paste credentials into logs or screenshots. App Store Connect calls are GETs.
+Play creates a temporary edit to read tracks, then attempts deletion even if
+the read fails, retrying transient DELETE failures twice. It never commits an
+edit or publishes a release. Failed cleanup is shown as an error.
+Network loss or process termination cannot guarantee server-side deletion.
 
 ## Rolling back
 

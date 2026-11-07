@@ -120,7 +120,11 @@ defmodule PidroServerWeb.Dev.NewsLiveTest do
     assert has_element?(view, "#post_show_below_android")
     assert has_element?(view, "#news-preview", "Update in Google Play")
     assert has_element?(view, "#news-preview", "Later")
-    view |> element("button[phx-value-platform=ios]") |> render_click()
+
+    view
+    |> element("button[phx-click=preview_platform][phx-value-platform=ios]")
+    |> render_click()
+
     view |> element("button[phx-value-locale=sv]") |> render_click()
     assert has_element?(view, "#news-preview", "Uppdatera i App Store")
     assert has_element?(view, "#news-preview", "Senare")

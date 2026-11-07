@@ -37,6 +37,7 @@ defmodule PidroServer.Application do
       PidroServer.Invites.DeferredMatcher,
       # Work that outlives the request, such as the password reset mail
       {Task.Supervisor, name: PidroServer.TaskSupervisor},
+      PidroServer.StoreBuilds.Cache,
       # Start to serve requests, typically the last entry
       PidroServerWeb.Endpoint
     ]

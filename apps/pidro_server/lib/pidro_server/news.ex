@@ -90,6 +90,11 @@ defmodule PidroServer.News do
 
   @doc "The newest published app update owns both platform minimums, including empty ones."
   def native_update_policy do
+    Map.delete(native_update_policy_with_source(), :source)
+  end
+
+  @doc "The same effective policy with its source for the store-builds admin."
+  def native_update_policy_with_source do
     post =
       Repo.one(
         from p in published(),
@@ -103,7 +108,8 @@ defmodule PidroServer.News do
         %{
           minimum_native_versions:
             Application.get_env(:pidro_server, :minimum_native_versions, %{}),
-          native_update_popup: false
+          native_update_popup: false,
+          source: "from deploy config"
         }
 
       post ->
@@ -113,7 +119,8 @@ defmodule PidroServer.News do
               %{"android" => post.show_below_android, "ios" => post.show_below_ios},
               fn {_platform, version} -> is_nil(version) end
             ),
-          native_update_popup: post.show_as_popup
+          native_update_popup: post.show_as_popup,
+          source: "from the app-update post ‘#{post.title_en}’"
         }
     end
   end

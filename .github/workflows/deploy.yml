@@ -60,6 +60,10 @@ jobs:
       SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
       # Optional, so it is not in the check below: empty turns translation off.
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+      ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+      ASC_PRIVATE_KEY: ${{ secrets.ASC_PRIVATE_KEY }}
+      PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
 
     steps:
       - name: Check deploy secrets
@@ -102,10 +106,18 @@ jobs:
           echo "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
           ssh-agent -a "$SSH_AUTH_SOCK" > /dev/null
           echo "$SSH_PRIVATE_KEY" | ssh-add -
-          # Kamal expands each $NAME from this job's environment; no value touches disk.
+          # Keep multiline credentials on one line through Kamal's env file.
+          # Mask the encoded values too; runtime.exs decodes them in memory.
+          for name in ASC_PRIVATE_KEY PLAY_SERVICE_ACCOUNT_JSON; do
+            encoded="$(printf '%s' "${!name}" | base64 -w 0)"
+            if [ -n "$encoded" ]; then echo "::add-mask::$encoded"; fi
+            echo "${name}_BASE64=$encoded" >> "$GITHUB_ENV"
+          done
+          # Kamal expands each $NAME from the next step's environment; this file holds references only.
           for name in KAMAL_REGISTRY_PASSWORD SECRET_KEY_BASE POSTGRES_PASSWORD \
             CLASSIC_API_URL CLASSIC_CLAIM_SECRET FB_APP_SECRET \
-            SMTP_RELAY SMTP_PORT SMTP_USERNAME SMTP_PASSWORD ANTHROPIC_API_KEY; do
+            SMTP_RELAY SMTP_PORT SMTP_USERNAME SMTP_PASSWORD ANTHROPIC_API_KEY \
+            ASC_KEY_ID ASC_ISSUER_ID ASC_PRIVATE_KEY_BASE64 PLAY_SERVICE_ACCOUNT_JSON_BASE64; do
             echo "$name=\$$name"
           done > .kamal/secrets-common
 
