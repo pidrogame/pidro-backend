@@ -1,7 +1,7 @@
 {
   "asc": {
     "data": [
-      {"type":"builds","id":"b10","attributes":{"version":"10","uploadedDate":"2026-11-07T07:00:00Z","processingState":"VALID","expired":false},"relationships":{"buildBetaDetail":{"data":{"type":"buildBetaDetails","id":"d10"}},"preReleaseVersion":{"data":{"type":"preReleaseVersions","id":"v324"}}}},
+      {"type":"builds","id":"b10","attributes":{"version":"10","uploadedDate":"2026-11-07T07:00:00Z","processingState":"VALID","expired":false},"relationships":{"buildBetaDetail":{"data":{"type":"buildBetaDetails","id":"d10"}},"preReleaseVersion":{"data":{"type":"preReleaseVersions","id":"v324"}},"betaAppReviewSubmission":{"data":{"type":"betaAppReviewSubmissions","id":"s10"}}}},
       {"type":"builds","id":"b9","attributes":{"version":"9","uploadedDate":"2026-11-06T07:00:00Z","processingState":"VALID","expired":false},"relationships":{"buildBetaDetail":{"data":{"type":"buildBetaDetails","id":"d9"}},"preReleaseVersion":{"data":{"type":"preReleaseVersions","id":"v323"}}}},
       {"type":"builds","id":"b7","attributes":{"version":"7","uploadedDate":"2026-10-21T07:00:00Z","processingState":"VALID","expired":false},"relationships":{"buildBetaDetail":{"data":{"type":"buildBetaDetails","id":"d7"}},"preReleaseVersion":{"data":{"type":"preReleaseVersions","id":"v321"}}}}
     ],
@@ -9,6 +9,7 @@
       {"type":"buildBetaDetails","id":"d10","attributes":{"externalBuildState":"WAITING_FOR_BETA_REVIEW","internalBuildState":"IN_BETA_TESTING"}},
       {"type":"buildBetaDetails","id":"d9","attributes":{"externalBuildState":"READY_FOR_BETA_SUBMISSION","internalBuildState":"IN_BETA_TESTING"}},
       {"type":"buildBetaDetails","id":"d7","attributes":{"externalBuildState":"IN_BETA_TESTING","internalBuildState":"IN_BETA_TESTING"}},
+      {"type":"betaAppReviewSubmissions","id":"s10","attributes":{"betaReviewState":"WAITING_FOR_REVIEW","submittedDate":"2026-11-07T07:30:00Z"}},
       {"type":"preReleaseVersions","id":"v324","attributes":{"version":"3.2.4","platform":"IOS"}},
       {"type":"preReleaseVersions","id":"v323","attributes":{"version":"3.2.3","platform":"IOS"}},
       {"type":"preReleaseVersions","id":"v321","attributes":{"version":"3.2.1","platform":"IOS"}}

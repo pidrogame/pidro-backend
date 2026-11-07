@@ -52,7 +52,7 @@ defmodule PidroServer.StoreBuilds.Client do
 
       with {:ok, builds} <-
              pages(
-               "/v1/builds?filter[app]=6816832730&sort=-uploadedDate&include=buildBetaDetail,preReleaseVersion&limit=200",
+               "/v1/builds?filter[app]=6816832730&sort=-uploadedDate&include=buildBetaDetail,preReleaseVersion,betaAppReviewSubmission&limit=200",
                token,
                config
              ),
@@ -117,6 +117,7 @@ defmodule PidroServer.StoreBuilds.Client do
           version: version["version"],
           number: attrs["version"],
           uploaded_at: attrs["uploadedDate"],
+          submitted_at: related(build, "betaAppReviewSubmission", included)["submittedDate"],
           since: nil,
           state:
             if(attrs["expired"] == true,
