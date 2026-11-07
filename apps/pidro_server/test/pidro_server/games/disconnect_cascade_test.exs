@@ -636,6 +636,11 @@ defmodule PidroServer.Games.DisconnectCascadeTest do
       previous_level = Logger.level()
       Logger.configure(level: :info)
       on_exit(fn -> Logger.configure(level: previous_level) end)
+      # A hand has one declaring turn. At this describe's 1 ms bot pace a bot
+      # declares before the walk's next look, so give each bot turn the suite's
+      # 20 ms; the describe restores the pace on exit.
+      config = Application.get_env(:pidro_server, Lifecycle)
+      Application.put_env(:pidro_server, Lifecycle, Keyword.merge(config, bot_delay_ms: 20))
       users = Enum.map(1..4, fn _ -> Ecto.UUID.generate() end)
       {room, _} = create_playing_room(users)
       start_bidding(room.code)
