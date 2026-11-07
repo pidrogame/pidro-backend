@@ -40,8 +40,13 @@ defmodule PidroServerWeb.Dev.GameSettingsLiveTest do
 
     test "renders all settings and saves actual runtime values", %{conn: conn} do
       {:ok, view, html} = live(conn, ~p"/admin/game-settings")
-      assert html =~ "Game Settings"
-      assert has_element?(view, "a[href='/admin/game-settings']", "Game Settings")
+      assert html =~ "Game settings"
+
+      assert has_element?(
+               view,
+               "a[href='/admin/game-settings'][aria-current='page']",
+               "Game settings"
+             )
 
       values = Map.new(PacingSettings.field_specs(), &{&1.key, &1.step * 4})
 
