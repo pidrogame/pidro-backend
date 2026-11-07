@@ -3,7 +3,7 @@ defmodule Pidro.Bot.BiddingTest do
 
   import Pidro.Test.Scenario, only: [suit: 2]
 
-  alias Pidro.Bot.{Bidding, Thresholds}
+  alias Pidro.Bot.{Bidding, Knowledge, Thresholds}
   alias Pidro.Core.SeatView
   alias Pidro.Test.{GameTrace, Scenario}
 
@@ -15,8 +15,8 @@ defmodule Pidro.Bot.BiddingTest do
     cards ++ Enum.take(filler -- cards, 9 - length(cards))
   end
 
-  # A-K-7-5-2 of hearts and the 5 of diamonds: about 11 points, 12 as dealer.
-  defp big, do: hand(suit(:hearts, [14, 13, 7, 5, 2]) ++ [{5, :diamonds}])
+  # A-J-10-7-5-2 of hearts and the 5 of diamonds: about 11 points, 12 as dealer.
+  defp big, do: hand(suit(:hearts, [14, 11, 10, 7, 5, 2]) ++ [{5, :diamonds}])
 
   defp decide(state), do: Bidding.decide_bid(Scenario.view(state), Scenario.legal(state))
 
@@ -64,7 +64,7 @@ defmodule Pidro.Bot.BiddingTest do
     end
 
     test "below the shut-out margin the bot bids the minimum" do
-      cards = hand(suit(:hearts, [14, 13, 5]))
+      cards = hand(suit(:hearts, [14, 5, 2]))
       assert Bidding.estimate(cards, :hearts, false) == 7.25
 
       state =
@@ -96,7 +96,7 @@ defmodule Pidro.Bot.BiddingTest do
 
     test "the shut-out takes an estimate three over the minimum" do
       three_over = hand(suit(:hearts, [13, 11, 5]) ++ [{5, :diamonds}])
-      just_short = hand(suit(:hearts, [14, 13, 12, 5, 2]))
+      just_short = hand(suit(:hearts, [14, 11, 10, 5, 2]))
       assert Bidding.estimate(three_over, :hearts, false) == 9.0
       assert Bidding.estimate(just_short, :hearts, false) == 8.75
 
@@ -111,8 +111,8 @@ defmodule Pidro.Bot.BiddingTest do
     end
 
     test "a partner's 7 stands against an 8-point hand; a 9-point hand raises it by one" do
-      eight = hand(suit(:hearts, [14, 13, 5, 2]))
-      nine = hand(suit(:hearts, [14, 13, 11, 5, 2]))
+      eight = hand(suit(:hearts, [14, 11, 5, 2]))
+      nine = hand(suit(:hearts, [13, 5, 2]) ++ [{5, :diamonds}])
       assert trunc(Bidding.estimate(eight, :hearts, false)) == 8
       assert trunc(Bidding.estimate(nine, :hearts, false)) == 9
 
@@ -154,7 +154,7 @@ defmodule Pidro.Bot.BiddingTest do
 
       assert {{:bid, 8}, _} = decide(dealer)
 
-      nine = hand(suit(:hearts, [14, 13, 11, 10, 5, 2]))
+      nine = hand(suit(:hearts, [13, 5, 2]) ++ [{5, :diamonds}])
       assert Bidding.estimate(nine, :hearts, false, :louisiana) == 9.0
 
       partner =
@@ -193,14 +193,14 @@ defmodule Pidro.Bot.BiddingTest do
       state = Scenario.bidding(me: :east, bids: [north: 6], hand: cards)
       assert {{:bid, 7}, _} = decide(state)
 
-      weak = hand(suit(:hearts, [14, 13, 9, 4]))
+      weak = hand(suit(:hearts, [14, 11, 10, 4]))
       assert Bidding.estimate(weak, :hearts, false) == 4.5
       assert {:pass, _} = decide(Scenario.bidding(me: :east, bids: [north: 6], hand: weak))
     end
 
     test "raises partner with a better hand, never with the competition allowance" do
-      strong = hand(suit(:hearts, [14, 13, 5, 2]))
-      assert Bidding.estimate(strong, :hearts, false) == 8.5
+      strong = hand(suit(:hearts, [14, 11, 10, 5, 2]))
+      assert Bidding.estimate(strong, :hearts, false) == 8.75
       state = Scenario.bidding(me: :south, bids: [north: 6, east: :pass], hand: strong)
       assert {{:bid, 7}, _} = decide(state)
 
@@ -213,22 +213,22 @@ defmodule Pidro.Bot.BiddingTest do
     end
 
     test "contests a 7 at the half-point boundary; over an 8 only the volunteer margin applies" do
-      cards = hand(suit(:hearts, [14, 13, 8, 5]))
+      cards = hand(suit(:hearts, [14, 11, 10, 5]))
       assert Bidding.estimate(cards, :hearts, false) == 7.5
       state = Scenario.bidding(me: :east, bids: [north: 7], hand: cards)
       assert {{:bid, 8}, reason} = decide(state)
       assert reason =~ "cheap contract"
 
-      cards = hand(suit(:hearts, [14, 13, 5, 2]))
-      assert Bidding.estimate(cards, :hearts, false) == 8.5
+      cards = hand(suit(:hearts, [14, 11, 10, 5, 2]))
+      assert Bidding.estimate(cards, :hearts, false) == 8.75
       state = Scenario.bidding(me: :east, bids: [north: 8], hand: cards)
       assert {{:bid, 9}, reason} = decide(state)
       assert reason == "Hearts are worth about 8, close enough to take the 9."
     end
 
-    test "Louisiana keeps its estimates and passes on the new contest and partner raise" do
+    test "Louisiana takes neither the contest allowance nor the partner raise" do
       close = hand(suit(:hearts, [14, 8, 7, 5]))
-      strong = hand(suit(:hearts, [14, 13, 5]))
+      strong = hand(suit(:hearts, [14, 5, 2]))
       assert Bidding.estimate(close, :hearts, false, :louisiana) == 6.0
       assert Bidding.estimate(strong, :hearts, false, :louisiana) == 7.0
 
@@ -237,6 +237,109 @@ defmodule Pidro.Bot.BiddingTest do
 
       for state <- [opponent, partner] do
         assert {:pass, _} = decide(%{state | variant: :louisiana})
+      end
+    end
+  end
+
+  describe "honours and uncovered Fives" do
+    test "report pattern 1: the Ace, King and Queen of diamonds take the 6 an open auction leaves" do
+      cards = [
+        {12, :diamonds},
+        {13, :diamonds},
+        {12, :hearts},
+        {11, :hearts},
+        {14, :diamonds},
+        {3, :clubs},
+        {4, :clubs},
+        {11, :clubs},
+        {7, :spades}
+      ]
+
+      state = Scenario.bidding(me: :west, dealer: :east, bids: [south: :pass], hand: cards)
+
+      assert decide(state) ==
+               {{:bid, 6},
+                "Diamonds are worth about 8 with the Ace, King and Queen, so I bid the 6 that takes it."}
+    end
+
+    test "report pattern 3: a Five under a King with three trumps passes an open auction" do
+      cards = [
+        {11, :spades},
+        {6, :hearts},
+        {6, :clubs},
+        {7, :hearts},
+        {11, :diamonds},
+        {4, :diamonds},
+        {5, :clubs},
+        {13, :spades},
+        {13, :clubs}
+      ]
+
+      state =
+        Scenario.bidding(
+          me: :north,
+          dealer: :east,
+          bids: [south: :pass, west: :pass],
+          hand: cards
+        )
+
+      assert decide(state) ==
+               {:pass, "My Five has no cover, so spades are worth about 3; I pass."}
+    end
+
+    test "the King and Queen count under the Ace, the Jack under two higher honours" do
+      estimates = %{
+        [14, 13, 12] => 8.25,
+        [14, 13, 12, 11] => 9.0,
+        [14, 13, 11, 4] => 8.5,
+        [14, 12, 11, 4] => 7.5,
+        [14, 13, 4] => 6.25,
+        [14, 13] => 4.0,
+        [14, 12, 4] => 3.25,
+        [13, 12, 11] => 2.75
+      }
+
+      for {ranks, expected} <- estimates do
+        assert Bidding.estimate(hand(suit(:hearts, ranks)), :hearts, false) == expected,
+               inspect(ranks)
+      end
+
+      assert Bidding.estimate(hand(suit(:hearts, [14, 13, 12])), :hearts, false, :louisiana) ==
+               8.0
+    end
+
+    test "a Five is covered by four trumps or by the Ace with three, never by the King" do
+      estimates = %{
+        [13, 7, 5] => 2.75,
+        [14, 7, 5] => 6.25,
+        [13, 8, 7, 5] => 5.5,
+        [14, 5] => 1.5
+      }
+
+      for {ranks, expected} <- estimates do
+        assert Bidding.estimate(hand(suit(:hearts, ranks)), :hearts, false) == expected,
+               inspect(ranks)
+      end
+
+      cards = hand(suit(:hearts, [5, 4]) ++ [{5, :diamonds}])
+
+      assert {:pass, "My Fives have no cover, so hearts are worth about 1; I pass."} =
+               decide(Scenario.bidding(me: :north, hand: cards))
+
+      weak = hand(suit(:hearts, [11, 10, 5]))
+
+      assert {:pass, "My best suit is not enough: Hearts are worth about 1 points" <> _} =
+               decide(Scenario.bidding(me: :north, hand: weak))
+    end
+
+    test "a Five without cover never brings a hand within the volunteer margin" do
+      reach = 6 - Thresholds.get(:volunteer_margin)
+
+      for size <- 1..3,
+          held <- combinations(Knowledge.all_trumps(:hearts), size),
+          Enum.any?(held, &match?({5, _}, &1)),
+          size < 3 or {14, :hearts} not in held do
+        assert Bidding.estimate(held, :hearts, true) < reach, inspect(held)
       end
     end
   end
@@ -297,7 +400,7 @@ defmodule Pidro.Bot.BiddingTest do
     end
 
     test "a fractional estimate rounds down in the reason, and the bid is the minimum" do
-      cards = hand(suit(:hearts, [14, 13, 11, 5, 4]))
+      cards = hand(suit(:hearts, [14, 8, 5]))
       estimate = Bidding.estimate(cards, :hearts, false)
       assert estimate != trunc(estimate)
 
@@ -306,7 +409,7 @@ defmodule Pidro.Bot.BiddingTest do
     end
 
     test "first seat and dealer both bid the lowest legal bid; the bonus moves only the estimate" do
-      cards = hand(suit(:hearts, [14, 13, 5]))
+      cards = hand(suit(:hearts, [14, 8, 5]))
 
       {{:bid, first}, _} = decide(Scenario.bidding(me: :north, hand: cards))
 
@@ -361,11 +464,12 @@ defmodule Pidro.Bot.BiddingTest do
       assert Bidding.estimate(big(), :hearts, true) < 14 - Thresholds.get(:volunteer_margin)
       assert {:pass, _} = decide(state)
 
-      strong = hand(suit(:hearts, [14, 13, 12, 11, 10, 5, 2]) ++ [{5, :diamonds}])
-      assert Bidding.estimate(strong, :hearts, true) == 13.75
+      strong = hand(suit(:hearts, [14, 13, 11, 10, 9, 5]))
+      assert Bidding.estimate(strong, :hearts, true) == 13.25
       state = Scenario.bidding(me: :west, bids: [north: :pass, east: 12, south: 13], hand: strong)
 
-      assert {{:bid, 14}, "Hearts are worth about 13, close enough to take the 14."} =
+      assert {{:bid, 14},
+              "Hearts are worth about 13 with the Ace, King and Jack, close enough to take the 14."} =
                decide(state)
     end
 
@@ -417,6 +521,13 @@ defmodule Pidro.Bot.BiddingTest do
 
       assert suit == :clubs
     end
+  end
+
+  defp combinations(_cards, 0), do: [[]]
+  defp combinations([], _size), do: []
+
+  defp combinations([card | rest], size) do
+    for(held <- combinations(rest, size - 1), do: [card | held]) ++ combinations(rest, size)
   end
 
   defp bid_amount({{:bid, amount}, _}), do: amount

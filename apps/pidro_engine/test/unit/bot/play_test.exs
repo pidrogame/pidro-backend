@@ -152,8 +152,52 @@ defmodule Pidro.Bot.PlayTest do
       assert plays(me: :north, hands: %{north: [14, 13, 12, 11, 5, 2]}) == {14, :hearts}
     end
 
-    test "opens with the Ace from four trumps without the King" do
-      assert plays(me: :north, hands: %{north: [14, 9, 8, 3]}) == {14, :hearts}
+    test "from four trumps without the King and Queen leads low and keeps the Ace" do
+      assert plays(me: :north, hands: %{north: [14, 9, 8, 3]}) == {3, :hearts}
+    end
+
+    test "report pattern 13: the bidder with A, 5, off-5, 2, 7 of diamonds leads the 2" do
+      state =
+        Scenario.playing(
+          me: :south,
+          trump: :diamonds,
+          bid: {:south, 7},
+          dealer: :south,
+          hands: %{south: [14, 5, :off5, 2, 7, {13, :spades}]}
+        )
+
+      assert Play.decide(Scenario.view(state), Scenario.legal(state)) ==
+               {{:play_card, {2, :diamonds}},
+                "I lead my 2 of Diamonds to draw trumps and keep the Ace for a Five."}
+    end
+
+    test "report pattern 14: the bidder with 7, A, 2, K of clubs leads the 2" do
+      hand = [7, 14, 2, 13, {13, :hearts}, {11, :diamonds}]
+
+      assert plays(
+               me: :east,
+               trump: :clubs,
+               bid: {:east, 6},
+               dealer: :north,
+               hands: %{east: hand}
+             ) ==
+               {2, :clubs}
+    end
+
+    test "keeping the Ace, leads the 2 before the 3 and otherwise the lowest non-point trump" do
+      assert plays(me: :north, hands: %{north: [14, 9, 3, 2]}) == {2, :hearts}
+      assert plays(me: :north, hands: %{north: [14, 13, 11, 8]}) == {8, :hearts}
+    end
+
+    test "with no low trump to lead, opens with the Ace from four trumps" do
+      assert plays(me: :north, hands: %{north: [14, 11, 10, 5]}) == {14, :hearts}
+    end
+
+    test "keeps the Ace only on the opening lead from four trumps" do
+      assert plays(me: :north, hands: %{north: [14, 9, 2]}) == {9, :hearts}
+
+      later = [[north: 7, east: 4, south: 6, west: 3]]
+      assert plays(me: :north, hands: %{north: [14, 9, 8, 2]}, tricks: later) == {14, :hearts}
     end
 
     test "with only the two Fives leads the off-5" do
