@@ -618,18 +618,29 @@ defmodule PidroServer.Stats do
     :ok
   end
 
-  @doc "The player's fifty most recent connection events, newest first."
+  # The order a drop's events happen in, for events written in the same second.
+  @absence_order ~w(timeout drop bot_took_seat away_play return seat_taken_back join)
+
+  @doc "The player's hundred most recent connection events, newest first."
   @spec connection_timeline(String.t()) :: [struct()]
   def connection_timeline(user_id) do
     Repo.all(
       from e in SeatEvent,
         where: e.user_id == ^user_id and e.kind != "turn",
-        order_by: [desc: e.inserted_at, desc: e.id],
-        limit: 50
+        order_by: [
+          desc: e.inserted_at,
+          desc: fragment("array_position(?::text[], ?)", ^@absence_order, e.kind),
+          desc: e.id
+        ],
+        limit: 100
     )
   end
 
-  @doc "Connection events over the last seven days and the last reported app build."
+  @doc """
+  Drops and the moves made for the player over the last seven days, and the
+  last reported app build. The turn timer plays on a timeout and while they
+  are away; a substitute bot only while they are away.
+  """
   @spec connection_summary(String.t()) :: map()
   def connection_summary(user_id) do
     cutoff = DateTime.utc_now() |> DateTime.add(-7, :day)
@@ -638,10 +649,11 @@ defmodule PidroServer.Stats do
       Repo.all(
         from e in SeatEvent,
           where: e.user_id == ^user_id and e.inserted_at >= ^cutoff,
-          group_by: e.kind,
-          select: {e.kind, count(e.id)}
+          group_by: [e.kind, fragment("?->>'actor'", e.metadata)],
+          select: {e.kind, fragment("?->>'actor'", e.metadata), count(e.id)}
       )
-      |> Map.new()
+
+    count = fn kind, actor -> Enum.sum(for {^kind, ^actor, n} <- counts, do: n) end
 
     latest =
       Repo.one(
@@ -653,7 +665,11 @@ defmodule PidroServer.Stats do
       )
 
     Map.merge(
-      %{drops: Map.get(counts, "drop", 0), auto_plays: Map.get(counts, "timeout", 0)},
+      %{
+        drops: count.("drop", nil),
+        timer_plays: count.("timeout", nil) + count.("away_play", "timer"),
+        bot_plays: count.("away_play", "bot")
+      },
       latest || %{app_version: nil, platform: nil}
     )
   end

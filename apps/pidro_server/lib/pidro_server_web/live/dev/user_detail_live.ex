@@ -14,6 +14,7 @@ defmodule PidroServerWeb.Dev.UserDetailLive do
   alias PidroServer.Profiles
   alias PidroServer.Rating.Tier
   alias PidroServer.Stats
+  alias PidroServerWeb.CardHelpers
 
   @impl true
   def mount(%{"id" => id}, _session, socket) do
@@ -172,7 +173,7 @@ defmodule PidroServerWeb.Dev.UserDetailLive do
         id="connection-quality"
         class="rounded-md border border-stone-300 bg-white px-4 py-3 text-sm text-stone-700"
       >
-        Connection: {@connection.drops} drops, {@connection.auto_plays} auto-plays in the last 7 days.
+        Connection: {@connection.drops} drops, {@connection.timer_plays + @connection.bot_plays} plays made for them (timer {@connection.timer_plays}, bot {@connection.bot_plays}) in the last 7 days.
         Last app version: {@connection.app_version || "unknown"}
         <span :if={@connection.platform}>({@connection.platform})</span>
       </p>
@@ -229,7 +230,7 @@ defmodule PidroServerWeb.Dev.UserDetailLive do
           <li :for={event <- @connection_events} class="flex flex-wrap gap-x-4 gap-y-1 py-2">
             <time class="font-mono text-xs text-stone-500">{event.inserted_at} UTC</time>
             <span class="font-mono">{event.room_code}</span>
-            <span>{connection_event_kind(event.kind)}</span>
+            <span>{connection_event(event)}</span>
             <span class="text-stone-500">{event.reason || "unknown"} · {event.network || "unknown"}</span>
             <span class="text-stone-500">{event.platform} {event.app_version || "unknown version"}</span>
           </li>
@@ -722,10 +723,40 @@ defmodule PidroServerWeb.Dev.UserDetailLive do
     |> assign(:active_rooms, active_rooms_for_user(user.id))
   end
 
-  defp connection_event_kind("timeout"), do: "Timeout / auto-play"
-  defp connection_event_kind("bot_took_seat"), do: "Bot took seat"
-  defp connection_event_kind("seat_taken_back"), do: "Seat taken back"
-  defp connection_event_kind(kind), do: String.capitalize(kind)
+  defp connection_event(%{kind: "timeout"}), do: "Timeout / auto-play"
+
+  defp connection_event(%{kind: "bot_took_seat", metadata: %{"trigger" => "missed_turns"}}),
+    do: "Bot took the seat (three missed turns)"
+
+  defp connection_event(%{kind: "bot_took_seat", metadata: %{"trigger" => "drop"}}),
+    do: "Bot took the seat (connection lost)"
+
+  defp connection_event(%{kind: "bot_took_seat"}), do: "Bot took the seat"
+  defp connection_event(%{kind: "seat_taken_back"}), do: "Took the seat back"
+
+  defp connection_event(%{kind: "away_play", metadata: %{"actor" => actor, "action" => action}})
+       when actor in ["bot", "timer"],
+       do: "#{String.capitalize(actor)} #{played(action)} for them"
+
+  defp connection_event(%{kind: "away_play"}), do: "Played for them"
+  defp connection_event(%{kind: kind}), do: String.capitalize(kind)
+
+  defp played(%{"type" => "play_card", "card" => %{"rank" => rank, "suit" => suit}}),
+    do: "played #{CardHelpers.format_rank(rank)}#{suit_symbol(suit)}"
+
+  defp played(%{"type" => "bid", "amount" => amount}), do: "bid #{amount}"
+  defp played(%{"type" => "pass"}), do: "passed"
+
+  defp played(%{"type" => "declare_trump", "suit" => suit}),
+    do: "chose #{suit_symbol(suit)} as trump"
+
+  defp played(%{"type" => "select_hand"}), do: "chose the hand to keep"
+  defp played(_action), do: "played"
+
+  defp suit_symbol(suit) when suit in ~w(hearts diamonds clubs spades),
+    do: CardHelpers.suit_symbol(String.to_existing_atom(suit))
+
+  defp suit_symbol(suit), do: to_string(suit)
 
   defp active_rooms_for_user(user_id) do
     case Process.whereis(RoomManager) do

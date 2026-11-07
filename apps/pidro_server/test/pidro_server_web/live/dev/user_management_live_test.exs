@@ -17,7 +17,17 @@ defmodule PidroServerWeb.Dev.UserManagementLiveTest do
     user = AccountsFixtures.user_fixture()
     now = DateTime.utc_now() |> DateTime.truncate(:second)
 
-    for {kind, days} <- [{"drop", 1}, {"drop", 2}, {"timeout", 3}, {"drop", 8}, {"timeout", 8}] do
+    for {kind, days, metadata} <- [
+          {"drop", 1, nil},
+          {"drop", 2, nil},
+          {"timeout", 3, nil},
+          {"away_play", 3, %{"actor" => "timer", "action" => %{"type" => "pass"}}},
+          {"away_play", 3, %{"actor" => "timer", "action" => %{"type" => "pass"}}},
+          {"away_play", 3, %{"actor" => "bot", "action" => %{"type" => "pass"}}},
+          {"drop", 8, nil},
+          {"timeout", 8, nil},
+          {"away_play", 8, %{"actor" => "bot", "action" => %{"type" => "pass"}}}
+        ] do
       PidroServer.Repo.insert!(%PidroServer.Stats.SeatEvent{
         user_id: user.id,
         room_code: "L5V3",
@@ -26,6 +36,7 @@ defmodule PidroServerWeb.Dev.UserManagementLiveTest do
         network: "cellular",
         platform: "android",
         app_version: "3.2.3",
+        metadata: metadata,
         inserted_at: DateTime.add(now, -days, :day) |> DateTime.to_naive()
       })
     end
@@ -50,7 +61,13 @@ defmodule PidroServerWeb.Dev.UserManagementLiveTest do
     PidroServer.DataCase.await_tasks()
 
     {:ok, view, _} = live(conn, ~p"/admin/users/#{user.id}")
-    assert has_element?(view, "#connection-quality", "2 drops, 1 auto-plays in the last 7 days")
+
+    assert has_element?(
+             view,
+             "#connection-quality",
+             "2 drops, 4 plays made for them (timer 3, bot 1) in the last 7 days"
+           )
+
     assert has_element?(view, "#connection-strength", "poor: typically 420 ms")
     assert has_element?(view, "#connection-strength", "mostly cellular")
     assert has_element?(view, "#connection-strip", "420 ms")
@@ -58,6 +75,73 @@ defmodule PidroServerWeb.Dev.UserManagementLiveTest do
     assert has_element?(view, "#connection-timeline", "heartbeat_timeout · cellular")
     assert has_element?(view, "#connection-timeline", "android 3.2.3")
     assert has_element?(view, "#connection-timeline", "UTC")
+  end
+
+  @tag :flaky_connections
+  test "player connection timeline says who played for an away player", %{conn: conn} do
+    user = AccountsFixtures.user_fixture()
+
+    for {kind, metadata} <- [
+          {"bot_took_seat", %{"trigger" => "missed_turns"}},
+          {"bot_took_seat", %{"trigger" => "drop"}},
+          {"bot_took_seat", nil},
+          {"seat_taken_back", nil},
+          {"away_play",
+           %{
+             "actor" => "bot",
+             "action" => %{"type" => "play_card", "card" => %{"rank" => 10, "suit" => "spades"}}
+           }},
+          {"away_play",
+           %{
+             "actor" => "timer",
+             "action" => %{"type" => "play_card", "card" => %{"rank" => 5, "suit" => "clubs"}}
+           }},
+          {"away_play", %{"actor" => "timer", "action" => %{"type" => "bid", "amount" => 8}}},
+          {"away_play", %{"actor" => "bot", "action" => %{"type" => "pass"}}},
+          {"away_play",
+           %{"actor" => "bot", "action" => %{"type" => "declare_trump", "suit" => "hearts"}}},
+          {"away_play", %{"actor" => "robot", "action" => %{"type" => "shuffle"}}},
+          {"away_play", nil},
+          {"teleport", %{"to" => "the moon"}}
+        ] do
+      PidroServer.Repo.insert!(%PidroServer.Stats.SeatEvent{
+        user_id: user.id,
+        room_code: "3QKP",
+        kind: kind,
+        metadata: metadata
+      })
+    end
+
+    # The same second, and ids that would list the drop first.
+    for {kind, id} <- [{"drop", "ffffffff"}, {"return", "00000000"}] do
+      PidroServer.Repo.insert!(%PidroServer.Stats.SeatEvent{
+        id: "#{id}-0000-4000-8000-000000000000",
+        user_id: user.id,
+        room_code: "3QKP",
+        kind: kind,
+        reason: "backgrounded",
+        inserted_at: ~N[2026-11-06 22:04:15]
+      })
+    end
+
+    {:ok, view, html} = live(conn, ~p"/admin/users/#{user.id}")
+    [_, newest_first] = String.split(html, "2026-11-06T22:04:15", parts: 2)
+    assert :binary.match(newest_first, "Return") < :binary.match(newest_first, "Drop")
+
+    for row <- [
+          "Bot took the seat (three missed turns)",
+          "Bot took the seat (connection lost)",
+          "Took the seat back",
+          "Bot played 10♠ for them",
+          "Timer played 5♣ for them",
+          "Timer bid 8 for them",
+          "Bot passed for them",
+          "Bot chose ♥ as trump for them",
+          "Played for them",
+          "Teleport"
+        ] do
+      assert has_element?(view, "#connection-timeline li", row)
+    end
   end
 
   test "lists players with search filters and summary stats", %{conn: conn} do
