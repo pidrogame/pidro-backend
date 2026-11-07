@@ -323,6 +323,7 @@ defmodule PidroServerWeb.Dev.AdminComponents do
        [
          {"game-settings", "Game settings", ~p"/admin/game-settings",
           "hero-adjustments-horizontal"},
+         {"ads", "Ads", ~p"/admin/ads", "hero-play-circle"},
          {"bots", "Bots", ~p"/admin/bots", "hero-cpu-chip"},
          {"admins", "Admins", ~p"/admin/admins", "hero-lock-closed"}
        ]},
