@@ -21,6 +21,11 @@ config :pidro_server, PidroServer.Translate,
   api_key: "anthropic-test-key",
   req_options: [plug: {Req.Test, PidroServer.Translate}]
 
+config :pidro_server, PidroServer.RevenueCat,
+  secret_key: "revenuecat-test-key",
+  webhook_secret: "revenuecat-test-webhook-secret",
+  req_options: [plug: {Req.Test, PidroServer.RevenueCat}]
+
 config :pidro_server, PidroServer.Accounts.ProviderIdentity,
   apple_jwks_url: "https://apple.test/auth/keys",
   apple_audience: ["com.oneapps.pidro", "com.oneapps.pidro.beta"],
