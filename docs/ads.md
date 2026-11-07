@@ -41,6 +41,8 @@ and an old build's are not.
   second ad.
 - Rematches in a solo room are not checked; their start moves the schedule
   and uses up a credit like any solo game.
+- While a credit is held, `/me` says `next_game_needs_ad: false` (and counts no
+  offer), so an app whose deal failed after the ad retries without a second one.
 - A request without `ads_aware` (3.2.4 and older) is never checked.
 - The server cannot see the ad. A tampered client can claim a credit without
   watching; that costs one ad and nothing else.

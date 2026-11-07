@@ -207,7 +207,7 @@ defmodule PidroServerWeb.Schemas.UserSchemas do
       type: :object,
       title: "Ads",
       description:
-        "GET /auth/me only. Not eligible (ads off, not an adult, or premium): every other field is false or 0. A client that shows ads reads /auth/me?ads_aware=true. Before a solo game that needs an ad, show it, POST /me/ads/watched or /me/ads/unavailable, then create the room with ads_aware: true; the game's start uses up the credit.",
+        "GET /auth/me only. Not eligible (ads off, not an adult, or premium): every other field is false or 0. A client that shows ads reads /auth/me?ads_aware=true. Before a solo game that needs an ad, show it, POST /me/ads/watched or /me/ads/unavailable, then create the room with ads_aware: true; the game's start uses up the credit. While a credit is held, next_game_needs_ad is false.",
       required: [:eligible, :next_game_needs_ad, :games_until_ad, :free_games_left],
       properties: %{
         eligible: %Schema{type: :boolean},

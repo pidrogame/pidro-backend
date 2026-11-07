@@ -156,6 +156,27 @@ defmodule PidroServer.AdsTest do
       assert events(user) == ["offered"]
     end
 
+    test "a held credit makes the decision say no ad, so a retry is not offered a second one" do
+      user = player(10, 2)
+      Ads.report(user, :watched)
+
+      # The 3rd solo start is paid for; the 6th is the next ad.
+      assert Ads.offer(user, true) ==
+               %{eligible: true, next_game_needs_ad: false, games_until_ad: 3, free_games_left: 0}
+
+      assert events(user) == ["watched"]
+
+      expire_credit(user, 1)
+      assert %{next_game_needs_ad: true, games_until_ad: 0} = Ads.offer(user, true)
+      assert events(user) == ["watched", "offered"]
+    end
+
+    test "a held credit changes nothing when no ad is due" do
+      user = player(10, 3)
+      Ads.report(user, :watched)
+      assert %{next_game_needs_ad: false, games_until_ad: 2} = Ads.decision(user)
+    end
+
     test "a watched ad admits solo rooms until a solo game starts, then the next ad is due" do
       user = player(10, 2)
       assert :ok = Ads.report(user, :watched)

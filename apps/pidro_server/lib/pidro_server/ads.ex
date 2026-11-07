@@ -37,7 +37,8 @@ defmodule PidroServer.Ads do
   @doc """
   Whether `user` is eligible for ads and what that means for their next solo
   game. Eligible is `ads_enabled`, an adult (`age_band == "18_plus"`) and not
-  premium; for anyone else every other field is false or 0.
+  premium; for anyone else every other field is false or 0. A held credit
+  pays for the next solo game, so that game needs no ad.
   """
   @spec decision(User.t()) :: decision()
   def decision(%User{} = user), do: user |> decide() |> elem(0)
@@ -56,12 +57,12 @@ defmodule PidroServer.Ads do
 
   @doc """
   Lets an ad-aware client create a solo room: always, unless the next solo
-  game needs an ad and the user holds no credit.
+  game needs an ad (and so the user holds no credit).
   """
   @spec admit_solo_room(User.t()) :: :ok | {:error, {:ad_required, decision()}}
   def admit_solo_room(%User{} = user) do
-    case {decide(user), credit?(user)} do
-      {{%{next_game_needs_ad: true} = decision, solo}, false} ->
+    case decide(user) do
+      {%{next_game_needs_ad: true} = decision, solo} ->
         record_offer(decision, user, solo)
         {:error, {:ad_required, decision}}
 
@@ -132,10 +133,16 @@ defmodule PidroServer.Ads do
       games = profile.games_played
       solo = profile.solo_games_started
 
+      # A held credit pays for the next solo game: the ad after it is the next one.
+      games_until_ad =
+        if credit?(profile) and Schedule.needs_ad?(settings, games, solo),
+          do: 1 + Schedule.games_until_ad(settings, games + 1, solo + 1),
+          else: Schedule.games_until_ad(settings, games, solo)
+
       {%{
          eligible: true,
-         next_game_needs_ad: Schedule.needs_ad?(settings, games, solo),
-         games_until_ad: Schedule.games_until_ad(settings, games, solo),
+         next_game_needs_ad: games_until_ad == 0,
+         games_until_ad: games_until_ad,
          free_games_left: max(settings.ads_free_games - games, 0)
        }, solo}
     else
@@ -143,13 +150,10 @@ defmodule PidroServer.Ads do
     end
   end
 
-  defp credit?(user) do
-    now = DateTime.utc_now()
+  defp credit?(%PlayerProfile{ad_credit_expires_at: nil}), do: false
 
-    Repo.exists?(
-      from p in PlayerProfile, where: p.user_id == ^user.id and p.ad_credit_expires_at > ^now
-    )
-  end
+  defp credit?(%PlayerProfile{ad_credit_expires_at: expires_at}),
+    do: DateTime.after?(expires_at, DateTime.utc_now())
 
   # The partial unique index keeps one offer per user and solo count.
   defp record_offer(%{next_game_needs_ad: true}, user, solo) do

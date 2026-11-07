@@ -146,6 +146,15 @@ defmodule PidroServerWeb.API.AdControllerTest do
       user = due_adult()
       assert response(build_conn() |> as_user(user) |> post(~p"/api/v1/me/ads/watched"), 204)
 
+      ads =
+        build_conn()
+        |> as_user(user)
+        |> get(~p"/api/v1/auth/me?ads_aware=true")
+        |> json_response(200)
+        |> get_in(["data", "ads"])
+
+      assert %{"next_game_needs_ad" => false, "games_until_ad" => 3} = ads
+
       assert json_response(create_room(user, Map.put(@solo, "ads_aware", true)), 201)
       leave(user)
       assert json_response(create_room(user, Map.put(@solo, "ads_aware", true)), 201)
