@@ -179,6 +179,81 @@ Five where search makes it too rarely. In play, the rulebook cashes its Ace
 on the opening lead from four or five trumps where search leads low.
 Seeds 3790–3797 are used; do not report them as unseen.
 
+## PID-136: what search taught the rulebook
+
+Three plain rules from the families at the top of
+[bot-search-disagreements.md](bot-search-disagreements.md):
+
+- **Honours count in the auction.** With at least three trumps the Ace
+  earns a control bonus by holding (`Thresholds.holdings/0`): A K Q 7,
+  A K J 6.5, A Q J 5.5, A K 5. Q♦ K♦ A♦ and junk is now worth about 8 and
+  takes the 6 (it was 4.25 and passed). The reason names the holding.
+- **A Five needs cover.** Four trumps cover it, or the Ace with three; a
+  King no longer does. An uncovered Five is worth 0.5 (was 2), so no hand
+  with one comes within the volunteer margin, and the pass says so: "My
+  Five has no cover, so spades are worth about 3; I pass."
+- **The opening lead goes low.** The bidder with the Ace and four or more
+  trumps leads the 2, otherwise its lowest non-point trump, and keeps the
+  Ace; with the King and Queen as well it still cashes the Ace.
+
+The frozen reference is the whole rulebook of `origin/main` at `c559242`
+(bidding, play and thresholds), compiled under another module name; 3,000
+pairs per seed with teams swapped. Seed 1360 chose the constants: the
+holding bonuses rose until a further point won only 50.4–51.0% head to
+head; an uncovered Five at 2, 1 or 0.5 played the same within 0.3 points,
+while taking the King's cover away paid 1.3. Every rule also pays alone,
+on held-out seed 1361:
+
+| new vs frozen, seed 1361 | wins  | made        | sets          |
+| ------------------------ | ----- | ----------- | ------------- |
+| honours alone            | 55.8% | 79.4 / 77.8 | 5,705 / 5,176 |
+| uncovered Five alone     | 51.8% | 80.2 / 78.4 | 4,829 / 5,757 |
+| opening lead alone       | 52.1% | 79.1 / 78.1 | 5,313 / 5,570 |
+| all three                | 60.2% | 82.4 / 77.9 | 4,651 / 5,312 |
+
+Honours alone take more contracts (27,754 against 23,287), so they are set
+more often while making a higher share. All three, held out:
+
+| Finnish, new / frozen        | seed 1361       | seed 1362       |
+| ---------------------------- | --------------- | --------------- |
+| head to head, new team wins  | 60.2%           | 59.1%           |
+| pairs swept                  | 749 / 137       | 717 / 173       |
+| contracts made               | 82.4% / 77.9%   | 82.4% / 78.2%   |
+| sets                         | 4,651 / 5,312   | 4,637 / 5,258   |
+| points lost to sets          | 30,250 / 34,347 | 30,078 / 33,855 |
+| average winning bid          | 6.47 / 6.39     | 6.46 / 6.38     |
+| Fives taken from opponents   | 19,424 / 15,926 | 19,363 / 16,023 |
+| four seats: forced dealer 6  | 23.2% / 23.1%   | 23.5% / 23.4%   |
+| four seats: two or more bids | 34.3% / 30.0%   | 33.5% / 29.4%   |
+| four seats: contracts made   | 82.2% / 78.2%   | 82.2% / 78.5%   |
+| four seats: sets per team    | 4,472 / 5,576   | 4,504 / 5,480   |
+
+Search, 3,000 pairs on seed 1363 (K = 100, veto 0.4), against each
+rulebook:
+
+| search vs …          | frozen rulebook | new rulebook  |
+| -------------------- | --------------- | ------------- |
+| search wins          | 83.1%           | 80.0%         |
+| pairs swept          | 2,034 / 50      | 1,836 / 35    |
+| contracts made       | 88.5% / 70.9%   | 87.8% / 74.8% |
+| sets                 | 3,423 / 5,378   | 3,680 / 4,768 |
+| average winning bid  | 6.45 / 6.71     | 6.60 / 6.91   |
+| Fives taken / lost   | 25,407 / 11,640 | 25,290 / 12,738 |
+
+Louisiana shares the estimate (without the length bonus) and the lead: on
+seed 1364 each rule helped there too, and on held-out seed 1365 the new
+rulebook won 59.7% against frozen, 57.4% against frozen bidding with the new
+lead, with four seats making 77.8% of contracts against 73.5%. Rulebook
+against random: 99.2% (`--pairs 1000 --seed 71`, 98.8% before). Every game
+finished. Seeds 1360–1365 are used.
+
+What search still overrules is in
+[bot-search-disagreements-2.md](bot-search-disagreements-2.md) (seed 3795,
+1,000 pairs, the PID-379 command; search won 80.3% there against 81.4%).
+The opening lead and the honour hands fell off the top 20 and overbids on
+an uncovered Five shrank; open-auction passes with an Ace and lesser
+honours, which search opens in nearly every world, remain the largest gap.
+
 ## Why one bot
 
 The [PR #49](https://github.com/marcelfahle/pidro-backend/pull/49) experiment gave
