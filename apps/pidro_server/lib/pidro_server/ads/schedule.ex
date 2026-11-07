@@ -1,8 +1,9 @@
 defmodule PidroServer.Ads.Schedule do
   @moduledoc """
   When a solo game needs an ad, as a pure function of the admin values
-  (`PidroServer.Settings.ads/0`), the player's finished games (Pidro plus
-  Classic) and the solo games they have started.
+  (`PidroServer.Settings.ads/0`), the player's finished games in this app
+  (`player_profiles.games_played`; the Classic record never counts) and the
+  solo games they have started.
 
   No ad while `total_games < ads_free_games`. After that the next solo start,
   number `solo_games_started + 1`, needs one when it is a multiple of

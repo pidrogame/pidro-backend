@@ -506,12 +506,11 @@ defmodule PidroServer.Profiles do
   end
 
   @doc "Returns the same combined Classic and Pidro 2 record shown on the public profile."
-  @spec record(Ecto.UUID.t() | %PlayerProfile{}) :: map()
-  def record(%PlayerProfile{} = profile),
-    do: record(profile, classic_profile(profile.heritage_flags, nil) || %{})
-
-  def record(user_id),
-    do: record(Repo.get_by(PlayerProfile, user_id: user_id) || %PlayerProfile{})
+  @spec record(Ecto.UUID.t()) :: map()
+  def record(user_id) do
+    profile = Repo.get_by(PlayerProfile, user_id: user_id) || %PlayerProfile{}
+    record(profile, classic_profile(profile.heritage_flags, nil) || %{})
+  end
 
   @doc """
   Counts a solo game start for the ad schedule (PID-123) and uses up the

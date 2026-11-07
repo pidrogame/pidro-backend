@@ -221,7 +221,8 @@ defmodule PidroServerWeb.Schemas.UserSchemas do
         free_games_left: %Schema{
           type: :integer,
           minimum: 0,
-          description: "Finished games (Pidro plus Classic) left before ads can start"
+          description:
+            "Games finished in this app left before ads can start; Classic games never count"
         }
       }
     })

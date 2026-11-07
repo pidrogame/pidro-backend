@@ -38,8 +38,8 @@ defmodule PidroServer.Ads.ScheduleTest do
       assert Schedule.needs_ad?(@settings, 50, 43)
     end
 
-    test "the free games count Pidro plus Classic, not solo starts" do
-      # A Classic player with 300 games but no solo start yet.
+    test "the free games count finished games, not solo starts" do
+      # 300 games at tables with people, no solo start yet.
       refute Schedule.needs_ad?(@settings, 300, 0)
       assert Schedule.needs_ad?(@settings, 300, 2)
     end

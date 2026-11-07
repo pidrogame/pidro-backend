@@ -54,15 +54,20 @@ defmodule PidroServer.AdsTest do
                Ads.decision(player(9, 2))
     end
 
-    test "Classic games count toward the free games" do
-      user = player(0, 2)
-      flags = %{"played_pidro_one" => true, "games_played_counter" => 10}
+    test "Classic games never count toward the free games" do
+      veteran = player(0, 2)
+      claimed = player(10, 2)
+      flags = %{"played_pidro_one" => true, "games_played_counter" => 3_000}
 
-      Repo.update_all(from(p in PlayerProfile, where: p.user_id == ^user.id),
+      Repo.update_all(
+        from(p in PlayerProfile, where: p.user_id in ^[veteran.id, claimed.id]),
         set: [heritage_flags: flags]
       )
 
-      assert Ads.decision(user).next_game_needs_ad
+      assert %{eligible: true, next_game_needs_ad: false, free_games_left: 10} =
+               Ads.decision(veteran)
+
+      assert Ads.decision(claimed).next_game_needs_ad
     end
 
     test "the kill switch makes everyone ineligible" do
@@ -246,10 +251,16 @@ defmodule PidroServer.AdsTest do
              }
     end
 
-    test "adults_past_free_games/1 counts adults whose record reached the free games" do
+    test "adults_past_free_games/1 counts adults who played the free games in this app" do
       player(10, 0)
       player(25, 0)
       player(9, 0)
+      veteran = player(0, 0)
+
+      Repo.update_all(from(p in PlayerProfile, where: p.user_id == ^veteran.id),
+        set: [heritage_flags: %{"played_pidro_one" => true, "games_played_counter" => 3_000}]
+      )
+
       player("13_17", 50, 0)
       player("unknown", 50, 0)
       AccountsFixtures.user_fixture() |> change(age_band: "18_plus") |> Repo.update!()
@@ -263,7 +274,7 @@ defmodule PidroServer.AdsTest do
       })
 
       assert Ads.adults_past_free_games(Settings.ads()) == 2
-      assert Ads.adults_past_free_games(%{ads_free_games: 0}) == 4
+      assert Ads.adults_past_free_games(%{ads_free_games: 0}) == 5
     end
   end
 end

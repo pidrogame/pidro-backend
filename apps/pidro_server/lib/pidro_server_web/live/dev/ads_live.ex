@@ -108,7 +108,7 @@ defmodule PidroServerWeb.Dev.AdsLive do
             />
           </div>
           <p class="text-xs text-stone-600">
-            Free games count Pidro and Classic games together. Solo games count every solo game started.
+            Free games count games finished in this app, bot games included; Classic games never count. Solo games count every solo game started.
           </p>
           <button
             type="submit"

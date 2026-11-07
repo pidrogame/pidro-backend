@@ -109,20 +109,17 @@ defmodule PidroServer.Ads do
     end
   end
 
-  @doc "Adults, not premium, whose record has reached the free games: who the schedule applies to."
+  @doc "Adults, not premium, who have played the free games in this app: who the schedule applies to."
   @spec adults_past_free_games(Settings.ads()) :: non_neg_integer()
   def adults_past_free_games(%{ads_free_games: free}) do
     from(u in User,
       left_join: p in PlayerProfile,
       on: p.user_id == u.id,
-      where: u.age_band == "18_plus",
-      select: {u.id, p}
+      where: u.age_band == "18_plus" and coalesce(p.games_played, 0) >= ^free,
+      select: u.id
     )
     |> Repo.all()
-    |> Enum.count(fn {user_id, profile} ->
-      Profiles.record(profile || %PlayerProfile{}).games >= free and
-        not Entitlements.premium?(user_id)
-    end)
+    |> Enum.count(&(not Entitlements.premium?(&1)))
   end
 
   defp decide(user) do
@@ -130,7 +127,9 @@ defmodule PidroServer.Ads do
 
     if settings.ads_enabled and user.age_band == "18_plus" and not Entitlements.premium?(user.id) do
       profile = Repo.get_by(PlayerProfile, user_id: user.id) || %PlayerProfile{}
-      games = Profiles.record(profile).games
+      # Only games in this app count toward the free ones, never the Classic
+      # record: a returning veteran gets the same first games as anyone.
+      games = profile.games_played
       solo = profile.solo_games_started
 
       {%{

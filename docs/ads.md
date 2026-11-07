@@ -12,7 +12,9 @@ Eligible means all three: `ads_enabled` is on, the player is an adult
 ## When
 
 `PidroServer.Ads.Schedule`, a pure function of the admin values, the player's
-finished games (`Profiles.record/1`: Pidro plus Classic) and
+finished games in this app (`player_profiles.games_played`, bot games included;
+the Classic record never counts, so a returning veteran gets the same free games
+as anyone) and
 `player_profiles.solo_games_started` (counted when a solo room's game starts):
 
 - No ad while finished games < `ads_free_games` (10).
