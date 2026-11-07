@@ -113,6 +113,72 @@ Louisiana stays as it was: with the same margin its volunteered contracts
 were made 69.2% of the time, under the 70% bar. Rulebook against random:
 98.8% (`--pairs 1000 --seed 71`).
 
+## PID-379: a search bot, measured (research only)
+
+`Pidro.Bot.Search` deals out the cards a seat cannot see in K worlds that
+keep every public fact (`Search.Determinizer`), plays each candidate card out
+in every world with the rulebook in all four seats (`Search.Rollout`, engine
+calls only), and keeps the card with the best average hand value. The
+rulebook's card stands unless search prefers another by at least the veto
+margin (0.4 hand points). In the auction search only decides whether to take
+the rulebook's bid (or the minimum): it bids when its side makes the contract
+in at least 70% of the worlds where it holds it. No table plays it; there is
+no server reference to it.
+
+```sh
+mise exec -- mix pidro.selfplay --pairs 1000 --seed 3795 --a search --b rulebook --worlds 100 --veto 0.4 --report ../../docs/bot-search-disagreements.md
+mise exec -- mix pidro.selfplay --pairs 1000 --seed 3796 --a search --b random
+mise exec -- mix pidro.selfplay --pairs 1000 --seed 3797 --a search --b rulebook --veto 0
+```
+
+Held-out seeds, 1,000 pairs each (2,000 games, teams swapped), K = 100,
+against the rulebook with PID-377's bidding:
+
+| search vs …            | rulebook, veto 0.4 (3795) | random (3796)    | rulebook, no veto (3797) |
+| ---------------------- | ------------------------- | ---------------- | ------------------------ |
+| wins                   | 81.4%                     | 99.8%            | 81.7%                    |
+| pairs swept            | 644 / 16                  | 996 / 0          | 648 / 14                 |
+| contracts held         | 9,819 / 6,114             | 7,922 / 5,274    | 9,893 / 6,188            |
+| contracts made         | 88.5% / 71.6%             | 93.9% / 28.9%    | 88.5% / 71.9%            |
+| sets                   | 1,127 / 1,737             | 487 / 3,749      | 1,134 / 1,741            |
+| average winning bid    | 6.45 / 6.72               | 6.40 / 7.47      | 6.45 / 6.71              |
+| Fives taken / lost     | 8,455 / 3,952             | 9,713 / 2,596    | 8,320 / 3,963            |
+| search p50 / p95 / max | 25 / 96 / 746 ms          | 25 / 88 / 808 ms | 25 / 94 / 802 ms         |
+| wall time (16 cores)   | 4 min 57 s                | 3 min 57 s       | 4 min 58 s               |
+
+Every game finished: no illegal move, crash, stall or capped game. The
+rulebook against random is unchanged by this work at 98.8%
+(`--pairs 1000 --seed 71`, the PID-377 figure). Against the PID-365
+rulebook, before PID-377 landed, the same search won 83.7% on seed 3795.
+
+Development seed 3790 (200 pairs each, against the same rulebook) chose
+the budget: K = 50 won 80.8% (p95 47 ms), K = 100 85.0% (p95 92 ms), K =
+200 79.8% (p95 193 ms); at 200 pairs a rate is good to about 2.6 points, so
+more worlds buy nothing. Search in play alone won 70.3%, search in the
+auction alone 64.8%. The veto costs nothing measurable (85.0% with, 84.0%
+without on 3790; 81.4% and 81.7% held out), so it stays: most moves remain
+ones the rulebook can explain.
+
+Decision times above are per decision, each in one process, with one game
+per scheduler. On a single scheduler (`elixir --erl "+S 1:1" -S mix
+pidro.selfplay --pairs 20 --seed 3794 --a search --b rulebook`, one game at a
+time) search took p50 23 ms, p95 80 ms, max 397 ms, and won 31 of 40. One
+core meets the 400 ms p95 bar, so worlds are not spread over processes.
+
+Read the win rate with one caveat: the rollouts play the rulebook for every
+seat, so against the rulebook search has an exact model of its opponents.
+Against random, a model that is wrong, it still wins 99.8%. People play
+neither way, so human play is the test before any table gets it.
+
+What search overrules most is in
+[bot-search-disagreements.md](bot-search-disagreements.md), the material
+for PID-136. Mostly the auction: the rulebook passes an open auction or an
+opponent's 6 with three to five trumps where search makes the contract in
+most worlds, and volunteers a 6 on three or four trumps with an unguarded
+Five where search makes it too rarely. In play, the rulebook cashes its Ace
+on the opening lead from four or five trumps where search leads low.
+Seeds 3790–3797 are used; do not report them as unseen.
+
 ## Why one bot
 
 The [PR #49](https://github.com/marcelfahle/pidro-backend/pull/49) experiment gave
