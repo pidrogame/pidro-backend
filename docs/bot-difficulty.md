@@ -46,7 +46,8 @@ The API also accepts candidate policy functions for future comparison without
 adding them to the live server.
 
 Reports include wins, pair sweeps/splits, contracts (including forced bids),
-made/set rates, Five outcomes and decision times. Five metrics count cards in
+average winning bid, made/set rates, points lost to sets, Five outcomes and
+decision times. Five metrics count cards in
 completed tricks, including completed tricks in failed games:
 
 - Captured: all Fives won, including the team's own Fives.

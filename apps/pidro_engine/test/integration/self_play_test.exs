@@ -96,6 +96,7 @@ defmodule Pidro.Integration.SelfPlayTest do
       assert total.(:partner_raise_contracts) == if(contest?, do: 0, else: summary.hands)
       assert total.(:partner_raises_made) == if(contest?, do: 0, else: total.(:made))
       assert summary.teams.a.average_bid == if(contest?, do: 8.0, else: 7.0)
+      assert total.(:set_points) == total.(:set) * if(contest?, do: 8, else: 7)
       assert summary.teams.b.average_bid == if(contest?, do: 8.0, else: 7.0)
     end
   end

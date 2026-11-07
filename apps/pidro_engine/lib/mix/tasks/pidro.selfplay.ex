@@ -8,9 +8,9 @@ defmodule Mix.Tasks.Pidro.Selfplay do
       mix pidro.selfplay --pairs 1000 --seed 71 --a rulebook --b random
 
   Team A alternates between North/South and East/West. The summary reports
-  win rate, bids made and set, average bid, decision times, and any illegal
-  move, crash, stall or capped game. The task exits non-zero if a game did not
-  finish cleanly. Needs no database.
+  win rate, bids made and set, points lost to sets, average winning bid,
+  decision times, and any illegal move, crash, stall or capped game. The task
+  exits non-zero if a game did not finish cleanly. Needs no database.
   """
   use Mix.Task
 

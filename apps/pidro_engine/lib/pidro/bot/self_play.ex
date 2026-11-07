@@ -130,9 +130,9 @@ defmodule Pidro.Bot.SelfPlay do
   ## Returns
 
   A summary map with, per label, games won, win rate, contracts won, bids
-  made and set, made rate (also without forced dealer bids), and average
-  bid; plus counts of illegal moves, crashes, stalls and capped games, and
-  per-label decision times under `:timing`. Five metrics count cards, not
+  made and set, points lost to sets, made rate (also without forced dealer
+  bids), and average winning bid; plus counts of illegal moves, crashes,
+  stalls and capped games, and per-label decision times under `:timing`. Five metrics count cards, not
   points: captured includes own Fives kept, taken means an opposing Five
   captured, and lost means an own Five captured by the opponents. Only
   completed tricks count, including completed tricks in failed games.
@@ -215,8 +215,8 @@ defmodule Pidro.Bot.SelfPlay do
         """
         #{label}
           wins            #{t.wins}/#{summary.complete} (#{pct(t.win_rate)})
-          contracts       #{t.contracts} (#{t.forced} forced), average bid #{Float.round(t.average_bid, 2)}
-          made / set      #{t.made} / #{t.set} (#{pct(t.made_rate)}; #{pct(t.made_rate_unforced)} unforced)
+          contracts       #{t.contracts} (#{t.forced} forced), average winning bid #{Float.round(t.average_bid, 2)}
+          made / set      #{t.made} / #{t.set} (#{pct(t.made_rate)}; #{pct(t.made_rate_unforced)} unforced), #{t.set_points} points lost to sets
           cheap contests  #{t.cheap_contests}/#{t.cheap_opportunities} (#{pct(t.cheap_contest_rate)})
           partner raises  #{t.partner_raises}/#{t.partner_opportunities} (#{pct(t.partner_raise_rate)}); won #{t.partner_raise_contracts}, made #{t.partner_raises_made} (#{pct(t.partner_raise_made_rate)})
           Fives           #{t.fives_captured} captured, #{t.fives_taken} taken from opponents, #{t.fives_lost} lost
@@ -466,6 +466,7 @@ defmodule Pidro.Bot.SelfPlay do
            forced: length(hands) - length(unforced),
            made: Enum.count(hands, & &1.made?),
            set: Enum.count(hands, &(not &1.made?)),
+           set_points: hands |> Enum.reject(& &1.made?) |> Enum.map(& &1.bid) |> Enum.sum(),
            made_rate: ratio(Enum.count(hands, & &1.made?), length(hands)),
            made_rate_unforced: ratio(Enum.count(unforced, & &1.made?), length(unforced)),
            average_bid: ratio(Enum.sum(Enum.map(hands, & &1.bid)), length(hands))
