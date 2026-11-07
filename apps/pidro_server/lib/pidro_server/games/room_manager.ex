@@ -200,6 +200,7 @@ defmodule PidroServer.Games.RoomManager do
             spectator_rooms: %{String.t() => String.t()},
             subscribed_game_topics: MapSet.t(String.t()),
             channel_pids: %{{String.t(), any()} => MapSet.t(pid())},
+            superseded_channels: %{{String.t(), any()} => MapSet.t(pid())},
             channel_monitors: %{reference() => {String.t(), any(), pid()}},
             spectator_monitors: %{reference() => {String.t(), any(), pid()}},
             spectator_timers: %{{String.t(), any()} => reference()},
@@ -219,6 +220,8 @@ defmodule PidroServer.Games.RoomManager do
               spectator_rooms: %{},
               subscribed_game_topics: MapSet.new(),
               channel_pids: %{},
+              # Registered channels an unseen drop was already counted against.
+              superseded_channels: %{},
               channel_monitors: %{},
               spectator_monitors: %{},
               spectator_timers: %{},
@@ -2018,9 +2021,12 @@ defmodule PidroServer.Games.RoomManager do
       ) do
     if Map.has_key?(state.rooms, room_code) do
       room = state.rooms[room_code]
+      key = {room_code, user_id}
+      channels = Map.get(state.channel_pids, key, MapSet.new())
+      new_channel? = not MapSet.member?(channels, pid)
 
-      new_channel? =
-        not MapSet.member?(Map.get(state.channel_pids, {room_code, user_id}, MapSet.new()), pid)
+      counted =
+        state.superseded_channels |> Map.get(key, MapSet.new()) |> MapSet.intersection(channels)
 
       seats =
         Map.new(room.seats, fn {position, seat} ->
@@ -2052,6 +2058,23 @@ defmodule PidroServer.Games.RoomManager do
           end
         end)
 
+      counted =
+        if new_channel? and
+             unseen_drop?(room, user_id, client, not MapSet.subset?(channels, counted)) do
+          {_position, rejoined} = connection_seat(%{room | seats: seats}, user_id)
+          Stats.record_seat_event(user_id, room_code, "drop", nil, rejoined)
+          Stats.record_seat_event(user_id, room_code, "return", nil, rejoined)
+          channels
+        else
+          counted
+        end
+
+      superseded =
+        if MapSet.size(counted) == 0,
+          do: Map.delete(state.superseded_channels, key),
+          else: Map.put(state.superseded_channels, key, counted)
+
+      state = %{state | superseded_channels: superseded}
       state = put_in(state.rooms[room_code].seats, seats)
       state = update_in(state.rooms[room_code].table_outcome, &TableOutcome.capture(&1, seats))
       state = register_channel_pid(state, room_code, user_id, pid)
@@ -2181,6 +2204,14 @@ defmodule PidroServer.Games.RoomManager do
     state =
       if match?({:ok, _}, result) do
         room = state.rooms[room_code]
+        seat = room.seats[position]
+
+        if operation == :apply_substitute_action and seat.reserved_for do
+          Stats.record_seat_event(seat.reserved_for, room_code, "away_play", nil, seat, %{
+            actor: "bot",
+            action: serialize_action(action)
+          })
+        end
 
         outcome =
           TableOutcome.turn(
@@ -2759,7 +2790,11 @@ defmodule PidroServer.Games.RoomManager do
             {:ok, grace_seat} = Seat.start_grace(seat, grace_expires_at)
 
             {:ok, bot_seat} = Seat.substitute_bot(grace_seat, bot_pid)
-            Stats.record_seat_event(seat.user_id, room_code, "bot_took_seat", nil, seat)
+            # Missed turns end in a forced disconnect; the counter outlives it.
+            Stats.record_seat_event(seat.user_id, room_code, "bot_took_seat", nil, seat, %{
+              trigger:
+                if(timeout_threshold_reached?(room, position), do: "missed_turns", else: "drop")
+            })
 
             # Schedule Phase 3 (gone/permanent) timer
             timer_ref =
@@ -6356,6 +6391,25 @@ defmodule PidroServer.Games.RoomManager do
     end
   end
 
+  # A socket loss the disconnect cascade never saw: the seat was held while the
+  # app was in the background, or the app is back on a new socket, saying why
+  # it lost the old one, before that one is seen to close. The rejoin records
+  # the drop and the return, with the reason the app gives; a retried join
+  # over the same stale socket is not another drop.
+  defp unseen_drop?(%Room{status: :playing} = room, user_id, client, stale_channel?) do
+    case connection_seat(room, user_id) do
+      {_position, seat} ->
+        Seat.connected_human?(seat) and not game_against_bots?(room) and
+          (seat.background_token != nil or
+             (stale_channel? and client[:reason] not in [nil, "unknown"]))
+
+      nil ->
+        false
+    end
+  end
+
+  defp unseen_drop?(_room, _user_id, _client, _stale_channel?), do: false
+
   defp disconnect_after_last_channel(state, room_code, user_id, close \\ :closed) do
     case Map.get(state.rooms, room_code) do
       %Room{} = room ->
@@ -6364,6 +6418,16 @@ defmodule PidroServer.Games.RoomManager do
             Enum.any?(room.seats, fn {_position, seat} ->
               seat.user_id == user_id and seat.background_token != nil
             end)
+
+        # A closed socket says nothing of why; the app says so on the rejoin.
+        room =
+          case connection_seat(room, user_id) do
+            {position, %Seat{occupant_type: :human, status: :connected}} when not held? ->
+              put_in(room.seats[position].reason, nil)
+
+            _ ->
+              room
+          end
 
         case if(held?,
                do: {:held, state},
@@ -6404,6 +6468,10 @@ defmodule PidroServer.Games.RoomManager do
     %State{
       state
       | channel_pids: channel_pids,
+        superseded_channels:
+          Map.reject(state.superseded_channels, fn {{code, _user_id}, _pids} ->
+            code == room_code
+          end),
         channel_monitors: Map.drop(state.channel_monitors, refs_to_remove)
     }
   end
@@ -6802,14 +6870,32 @@ defmodule PidroServer.Games.RoomManager do
             | table_outcome: TableOutcome.turn(outcome, updated_room.seats, resolved_action, true)
           }
 
-          if incremented? do
-            Stats.record_seat_event(
-              updated_room.seats[actor_position].user_id,
-              room_code,
-              "timeout",
-              TurnTimer.elapsed_ms(timer),
-              updated_room.seats[actor_position]
-            )
+          played = %{action: serialize_action(resolved_action)}
+
+          cond do
+            # Only a paused turn can run out on a player who is away.
+            paused? and user != nil ->
+              Stats.record_seat_event(
+                user,
+                room_code,
+                "away_play",
+                nil,
+                seat,
+                Map.put(played, :actor, "timer")
+              )
+
+            incremented? ->
+              Stats.record_seat_event(
+                user,
+                room_code,
+                "timeout",
+                TurnTimer.elapsed_ms(timer),
+                seat,
+                played
+              )
+
+            true ->
+              :ok
           end
 
           broadcast_game_event(
@@ -6936,7 +7022,14 @@ defmodule PidroServer.Games.RoomManager do
 
   defp maybe_reset_timeout_counters_for_new_hand(%Room{} = room, game_state) do
     if Map.get(game_state, :hand_number, room.last_hand_number) > room.last_hand_number do
-      %{room | consecutive_timeouts: %{}}
+      # An away seat keeps its count until it is back: it says why a bot took it.
+      %{
+        room
+        | consecutive_timeouts:
+            Map.reject(room.consecutive_timeouts, fn {position, _count} ->
+              Seat.connected_human?(room.seats[position])
+            end)
+      }
     else
       room
     end

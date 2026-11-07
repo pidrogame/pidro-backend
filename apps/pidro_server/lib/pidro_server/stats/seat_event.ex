@@ -3,16 +3,23 @@ defmodule PidroServer.Stats.SeatEvent do
   One thing that happened to a player's seat at a live table, for the beta
   report. Kinds:
 
-    * `drop` - the player's connection went and the reconnect grace began
-    * `return` - the player took the seat back inside the grace period
+    * `drop` - the player's connection went during a game; a loss the server
+      only learns of on the rejoin is recorded then, with the app's reason
+    * `return` - the player was back after a drop
     * `turn` - the player acted on a timed turn; `elapsed_ms` is how long it took
-    * `timeout` - the turn clock ran out and the server played for them
+    * `timeout` - the turn clock ran out on a connected player and the server
+      played for them; `metadata` holds the `action`
+    * `bot_took_seat` - a substitute bot took the seat; `metadata` holds the
+      `trigger`: `drop` or `missed_turns`
+    * `seat_taken_back` - the player took the seat back from the bot
+    * `away_play` - a move made for the seat while its player was away;
+      `metadata` holds the `actor` (`timer` or `bot`) and the `action`
   """
 
   use Ecto.Schema
   import Ecto.Changeset
 
-  @kinds ~w(join drop return turn timeout bot_took_seat seat_taken_back)
+  @kinds ~w(join drop return turn timeout bot_took_seat seat_taken_back away_play)
 
   @primary_key {:id, :binary_id, autogenerate: true}
 
@@ -25,6 +32,7 @@ defmodule PidroServer.Stats.SeatEvent do
     field :platform, :string
     field :reason, :string
     field :network, :string
+    field :metadata, :map
 
     timestamps(updated_at: false)
   end
@@ -40,7 +48,8 @@ defmodule PidroServer.Stats.SeatEvent do
       :app_version,
       :platform,
       :reason,
-      :network
+      :network,
+      :metadata
     ])
     |> validate_required([:user_id, :room_code, :kind])
     |> validate_inclusion(:kind, @kinds)

@@ -571,14 +571,29 @@ defmodule PidroServer.Stats do
   end
 
   @doc """
-  Records a drop, a return within grace, a timed turn or a turn timeout for
-  the beta report. See `PidroServer.Stats.SeatEvent` for the kinds.
+  Records what happened to a player's seat for the beta report and the
+  admin's connection timeline. See `PidroServer.Stats.SeatEvent` for the
+  kinds and what each keeps in `metadata`.
 
   Best-effort and off the caller, which is the RoomManager on a turn: a slow
   or failed write must never hold up or crash the tables.
   """
-  @spec record_seat_event(String.t(), String.t(), String.t(), non_neg_integer() | nil) :: :ok
-  def record_seat_event(user_id, room_code, kind, elapsed_ms \\ nil, client \\ %{}) do
+  @spec record_seat_event(
+          String.t(),
+          String.t(),
+          String.t(),
+          non_neg_integer() | nil,
+          map(),
+          map() | nil
+        ) :: :ok
+  def record_seat_event(
+        user_id,
+        room_code,
+        kind,
+        elapsed_ms \\ nil,
+        client \\ %{},
+        metadata \\ nil
+      ) do
     changeset =
       SeatEvent.changeset(%SeatEvent{}, %{
         user_id: user_id,
@@ -588,7 +603,8 @@ defmodule PidroServer.Stats do
         app_version: Map.get(client, :app_version),
         platform: Map.get(client, :platform),
         reason: Map.get(client, :reason),
-        network: Map.get(client, :network)
+        network: Map.get(client, :network),
+        metadata: metadata
       })
 
     Task.Supervisor.start_child(PidroServer.TaskSupervisor, fn ->

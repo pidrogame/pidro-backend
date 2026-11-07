@@ -571,7 +571,7 @@ defmodule PidroServer.Games.SeatEventsTest do
       refute user in Map.values(reopened.positions)
     end
 
-    test "background holds quietly through socket loss, but expires into a normal drop" do
+    test "background holds quietly through socket loss, counts it on the rejoin, and expires into a normal drop" do
       {room, user} = bidding_room()
       position = position_of(room, user)
       :ok = RoomManager.register_game_channel(room.code, user, self())
@@ -589,14 +589,14 @@ defmodule PidroServer.Games.SeatEventsTest do
       :ok = RoomManager.register_game_channel(room.code, user, self())
       assert {:ok, returned} = RoomManager.get_room(room.code)
       assert returned.turn_timer != nil
-      assert seat_events(user) == []
+      assert seat_events(user) == [{"drop", nil}, {"return", nil}]
       assert :ok = GenServer.call(RoomManager, {:going_background, room.code, user})
       assert {:ok, held} = RoomManager.get_room(room.code)
       token = held.seats[position].background_token
       send(RoomManager, {:background_expired, room.code, user, token})
       assert {:ok, dropped} = RoomManager.get_room(room.code)
       assert dropped.seats[position].status == :reconnecting
-      assert seat_events(user) == [{"drop", nil}]
+      assert seat_events(user) == [{"drop", nil}, {"drop", nil}, {"return", nil}]
     end
 
     test "a late tap identifies the action the timer played for that exact turn" do
@@ -843,6 +843,207 @@ defmodule PidroServer.Games.SeatEventsTest do
     end
   end
 
+  describe "away from the table" do
+    test "a backgrounded socket loss and the return inside the hold are a drop and a return" do
+      {room, user} = bidding_room()
+      :ok = RoomManager.register_game_channel(room.code, user, self())
+      :ok = RoomManager.going_background(room.code, user)
+      assert RoomManager.unregister_game_channel(room.code, user, self()) == :last_channel_closed
+
+      :ok =
+        RoomManager.register_game_channel(room.code, user, self(), %{
+          reason: "backgrounded",
+          network: "wifi"
+        })
+
+      assert away_events(user) == [
+               {"drop", "backgrounded", nil},
+               {"return", "backgrounded", nil}
+             ]
+    end
+
+    test "a rejoin that lands before the old socket is seen to close is a drop and a return" do
+      {room, user} = bidding_room()
+      :ok = RoomManager.register_game_channel(room.code, user, self())
+      fresh = spawn(fn -> Process.sleep(:infinity) end)
+
+      :ok = RoomManager.register_game_channel(room.code, user, fresh, %{reason: "network_lost"})
+      assert RoomManager.unregister_game_channel(room.code, user, self()) == :channels_remaining
+
+      assert away_events(user) == [
+               {"drop", "network_lost", nil},
+               {"return", "network_lost", nil}
+             ]
+    end
+
+    test "a retried join over the same stale socket is not another drop, a later loss is" do
+      {room, user} = bidding_room()
+      [first, retried, later] = for _ <- 1..3, do: spawn(fn -> Process.sleep(:infinity) end)
+      lost = %{reason: "network_lost"}
+
+      :ok = RoomManager.register_game_channel(room.code, user, first, lost)
+      assert RoomManager.unregister_game_channel(room.code, user, first) == :channels_remaining
+      :ok = RoomManager.register_game_channel(room.code, user, retried, lost)
+      assert RoomManager.unregister_game_channel(room.code, user, self()) == :channels_remaining
+      assert length(away_events(user)) == 2
+
+      :ok = RoomManager.register_game_channel(room.code, user, later, lost)
+
+      assert away_events(user) == [
+               {"drop", "network_lost", nil},
+               {"drop", "network_lost", nil},
+               {"return", "network_lost", nil},
+               {"return", "network_lost", nil}
+             ]
+    end
+
+    test "the socket closing after the cascade began keeps the reason the server saw" do
+      {room, user} = bidding_room()
+      position = position_of(room, user)
+      :ok = RoomManager.going_background(room.code, user)
+      {:ok, held} = RoomManager.get_room(room.code)
+
+      send(
+        RoomManager,
+        {:background_expired, room.code, user, held.seats[position].background_token}
+      )
+
+      assert RoomManager.unregister_game_channel(room.code, user, self()) == :last_channel_closed
+      expire_phase(room.code, position, :phase2_start)
+
+      assert {"bot_took_seat", "backgrounded", _} =
+               List.keyfind(away_events(user), "bot_took_seat", 0)
+    end
+
+    test "a second channel without a lost connection is neither a drop nor a return" do
+      {room, user} = bidding_room()
+      :ok = RoomManager.register_game_channel(room.code, user, self(), %{reason: "unknown"})
+      other = spawn(fn -> Process.sleep(:infinity) end)
+      :ok = RoomManager.register_game_channel(room.code, user, other, %{reason: "unknown"})
+      :ok = RoomManager.register_game_channel(room.code, user, other, %{reason: "network_lost"})
+      assert away_events(user) == []
+    end
+
+    test "each socket close the server sees is one drop, without the last rejoin's reason" do
+      {room, user} = bidding_room()
+      :ok = RoomManager.register_game_channel(room.code, user, self())
+      assert RoomManager.unregister_game_channel(room.code, user, self()) == :last_channel_closed
+      :ok = RoomManager.register_game_channel(room.code, user, self(), %{reason: "network_lost"})
+      {:ok, _} = RoomManager.handle_player_reconnect(room.code, user)
+      assert RoomManager.unregister_game_channel(room.code, user, self()) == :last_channel_closed
+
+      assert away_events(user) == [
+               {"drop", nil, nil},
+               {"drop", nil, nil},
+               {"return", "network_lost", nil}
+             ]
+    end
+
+    test "a bot taking the seat after a drop records what triggered it" do
+      {room, user} = bidding_room()
+      position = position_of(room, user)
+      :ok = RoomManager.handle_player_disconnect(room.code, user)
+      expire_phase(room.code, position, :phase2_start)
+
+      assert {"bot_took_seat", _, %{"trigger" => "drop"}} =
+               List.keyfind(away_events(user), "bot_took_seat", 0)
+    end
+
+    test "three missed turns hand the seat to a bot, and the player takes it back" do
+      {room, user} = bidding_room()
+      position = position_of(room, user)
+      :ok = RoomManager.register_game_channel(room.code, user, self())
+
+      :sys.replace_state(RoomManager, fn state ->
+        put_in(state.rooms[room.code].consecutive_timeouts, %{position => 2})
+      end)
+
+      timer = room.turn_timer
+      send(RoomManager, {:turn_timer_expired, room.code, timer.timer_id, timer.key})
+      assert_receive {:force_disconnect, :timeout_threshold}
+      assert RoomManager.unregister_game_channel(room.code, user, self()) == :last_channel_closed
+      expire_phase(room.code, position, :phase2_start)
+      {:ok, _} = RoomManager.handle_player_reconnect(room.code, user)
+
+      events = away_events(user)
+
+      assert {"bot_took_seat", _, %{"trigger" => "missed_turns"}} =
+               List.keyfind(events, "bot_took_seat", 0)
+
+      assert List.keymember?(events, "seat_taken_back", 0)
+      assert {"timeout", _, %{"action" => %{"type" => _}}} = List.keyfind(events, "timeout", 0)
+    end
+
+    test "missed turns stay the trigger when a new hand starts before the bot takes the seat" do
+      {room, user} = bidding_room()
+      position = position_of(room, user)
+
+      :sys.replace_state(RoomManager, fn state ->
+        put_in(state.rooms[room.code].consecutive_timeouts, %{position => 2})
+      end)
+
+      timer = room.turn_timer
+      send(RoomManager, {:turn_timer_expired, room.code, timer.timer_id, timer.key})
+      assert_receive {:force_disconnect, :timeout_threshold}
+      assert RoomManager.unregister_game_channel(room.code, user, self()) == :last_channel_closed
+
+      # The next state update looks like a new hand to the room.
+      {:ok, game} = GameAdapter.get_state(room.code)
+
+      :sys.replace_state(RoomManager, fn state ->
+        put_in(state.rooms[room.code].last_hand_number, game.hand_number - 1)
+      end)
+
+      next = game.current_turn
+      {:ok, [action | _]} = GameAdapter.get_legal_actions(room.code, next)
+      {:ok, _} = RoomManager.apply_player_action(room.code, room.positions[next], next, action)
+
+      wait_until(fn ->
+        {:ok, current} = RoomManager.get_room(room.code)
+        current.last_hand_number == game.hand_number
+      end)
+
+      expire_phase(room.code, position, :phase2_start)
+
+      assert {"bot_took_seat", _, %{"trigger" => "missed_turns"}} =
+               List.keyfind(away_events(user), "bot_took_seat", 0)
+    end
+
+    test "a substitute's play for an away player records the action it played" do
+      {room, user} = bidding_room()
+      position = position_of(room, user)
+      :ok = RoomManager.handle_player_disconnect(room.code, user)
+      expire_phase(room.code, position, :phase2_start)
+
+      wait_until(fn -> List.keymember?(away_events(user), "away_play", 0) end)
+      {:ok, game} = GameAdapter.get_state(room.code)
+
+      played =
+        Enum.find_value(game.events, fn
+          {:bid_made, ^position, amount} -> %{"type" => "bid", "amount" => amount}
+          {:player_passed, ^position} -> %{"type" => "pass"}
+          _ -> nil
+        end)
+
+      assert [{"away_play", nil, %{"actor" => "bot", "action" => ^played}}] =
+               Enum.filter(away_events(user), &(elem(&1, 0) == "away_play"))
+    end
+
+    test "the turn clock playing for a backgrounded player is an away play, not a timeout" do
+      pause_budget(30)
+      {room, user} = bidding_room()
+      :ok = RoomManager.register_game_channel(room.code, user, self())
+      :ok = RoomManager.going_background(room.code, user)
+
+      wait_until(fn -> List.keymember?(away_events(user), "away_play", 0) end)
+
+      assert [{"away_play", nil, %{"actor" => "timer", "action" => %{"type" => type}}}] =
+               away_events(user)
+
+      assert type in ["bid", "pass"]
+    end
+  end
+
   describe "timed turns" do
     test "a turn taken on the clock records how long it took" do
       {room, user} = bidding_room()
@@ -968,6 +1169,18 @@ defmodule PidroServer.Games.SeatEventsTest do
     await_tasks()
 
     Repo.all(from e in SeatEvent, where: e.user_id == ^user_id, select: {e.kind, e.elapsed_ms})
+    |> Enum.sort()
+  end
+
+  # Everything but join and turn rows, with what they say about the absence.
+  defp away_events(user_id) do
+    await_tasks()
+
+    Repo.all(
+      from e in SeatEvent,
+        where: e.user_id == ^user_id and e.kind not in ["join", "turn"],
+        select: {e.kind, e.reason, e.metadata}
+    )
     |> Enum.sort()
   end
 
