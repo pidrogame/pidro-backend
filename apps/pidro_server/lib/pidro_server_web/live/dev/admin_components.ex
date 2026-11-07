@@ -184,7 +184,8 @@ defmodule PidroServerWeb.Dev.AdminComponents do
   attr :current, :string, required: true
 
   def admin_nav(assigns) do
-    assigns = assign(assigns, :groups, nav_groups())
+    assigns =
+      assign(assigns, groups: nav_groups(), attention: PidroServer.StoreBuilds.attention?())
 
     ~H"""
     <header
@@ -248,6 +249,11 @@ defmodule PidroServerWeb.Dev.AdminComponents do
                   ]}
                 >
                   <.icon name={icon} class="size-4 shrink-0" />{label}
+                  <span
+                    :if={key == "store-builds" and @attention}
+                    id="store-builds-attention"
+                    class="ml-auto size-1.5 rounded-full bg-amber-500"
+                  ><span class="sr-only">needs attention</span></span>
                 </.link>
               </li>
             </ul>

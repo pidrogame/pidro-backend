@@ -738,8 +738,19 @@
     animation: admin-row-update 650ms ease-out;
   }
 
+  @keyframes admin-pulse {
+    0% { box-shadow: 0 0 0 0 rgb(245 158 11 / 0.45); }
+    70% { box-shadow: 0 0 0 10px rgb(245 158 11 / 0); }
+    100% { box-shadow: 0 0 0 0 rgb(245 158 11 / 0); }
+  }
+
+  .admin-pulse {
+    animation: admin-pulse 1.8s ease-out infinite;
+  }
+
   @media (prefers-reduced-motion: reduce) {
-    .admin-row-changed {
+    .admin-row-changed,
+    .admin-pulse {
       animation: none;
     }
 

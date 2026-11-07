@@ -82,14 +82,27 @@ defmodule PidroServerWeb.Dev.StoreBuildsLiveTest do
   test "admin page, both-platform draft, advisory warning, failed refresh and recovery", %{
     conn: conn
   } do
-    {:ok, view, html} = live(conn, ~p"/admin/store-builds")
-    assert html =~ "Next steps"
-    assert has_element?(view, "#store-ios", "3.2.4 (10)")
-    assert has_element?(view, "#store-ios", "3.2.1 (7)")
-    assert has_element?(view, "#store-android", "production: 3.2.3 (8)")
-    assert has_element?(view, "#store-android", "from deploy config")
-    assert has_element?(view, "#next-steps li:only-child", "waiting for Apple's review")
-    refute has_element?(view, "#next-steps a")
+    {:ok, view, _html} = live(conn, ~p"/admin/store-builds")
+    assert has_element?(view, "#next-steps", "Waiting on Apple")
+    assert has_element?(view, "#next-steps", "waiting for Apple's review")
+    assert has_element?(view, "#next-steps a[target=_blank]", "Open TestFlight")
+    refute has_element?(view, "#next-steps li")
+    refute has_element?(view, "#next-steps a[href^='/admin/news']")
+    assert has_element?(view, "#store-builds-attention")
+    assert has_element?(view, "#store-ios p", "3.2.1 build 7")
+    assert has_element?(view, "#store-ios li", "3.2.4 (10)")
+    assert has_element?(view, "#store-ios li", "Still 3.2.1")
+    assert has_element?(view, "#store-android li", "nobody to nudge")
+    assert has_element?(view, "#track-details", "Play production · 3.2.3 (8) · Draft")
+    assert has_element?(view, "#track-details", "from deploy config")
+    refute render(view) =~ "Not reported by the API"
+
+    stores = Cache.snapshot()
+    unnamed = put_in(stores, ["ios", :data, :live, :version], nil)
+    :sys.replace_state(Cache, &%{&1 | stores: unnamed})
+    {:ok, unnamed_view, _} = live(conn, ~p"/admin/store-builds")
+    assert has_element?(unnamed_view, "#store-ios p", "Unknown build 7")
+    :sys.replace_state(Cache, &%{&1 | stores: stores})
 
     PidroServer.Repo.insert!(%PidroServer.Stats.SeatEvent{
       user_id: "older-android-player",
@@ -120,7 +133,7 @@ defmodule PidroServerWeb.Dev.StoreBuildsLiveTest do
     {:ok, view, _} = live(conn, ~p"/admin/store-builds")
     before = Cache.snapshot()
     Req.Test.stub(__MODULE__, fn conn -> Plug.Conn.send_resp(conn, 503, "secret body") end)
-    view |> element("#refresh-ios") |> render_click()
+    Cache.refresh("ios")
     failed = await_check()
     assert failed["ios"].data == before["ios"].data
     assert failed["ios"].good_at == before["ios"].good_at
@@ -160,11 +173,19 @@ defmodule PidroServerWeb.Dev.StoreBuildsLiveTest do
     {:ok, stores, _} = live(conn, ~p"/admin/store-builds")
     {:ok, news, _} = live(conn, ~p"/admin/news?app_update=true")
     refute_receive {:store_request, "POST", _}
-    assert has_element?(stores, "#store-android", "Not checked yet")
+    assert has_element?(stores, "#checked", "Google Play not checked yet")
 
     assert has_element?(
              stores,
              "#store-android",
+             "Not while an Android build is being submitted."
+           )
+
+    refute has_element?(stores, "#refresh-ios")
+
+    assert has_element?(
+             stores,
+             "#track-details",
              "don't refresh while an Android build is being submitted"
            )
 
@@ -178,7 +199,7 @@ defmodule PidroServerWeb.Dev.StoreBuildsLiveTest do
     await_check()
     assert_receive {:store_request, "POST", "/token"}
     assert Cache.snapshot()["android"].data.live.version == "3.2.4"
-    assert has_element?(stores, "#store-android", "Checked 0 min ago")
+    assert has_element?(stores, "#checked", "Google Play checked 0 min ago")
     drain_requests()
 
     news |> element("#store-hint-android button") |> render_click()
