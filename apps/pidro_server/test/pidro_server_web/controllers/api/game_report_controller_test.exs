@@ -41,6 +41,25 @@ defmodule PidroServerWeb.API.GameReportControllerTest do
     %{user: user, body: body}
   end
 
+  # The pre-parser throttle counts per clock minute (Hammer's fixed window), so a
+  # burst that straddles a minute boundary meets a fresh count, as it would in
+  # production. That run proves nothing: run it once more from empty counters,
+  # inside the new minute.
+  defp in_one_minute(burst) do
+    minute = div(System.system_time(:millisecond), 60_000)
+
+    try do
+      burst.()
+    rescue
+      error ->
+        if div(System.system_time(:millisecond), 60_000) == minute,
+          do: reraise(error, __STACKTRACE__)
+
+        PidroServerWeb.RateLimitCase.reset()
+        burst.()
+    end
+  end
+
   defp submit(user, body) do
     build_conn()
     |> put_req_header("authorization", "Bearer #{Token.generate(user)}")
@@ -112,8 +131,11 @@ defmodule PidroServerWeb.API.GameReportControllerTest do
   end
 
   test "invalid-report spam is bounded before membership queries", %{user: user} do
-    for _ <- 1..10, do: assert(submit(user, %{}) |> json_response(422))
-    assert submit(user, %{}) |> json_response(429)
+    in_one_minute(fn ->
+      for _ <- 1..10, do: assert(submit(user, %{}) |> json_response(422))
+      assert submit(user, %{}) |> json_response(429)
+    end)
+
     assert GameReports.admin_list() == []
   end
 
@@ -133,8 +155,10 @@ defmodule PidroServerWeb.API.GameReportControllerTest do
         |> post("/api/v1/game-reports", raw)
       end
 
-      for _ <- 1..10, do: assert(send_raw.() |> json_response(status))
-      assert send_raw.() |> json_response(429)
+      in_one_minute(fn ->
+        for _ <- 1..10, do: assert(send_raw.() |> json_response(status))
+        assert send_raw.() |> json_response(429)
+      end)
     end
 
     assert GameReports.admin_list() == []
@@ -151,9 +175,11 @@ defmodule PidroServerWeb.API.GameReportControllerTest do
         |> post(path, raw)
       end
 
-      assert send_raw.(String.duplicate("x", 32_769)) |> json_response(413)
-      for _ <- 1..9, do: assert(send_raw.("{}") |> json_response(422))
-      assert send_raw.("{}") |> json_response(429)
+      in_one_minute(fn ->
+        assert send_raw.(String.duplicate("x", 32_769)) |> json_response(413)
+        for _ <- 1..9, do: assert(send_raw.("{}") |> json_response(422))
+        assert send_raw.("{}") |> json_response(429)
+      end)
     end
   end
 
@@ -173,16 +199,22 @@ defmodule PidroServerWeb.API.GameReportControllerTest do
         |> post("/api/v1/game-reports", raw)
       end
 
-      responses = [
-        {send_raw.("{}", "application/json", "invalid"), 401},
-        {send_raw.("{", "application/json", token), 400},
-        {send_raw.(String.duplicate("x", 32_769), "application/json", token), 413},
-        {send_raw.("hello", "text/plain", token), 415}
-      ]
+      {responses, limited} =
+        in_one_minute(fn ->
+          responses = [
+            {send_raw.("{}", "application/json", "invalid"), 401},
+            {send_raw.("{", "application/json", token), 400},
+            {send_raw.(String.duplicate("x", 32_769), "application/json", token), 413},
+            {send_raw.("hello", "text/plain", token), 415}
+          ]
 
-      for _ <- 1..7, do: assert(send_raw.("{}", "application/json", token) |> json_response(422))
-      limited = send_raw.("{}", "application/json", token)
-      assert get_resp_header(limited, "retry-after") == ["60"]
+          for _ <- 1..7,
+              do: assert(send_raw.("{}", "application/json", token) |> json_response(422))
+
+          limited = send_raw.("{}", "application/json", token)
+          assert get_resp_header(limited, "retry-after") == ["60"]
+          {responses, limited}
+        end)
 
       for {conn, status} <- responses ++ [{limited, 429}] do
         assert json_response(conn, status)
