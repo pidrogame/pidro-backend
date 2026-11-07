@@ -115,7 +115,9 @@ defmodule PidroServer.Games.Room.Config do
   }
   @rule_set_by_wire %{"finnish" => :finnish, "louisiana" => :louisiana}
 
-  @accepted_fields ["name", "seats", "bot_difficulty", "rule_set"]
+  # `ads_aware` is no room setting: a client that knows about ads says so, and
+  # the room controller holds only that client to the ad schedule (PID-123).
+  @accepted_fields ["name", "seats", "bot_difficulty", "rule_set", "ads_aware"]
 
   # Seat order for the plan and for seat errors.
   @seats [{"seat_2", :east}, {"seat_3", :south}, {"seat_4", :west}]
@@ -172,8 +174,8 @@ defmodule PidroServer.Games.Room.Config do
   The name and difficulty then go through the same validation as `new/1`.
 
   Errors are ordered: `name`, then `seats` (known seats in seat order, then
-  unknown seat keys sorted), then `bot_difficulty`, then `rule_set`, then unknown top-level keys
-  sorted.
+  unknown seat keys sorted), then `bot_difficulty`, then `rule_set`, then `ads_aware`, then
+  unknown top-level keys sorted.
 
   ## Examples
 
@@ -200,7 +202,12 @@ defmodule PidroServer.Games.Room.Config do
 
     {name_errors, difficulty_errors} = Enum.split_with(config_errors, &(&1.field == "name"))
 
-    case name_errors ++ seat_errors ++ difficulty_errors ++ unknown_errors do
+    ads_errors =
+      if is_boolean(Map.get(body, "ads_aware", false)),
+        do: [],
+        else: [error("ads_aware", "must be a boolean")]
+
+    case name_errors ++ seat_errors ++ difficulty_errors ++ ads_errors ++ unknown_errors do
       [] -> {:ok, config, seat_plan}
       errors -> {:error, {:invalid_room_params, errors}}
     end

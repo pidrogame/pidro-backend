@@ -638,7 +638,13 @@ defmodule PidroServer.Games.Room.ConfigTest do
 
   describe "accepted_fields/0" do
     test "lists the accepted top-level request fields" do
-      assert Config.accepted_fields() == ["name", "seats", "bot_difficulty", "rule_set"]
+      assert Config.accepted_fields() == [
+               "name",
+               "seats",
+               "bot_difficulty",
+               "rule_set",
+               "ads_aware"
+             ]
     end
 
     test "every accepted field is accepted and nothing else is" do

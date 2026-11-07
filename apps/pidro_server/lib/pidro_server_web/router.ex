@@ -220,6 +220,9 @@ defmodule PidroServerWeb.Router do
     get "/news", NewsController, :index
     post "/news/seen", NewsController, :seen
     post "/news/:id/seen", NewsController, :popup_seen
+    post "/me/ads/watched", AdController, :watched
+    post "/me/ads/unavailable", AdController, :unavailable
+    post "/me/ads/dismissed", AdController, :dismissed
     get "/users/search", FriendController, :search, private: %{rate_limit: [:user_search]}
 
     get "/friends", FriendController, :index

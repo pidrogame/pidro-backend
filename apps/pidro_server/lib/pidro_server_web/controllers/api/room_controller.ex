@@ -135,6 +135,11 @@ defmodule PidroServerWeb.API.RoomController do
         room whose three seats are all `"ai"` is a solo room, hidden from the lobby
       - `bot_difficulty` - Deprecated compatibility field; new clients should omit it.
         Legacy `"random"`, `"basic"` and `"smart"` all use the same rulebook.
+      - `ads_aware` - `true` from a client that shows ads. Only then is a solo room held
+        to the ad schedule: when `/auth/me` says `ads.next_game_needs_ad` and the user
+        holds no credit from `POST /me/ads/watched` or `/me/ads/unavailable`, the answer
+        is 402 `AD_REQUIRED` with the `ads` decision. The solo game's start uses up the
+        credit. Without the flag nothing is checked.
 
       Name, the legacy preference and solo are stored on the room and returned as `config`.
 
@@ -163,6 +168,12 @@ defmodule PidroServerWeb.API.RoomController do
             "Room created successfully",
             "application/json",
             RoomSchemas.RoomCreatedResponse
+          ),
+        402 =>
+          Operation.response(
+            "AD_REQUIRED: an ad-aware solo room whose next game needs an ad, without a credit",
+            "application/json",
+            RoomSchemas.AdRequired
           ),
         404 =>
           Operation.response("Held player unavailable", "application/json", BlockSchemas.Error),
@@ -1126,7 +1137,10 @@ defmodule PidroServerWeb.API.RoomController do
     # the unknown-field check. Parsing runs first, so a rejected request creates
     # no room, starts no bot, and never reaches `create_room/2`'s stale-room
     # eviction.
-    with {:ok, config, seat_plan} <- Config.parse_create_params(create_body(conn)),
+    body = create_body(conn)
+
+    with {:ok, config, seat_plan} <- Config.parse_create_params(body),
+         :ok <- admit(user, config.solo and body["ads_aware"] == true),
          {:ok, room} <- RoomManager.create_room(user.id, config) do
       start_bots_for_room(room, seat_plan)
 
@@ -1974,6 +1988,11 @@ defmodule PidroServerWeb.API.RoomController do
       _ -> body
     end
   end
+
+  # Only a client that says it knows about ads is held to the ad schedule;
+  # older builds never send `ads_aware` and are never blocked (PID-123).
+  defp admit(user, true = _ads_aware_solo), do: PidroServer.Ads.admit_solo_room(user)
+  defp admit(_user, false), do: :ok
 
   # Starts a bot for every seat the parsed seat plan marks `:bot`, at the
   # difficulty stored on the room's config. The host holds :north; the plan

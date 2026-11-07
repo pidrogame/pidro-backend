@@ -639,6 +639,37 @@ defmodule PidroServer.Games.RematchTest do
       assert state.phase == :dealer_selection
     end
 
+    test "every game a solo room starts counts one solo start for its human; tables with people none" do
+      solo_starts = fn user_id ->
+        PidroServer.DataCase.await_tasks()
+        profile = Repo.get_by(Profiles.PlayerProfile, user_id: user_id)
+        (profile || %Profiles.PlayerProfile{}).solo_games_started
+      end
+
+      user = AccountsFixtures.user_fixture(%{display_name: "Solo"})
+      {:ok, room} = RoomManager.create_room(user.id, %{name: "Solo", solo: true})
+
+      for position <- [:east, :south, :west] do
+        {:ok, _pid} = BotManager.start_bot(room.code, position, :basic, 5_000)
+      end
+
+      assert solo_starts.(user.id) == 0
+      :ok = PidroServer.Ads.report(user, :watched)
+      assert RoomFixtures.ready_room(room.code).status == :playing
+      assert solo_starts.(user.id) == 1
+
+      assert Repo.get_by!(Profiles.PlayerProfile, user_id: user.id).ad_credit_expires_at == nil
+
+      finish_game(room.code)
+      assert solo_starts.(user.id) == 1
+      [started] = ask_for_rematch(room, [user.id])
+      assert started.status == :playing
+      assert solo_starts.(user.id) == 2
+
+      {_table, user_ids} = four_player_game()
+      assert Enum.map(user_ids, solo_starts) == [0, 0, 0, 0]
+    end
+
     test "a bot restarted by its supervisor gets its seat back" do
       user = AccountsFixtures.user_fixture(%{display_name: "Solo"})
       {:ok, room} = RoomManager.create_room(user.id, %{name: "Solo"})

@@ -201,6 +201,32 @@ defmodule PidroServerWeb.Schemas.UserSchemas do
     })
   end
 
+  defmodule Ads do
+    @moduledoc "GET /auth/me: whether the next solo game needs an ad (PID-123)."
+    OpenApiSpex.schema(%{
+      type: :object,
+      title: "Ads",
+      description:
+        "GET /auth/me only. Not eligible (ads off, not an adult, or premium): every other field is false or 0. A client that shows ads reads /auth/me?ads_aware=true. Before a solo game that needs an ad, show it, POST /me/ads/watched or /me/ads/unavailable, then create the room with ads_aware: true; the game's start uses up the credit.",
+      required: [:eligible, :next_game_needs_ad, :games_until_ad, :free_games_left],
+      properties: %{
+        eligible: %Schema{type: :boolean},
+        next_game_needs_ad: %Schema{type: :boolean},
+        games_until_ad: %Schema{
+          type: :integer,
+          minimum: 0,
+          description:
+            "Solo games that start before the one with an ad; 0 when the next one has it"
+        },
+        free_games_left: %Schema{
+          type: :integer,
+          minimum: 0,
+          description: "Finished games (Pidro plus Classic) left before ads can start"
+        }
+      }
+    })
+  end
+
   defmodule UserResponse do
     @moduledoc """
     Response containing a single user object.
@@ -248,7 +274,8 @@ defmodule PidroServerWeb.Schemas.UserSchemas do
                   }
                 }
               }
-            }
+            },
+            ads: Ads
           },
           required: [:user]
         }

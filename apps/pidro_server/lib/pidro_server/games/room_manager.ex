@@ -5978,6 +5978,12 @@ defmodule PidroServer.Games.RoomManager do
     broadcast_lobby_event({:room_updated, updated_room})
     broadcast_seat_lifecycle(updated_room)
     broadcast_initial_game_state(room.code, snapshot)
+
+    # The ad schedule's cadence counts solo games started (PID-123).
+    for {_position, %Seat{occupant_type: :human, user_id: user_id}} <- room.seats,
+        single_player_room?(room),
+        do: PidroServer.Profiles.count_solo_start(user_id)
+
     # Saved at once: a room that comes back waiting would lose its game.
     save_rooms(new_state)
   end

@@ -16,6 +16,8 @@ defmodule PidroServer.Profiles do
 
   import Ecto.Query, warn: false
 
+  require Logger
+
   alias PidroServer.Accounts.User
   alias PidroServer.Achievements
   alias PidroServer.Achievements.Catalog
@@ -504,10 +506,35 @@ defmodule PidroServer.Profiles do
   end
 
   @doc "Returns the same combined Classic and Pidro 2 record shown on the public profile."
-  @spec record(Ecto.UUID.t()) :: map()
-  def record(user_id) do
-    profile = Repo.get_by(PlayerProfile, user_id: user_id) || %PlayerProfile{}
-    record(profile, classic_profile(profile.heritage_flags, nil) || %{})
+  @spec record(Ecto.UUID.t() | %PlayerProfile{}) :: map()
+  def record(%PlayerProfile{} = profile),
+    do: record(profile, classic_profile(profile.heritage_flags, nil) || %{})
+
+  def record(user_id),
+    do: record(Repo.get_by(PlayerProfile, user_id: user_id) || %PlayerProfile{})
+
+  @doc """
+  Counts a solo game start for the ad schedule (PID-123) and uses up the
+  player's ad credit, if any: the ad was the ticket for this game. Written off
+  the caller's process, like the seat events, so the room manager never waits
+  on the database; a failed write is logged and the game goes on.
+  """
+  @spec count_solo_start(String.t()) :: :ok
+  def count_solo_start(user_id) do
+    Task.Supervisor.start_child(PidroServer.TaskSupervisor, fn ->
+      try do
+        {:ok, profile} = get_or_create_profile(user_id)
+
+        Repo.update_all(from(p in PlayerProfile, where: p.id == ^profile.id),
+          inc: [solo_games_started: 1],
+          set: [ad_credit_expires_at: nil]
+        )
+      catch
+        failure, _reason -> Logger.info("Solo start of #{user_id} not counted: #{failure}")
+      end
+    end)
+
+    :ok
   end
 
   defp record(screen, classic) do

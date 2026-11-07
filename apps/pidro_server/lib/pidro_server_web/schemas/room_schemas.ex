@@ -241,6 +241,19 @@ defmodule PidroServerWeb.Schemas.RoomSchemas do
     })
   end
 
+  defmodule AdRequired do
+    @moduledoc "The ad gate's HTTP 402 response (PID-123)."
+    OpenApiSpex.schema(%{
+      title: "AdRequired",
+      type: :object,
+      required: [:error, :ads],
+      properties: %{
+        error: %Schema{type: :string, enum: ["AD_REQUIRED"]},
+        ads: PidroServerWeb.Schemas.UserSchemas.Ads
+      }
+    })
+  end
+
   defmodule RoomCreateRequest do
     @moduledoc "Schema for the create-room request body."
 
@@ -286,6 +299,12 @@ defmodule PidroServerWeb.Schemas.RoomSchemas do
           default: "basic",
           deprecated: true,
           description: "Deprecated; omit this field. All accepted values use the same rulebook"
+        },
+        ads_aware: %Schema{
+          type: :boolean,
+          default: false,
+          description:
+            "true from a client that shows ads: a solo room is then held to the ad schedule (402 AD_REQUIRED)"
         }
       },
       example: %{

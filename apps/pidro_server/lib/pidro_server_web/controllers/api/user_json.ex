@@ -30,8 +30,8 @@ defmodule PidroServerWeb.API.UserJSON do
     end
   end
 
-  def show(%{user: user, seat_invitations: invitations}) do
-    %{data: %{user: user(user), seat_invitations: invitations}}
+  def show(%{user: user, seat_invitations: invitations, ads: ads}) do
+    %{data: %{user: user(user), seat_invitations: invitations, ads: ads}}
   end
 
   def show(%{user: user}) do

@@ -585,10 +585,21 @@ defmodule PidroServerWeb.API.AuthController do
     The current user is loaded by the authentication middleware and available
     in the request context.
 
+    `data.ads` says whether the next solo game needs an ad (PID-123). A client
+    that shows ads sends `?ads_aware=true`; only then is the offer counted.
+
     ## Error Responses
     - Returns 401 Unauthorized if token is missing, invalid, or expired
     """,
     security: [%{"bearer_auth" => []}],
+    parameters: [
+      ads_aware: [
+        in: :query,
+        type: :boolean,
+        required: false,
+        description: "true from a client that shows ads, so an ad it is told about is counted"
+      ]
+    ],
     responses: [
       ok: {"Current user retrieved successfully", "application/json", UserSchemas.UserResponse},
       unauthorized:
@@ -646,18 +657,19 @@ defmodule PidroServerWeb.API.AuthController do
       }
   """
   @spec me(Plug.Conn.t(), map()) :: Plug.Conn.t() | {:error, :profile_unavailable}
-  def me(conn, _params) do
+  def me(conn, params) do
     user = conn.assigns[:current_user]
 
     conn
     |> put_view(UserJSON)
     |> render(:show, %{
       user: user,
-      seat_invitations: PidroServer.Games.RoomManager.seat_invitations(user.id)
+      seat_invitations: PidroServer.Games.RoomManager.seat_invitations(user.id),
+      ads: PidroServer.Ads.offer(user, params["ads_aware"] == "true")
     })
   rescue
     error in [DBConnection.ConnectionError, Postgrex.Error] ->
-      Logger.error("Block lookup failed: #{Exception.message(error)}")
+      Logger.error("/me lookup failed: #{Exception.message(error)}")
       {:error, :profile_unavailable}
   end
 

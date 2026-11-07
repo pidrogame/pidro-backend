@@ -36,12 +36,12 @@ lib/pidro/server.ex:365:7:
 lib/pidro_server/dev/replay_controller.ex:88:24:
 lib/pidro_server/dev/replay_controller.ex:286:8:
 lib/pidro_server/games/bots/bot_brain.ex:131:7:
-lib/pidro_server/profiles/profiles.ex:45:30:
+lib/pidro_server/profiles/profiles.ex:47:30:
 lib/pidro_server/profiles/profiles.ex:94:55:
-lib/pidro_server/profiles/profiles.ex:93:30:
-lib/pidro_server/profiles/profiles.ex:436:5:
-lib/pidro_server/profiles/profiles.ex:534:8:
-lib/pidro_server/profiles/profiles.ex:862:30:
+lib/pidro_server/profiles/profiles.ex:95:30:
+lib/pidro_server/profiles/profiles.ex:438:5:
+lib/pidro_server/profiles/profiles.ex:561:8:
+lib/pidro_server/profiles/profiles.ex:889:30:
 lib/pidro_server/stats/stats.ex:439:62:
 lib/pidro_server/stats/stats.ex:768:88:
 lib/pidro_server/stats/stats.ex:846:8:

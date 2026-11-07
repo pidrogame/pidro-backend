@@ -45,6 +45,10 @@ defmodule PidroServer.Profiles.PlayerProfile do
     # --- Heritage (PID-49 computes; PID-44 defaults only) ---
     field :heritage_flags, :map, default: %{}
 
+    # --- Ads (PID-123): the ad schedule's cadence and a watched ad's credit ---
+    field :solo_games_started, :integer, default: 0
+    field :ad_credit_expires_at, :utc_datetime_usec
+
     timestamps(type: :utc_datetime_usec)
   end
 

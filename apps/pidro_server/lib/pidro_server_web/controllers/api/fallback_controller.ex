@@ -455,6 +455,12 @@ defmodule PidroServerWeb.API.FallbackController do
     |> json(%{error: "SEAT_REQUIRES_GAMES", min_games: min_games, games_played: games_played})
   end
 
+  def call(conn, {:error, {:ad_required, ads}}) do
+    conn
+    |> put_status(:payment_required)
+    |> json(%{error: "AD_REQUIRED", ads: ads})
+  end
+
   def call(conn, {:error, :seat_requires_password}) do
     conn
     |> put_status(:forbidden)

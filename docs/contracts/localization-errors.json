@@ -20,7 +20,7 @@
     "http": ["JSON endpoint errors", "authenticated API routes", "rate-limited API routes"]
   },
   "inventory": [
-    {"owner": "API.FallbackController", "legacy": "{errors: [{code, title, detail, ...}]} or {error: SEAT_REQUIRES_GAMES, min_games, games_played}", "codes": "Explicit domain codes retained, lowercase in additive error_code. Unknown atoms retain legacy uppercase code but use request_failed."},
+    {"owner": "API.FallbackController", "legacy": "{errors: [{code, title, detail, ...}]} or {error: SEAT_REQUIRES_GAMES, min_games, games_played} or {error: AD_REQUIRED, ads}", "codes": "Explicit domain codes retained, lowercase in additive error_code. Unknown atoms retain legacy uppercase code but use request_failed."},
     {"owner": "ErrorJSON / Authenticate", "legacy": "{errors: {detail}}", "codes": "Previously uncoded HTTP errors."},
     {"owner": "RateLimit", "legacy": "{errors: [{code: RATE_LIMITED, title, detail}]} plus Retry-After header", "codes": "rate_limited"},
     {"owner": "FriendController", "legacy": "{error: UPPERCASE_CODE}", "codes": "Lowercase equivalent."},
@@ -83,6 +83,7 @@
     {"code":"spectators_full","params":{},"sources":["rooms"],"meaning":"This room has reached its spectator limit."},
     {"code":"already_spectating","params":{},"sources":["rooms"],"meaning":"You are already watching a room."},
     {"code":"not_spectating","params":{},"sources":["rooms"],"meaning":"You are not watching a room."},
+    {"code":"ad_required","params":{},"sources":["rooms"],"meaning":"This solo game needs an ad first."},
     {"code":"seat_requires_games","params":{"min_games":{"type":"integer"},"games_played":{"type":"integer"}},"sources":["rooms","lobby","invites","friends"],"meaning":"This seat requires more completed games."},
     {"code":"seat_requires_password","params":{},"sources":["rooms","lobby","invites"],"meaning":"This seat needs the table's password."},
     {"code":"profile_unavailable","params":{},"sources":["rooms","lobby","invites","auth"],"meaning":"Player eligibility could not be checked; try again shortly."},
