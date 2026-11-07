@@ -8,12 +8,14 @@ defmodule PidroServerWeb.Dev.UserDetailLive do
   import PidroServerWeb.Dev.AdminComponents
 
   alias PidroServer.Accounts.{Auth, User}
+  alias PidroServer.Entitlements
   alias PidroServer.Games.Room.Positions
   alias PidroServer.Games.Room.Seat
   alias PidroServer.Games.RoomManager
   alias PidroServer.Profiles
   alias PidroServer.Push
   alias PidroServer.Rating.Tier
+  alias PidroServer.RevenueCat
   alias PidroServer.Stats
   alias PidroServerWeb.CardHelpers
 
@@ -104,6 +106,32 @@ defmodule PidroServerWeb.Dev.UserDetailLive do
      |> assign(:push_form, to_form(params, as: :push))
      |> assign(:push_result, push_result(result))
      |> load_push()}
+  end
+
+  @impl true
+  def handle_event("grant_premium", %{"premium" => %{"until" => until}}, socket) do
+    user = socket.assigns.user
+
+    with true <- RevenueCat.configured?() || :not_configured,
+         {:ok, date} <- Date.from_iso8601(until) |> or_bad_date(),
+         ends_at = DateTime.new!(date, ~T[23:59:59], "Etc/UTC"),
+         true <- DateTime.after?(ends_at, DateTime.utc_now()) || :bad_date,
+         {:ok, row} <- Entitlements.grant_promotional(user.id, ends_at, "promotional") do
+      {:noreply,
+       socket
+       |> load_user_context()
+       |> put_flash(:info, "Premium granted until #{format_datetime_full(row.expires_at)}.")}
+    else
+      :not_configured ->
+        {:noreply, put_flash(socket, :error, "RevenueCat is not configured.")}
+
+      :bad_date ->
+        {:noreply, put_flash(socket, :error, "Pick a date in the future.")}
+
+      {:error, reason} ->
+        {:noreply,
+         put_flash(socket, :error, "RevenueCat did not grant Premium (#{inspect(reason)}).")}
+    end
   end
 
   @impl true
@@ -736,6 +764,99 @@ defmodule PidroServerWeb.Dev.UserDetailLive do
             </.form>
           </section>
 
+          <section
+            id="premium"
+            class="rounded-lg border border-stone-200 bg-white p-4 shadow-sm"
+          >
+            <h2 class="text-base font-semibold text-stone-950">Premium</h2>
+            <p class="mt-1 text-sm leading-6 text-stone-600">
+              As RevenueCat last reported it. Only RevenueCat changes it.
+            </p>
+
+            <%= if @premium do %>
+              <dl class="mt-4 grid grid-cols-[7rem_minmax(0,1fr)] gap-x-3 gap-y-2 text-sm">
+                <dt class="text-stone-600">Status</dt>
+                <dd>
+                  <span class={premium_badge_class(@premium_now)}>
+                    {if @premium_now, do: "Active", else: "Inactive"}
+                  </span>
+                </dd>
+                <dt class="text-stone-600">Until</dt>
+                <dd class="text-stone-950">
+                  {if @premium.expires_at,
+                    do: format_datetime_full(@premium.expires_at),
+                    else: "Never ends"}
+                </dd>
+                <dt class="text-stone-600">Product</dt>
+                <dd class="break-all font-mono text-xs text-stone-950">
+                  {@premium.product_id || "unknown"}
+                </dd>
+                <dt class="text-stone-600">Store</dt>
+                <dd class="font-mono text-xs text-stone-950">{@premium.store || "unknown"}</dd>
+                <dt class="text-stone-600">Source</dt>
+                <dd class="font-mono text-xs text-stone-950">{@premium.source}</dd>
+                <dt class="text-stone-600">Last synced</dt>
+                <dd class="text-stone-950">{format_datetime_full(@premium.last_synced_at)}</dd>
+              </dl>
+            <% else %>
+              <p class="mt-4 text-sm font-semibold text-stone-600">
+                Not Premium. No entitlement row yet.
+              </p>
+            <% end %>
+
+            <%= if @premium_event do %>
+              <details class="mt-4 rounded-md border border-stone-200 bg-stone-50 p-3 text-xs">
+                <summary class="cursor-pointer font-semibold text-stone-700">
+                  Last event: {@premium_event.type} · {format_datetime_full(
+                    @premium_event.inserted_at
+                  )}
+                  <span :if={@premium_event.error} class="text-red-700">
+                    · {@premium_event.error}
+                  </span>
+                </summary>
+                <pre class="mt-2 max-h-64 overflow-auto whitespace-pre-wrap break-all font-mono text-[0.7rem] text-stone-700">{Jason.encode!(@premium_event.payload, pretty: true)}</pre>
+              </details>
+            <% else %>
+              <p class="mt-4 text-xs text-stone-600">No RevenueCat event for this player yet.</p>
+            <% end %>
+
+            <.form
+              for={%{}}
+              as={:premium}
+              id="premium-grant"
+              phx-submit="grant_premium"
+              class="mt-5 space-y-3 border-t border-stone-200 pt-4"
+            >
+              <label class="block text-sm font-bold text-stone-950" for="premium-until">
+                Grant Premium until
+              </label>
+              <div class="flex gap-2">
+                <input
+                  id="premium-until"
+                  type="date"
+                  name="premium[until]"
+                  required
+                  disabled={not @revenuecat_configured}
+                  class="min-w-0 flex-1 rounded-md border border-stone-300 px-3 py-2 text-sm disabled:bg-stone-100"
+                />
+                <button
+                  type="submit"
+                  disabled={not @revenuecat_configured}
+                  class="rounded-md bg-stone-950 px-4 py-2 text-sm font-bold text-white shadow-sm hover:bg-orange-700 disabled:cursor-not-allowed disabled:bg-stone-300"
+                >
+                  Grant
+                </button>
+              </div>
+              <p class="text-xs leading-5 text-stone-600">
+                <%= if @revenuecat_configured do %>
+                  A promotional grant in RevenueCat, through the end of that day (UTC), then synced back here.
+                <% else %>
+                  Add REVENUECAT_SECRET_KEY and REVENUECAT_WEBHOOK_SECRET to grant Premium.
+                <% end %>
+              </p>
+            </.form>
+          </section>
+
           <section class="rounded-lg border border-stone-200 bg-white p-4 shadow-sm">
             <h2 class="text-base font-semibold text-stone-950">
               Abandonment events
@@ -876,7 +997,20 @@ defmodule PidroServerWeb.Dev.UserDetailLive do
     |> assign(:recent_games, Stats.list_recent_games(player_id: user.id, limit: 20))
     |> assign(:abandonments, Stats.list_user_abandonments(user.id, 8))
     |> assign(:active_rooms, active_rooms_for_user(user.id))
+    |> assign(:premium, Entitlements.get(user.id))
+    |> assign(:premium_now, Entitlements.premium?(user))
+    |> assign(:premium_event, Entitlements.last_event(user.id))
+    |> assign(:revenuecat_configured, RevenueCat.configured?())
   end
+
+  defp or_bad_date({:ok, date}), do: {:ok, date}
+  defp or_bad_date({:error, _reason}), do: :bad_date
+
+  defp premium_badge_class(true),
+    do: "rounded-md bg-emerald-50 px-2 py-1 text-xs font-bold text-emerald-700"
+
+  defp premium_badge_class(false),
+    do: "rounded-md bg-stone-100 px-2 py-1 text-xs font-bold text-stone-600"
 
   defp connection_event(%{kind: "timeout"}), do: "Timeout / auto-play"
 
