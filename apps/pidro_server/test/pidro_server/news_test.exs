@@ -6,6 +6,96 @@ defmodule PidroServer.NewsTest do
   alias PidroServer.News
   alias PidroServer.News.Post
 
+  describe "pop-ups" do
+    setup :clear
+
+    test "selects the newest eligible post and receipts are per player, not feed reads" do
+      user = AccountsFixtures.user_fixture()
+      other = AccountsFixtures.guest_fixture()
+      {:ok, older} = News.create(%{title_en: "Older", body_en: "Hello", show_as_popup: true})
+      {:ok, older} = News.publish(older)
+      {:ok, newer} = News.create(%{title_en: "Newer", body_en: "Hello", show_as_popup: true})
+      {:ok, newer} = News.publish(newer)
+      {:ok, _draft} = News.create(%{title_en: "Draft", body_en: "x", show_as_popup: true})
+      {:ok, off} = News.create(%{title_en: "Feed only", body_en: "x"})
+      {:ok, _} = News.publish(off)
+
+      assert News.popup(user, "en", nil, nil).id == newer.id
+      :ok = News.mark_seen(user)
+      assert News.popup(Repo.reload!(user), "en", nil, nil).id == newer.id
+      assert :ok = News.mark_popup_seen(user, newer.id)
+      assert :ok = News.mark_popup_seen(user, newer.id)
+      assert News.popup(Repo.reload!(user), "en", nil, nil).id == older.id
+      assert News.popup(other, "en", nil, nil).id == newer.id
+      assert :ok = News.mark_popup_seen(user, older.id)
+      assert News.popup(user, "en", nil, nil) == nil
+      assert News.mark_popup_seen(user, off.id) == {:error, :not_found}
+    end
+
+    test "app updates require a known platform and a version strictly below its threshold" do
+      user = AccountsFixtures.user_fixture()
+
+      {:ok, post} =
+        News.create(%{
+          title_en: "Update",
+          body_en: "x",
+          show_as_popup: true,
+          app_update: true,
+          show_below_android: "3.2.10",
+          show_below_ios: "3.3.0"
+        })
+
+      {:ok, post} = News.publish(post)
+
+      for {platform, version, eligible} <- [
+            {"android", "3.2.9", true},
+            {"android", "3.2.10", false},
+            {"android", "3.2.11", false},
+            {"ios", "3.2.10", true},
+            {"ios", "3.3.0", false},
+            {"web", "1.0.0", false},
+            {nil, nil, false},
+            {"android", "garbage", false},
+            {"android", nil, false}
+          ] do
+        assert News.popup(user, "en", platform, version) != nil == eligible,
+               "#{inspect({platform, version})}"
+      end
+
+      {:ok, _} = News.update(post, %{show_below_android: ""})
+      assert News.popup(user, "en", "android", "1.0.0") == nil
+      assert News.popup(user, "en", "ios", "3.2.9").id == post.id
+    end
+
+    test "stores Markdown verbatim and localizes optional fields with English fallback" do
+      body = "Cards are **bigger**.\n[Read more](https://pidro.com)"
+
+      {:ok, post} =
+        News.create(%{
+          title_en: "Cards",
+          body_en: body,
+          eyebrow_en: "New",
+          eyebrow_sv: "Nytt",
+          button_label_en: "Read",
+          button_url: "https://pidro.com"
+        })
+
+      shown = News.localize(Repo.reload!(post), "sv")
+      assert shown.body == body
+      assert shown.eyebrow == "Nytt"
+      assert shown.button_label == "Read"
+      assert shown.button_url == "https://pidro.com"
+
+      assert {:error, changeset} =
+               News.update(post, %{show_below_ios: "3.2", button_url: "javascript:alert(1)"})
+
+      assert %{show_below_ios: [_], button_url: [_]} = errors_on(changeset)
+
+      {:ok, update} = News.update(post, %{app_update: true})
+      assert %{button_label: nil, button_url: nil} = News.localize(update, "sv")
+    end
+  end
+
   describe "the seeded posts" do
     test "the welcome note is published and the two 3.2.3 notes are drafts" do
       assert [
@@ -30,8 +120,34 @@ defmodule PidroServer.NewsTest do
       _draft = post!("Draft", "Utkast", nil)
 
       assert News.list_published("en", 30) == [
-               %{id: new.id, title: "New", body: "New body", published_at: new.published_at},
-               %{id: old.id, title: "Old", body: "Old body", published_at: old.published_at}
+               %{
+                 id: new.id,
+                 title: "New",
+                 body: "New body",
+                 published_at: new.published_at,
+                 eyebrow: nil,
+                 image_url: nil,
+                 button_label: nil,
+                 button_url: nil,
+                 show_as_popup: false,
+                 app_update: false,
+                 show_below_android: nil,
+                 show_below_ios: nil
+               },
+               %{
+                 id: old.id,
+                 title: "Old",
+                 body: "Old body",
+                 published_at: old.published_at,
+                 eyebrow: nil,
+                 image_url: nil,
+                 button_label: nil,
+                 button_url: nil,
+                 show_as_popup: false,
+                 app_update: false,
+                 show_below_android: nil,
+                 show_below_ios: nil
+               }
              ]
 
       assert [%{title: "Ny", body: "Ny body"}, %{title: "Gammal"}] =

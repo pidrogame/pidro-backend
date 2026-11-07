@@ -173,6 +173,8 @@ defmodule PidroServerWeb.Router do
 
     get "/users/:user_id/avatar/:version", AvatarController, :show,
       private: %{rate_limit: [:avatar_read]}
+
+    get "/news/:id/image/:version", NewsController, :image, private: %{rate_limit: [:avatar_read]}
   end
 
   # API v1 authenticated routes
@@ -199,6 +201,7 @@ defmodule PidroServerWeb.Router do
     get "/feedback/ask", FeedbackController, :ask
     get "/news", NewsController, :index
     post "/news/seen", NewsController, :seen
+    post "/news/:id/seen", NewsController, :popup_seen
     get "/users/search", FriendController, :search, private: %{rate_limit: [:user_search]}
 
     get "/friends", FriendController, :index

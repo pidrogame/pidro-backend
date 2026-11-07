@@ -8,7 +8,6 @@ defmodule PidroServer.Accounts.Avatars do
   @max_upload 5 * 1024 * 1024
   @max_pixels 16_000_000
   @max_side 8192
-  @max_result 64 * 1024
   @limits ~w(-limit memory 64MiB -limit map 128MiB -limit disk 256MiB -limit thread 1 -limit time 10)
 
   def url(nil, _user_id), do: nil
@@ -63,14 +62,19 @@ defmodule PidroServer.Accounts.Avatars do
 
   def put(_user_id, _), do: {:error, :missing_file}
 
-  @doc "Validates and normalizes a bounded PNG/JPEG upload without creating a user."
-  def normalize_upload(%Plug.Upload{path: path}) do
+  @doc "Validates and normalizes a bounded PNG/JPEG: square avatar or aspect-preserving News image."
+  def normalize_upload(%Plug.Upload{path: path}, purpose \\ :avatar) do
     with {:ok, stat} <- File.stat(path),
          true <- stat.size <= @max_upload || {:error, :too_large},
          {:ok, kind} <- supported_image(path),
          {:ok, jpeg} <-
-           :global.trans({__MODULE__, self()}, fn -> process(path, kind) end, [node()], 0),
-         true <- byte_size(jpeg) <= @max_result || {:error, :result_too_large} do
+           :global.trans(
+             {__MODULE__, self()},
+             fn -> process(path, kind, purpose) end,
+             [node()],
+             0
+           ),
+         true <- byte_size(jpeg) <= max_result(purpose) || {:error, :result_too_large} do
       {:ok, jpeg}
     else
       :aborted -> {:error, :busy}
@@ -80,12 +84,15 @@ defmodule PidroServer.Accounts.Avatars do
     end
   end
 
-  defp process(path, kind) do
+  defp max_result(:avatar), do: 64 * 1024
+  defp max_result(:news), do: 512 * 1024
+
+  defp process(path, kind, purpose) do
     with {:ok, {width, height}} <- dimensions(path, kind),
          true <-
            (width > 0 and height > 0 and width <= @max_side and height <= @max_side and
               width * height <= @max_pixels) || {:error, :dimensions} do
-      normalize(path, kind)
+      normalize(path, kind, purpose)
     end
   end
 
@@ -115,7 +122,7 @@ defmodule PidroServer.Accounts.Avatars do
     _ -> {:error, :invalid_image}
   end
 
-  defp normalize(path, kind) do
+  defp normalize(path, kind, purpose) do
     output =
       Path.join(
         System.tmp_dir!(),
@@ -128,15 +135,10 @@ defmodule PidroServer.Accounts.Avatars do
           coder_path(path, kind),
           "-auto-orient",
           "-colorspace",
-          "sRGB",
-          "-thumbnail",
-          "256x256^",
-          "-gravity",
-          "center",
-          "-background",
-          "white",
-          "-extent",
-          "256x256",
+          "sRGB"
+        ] ++
+        resize(purpose) ++
+        [
           "-colorspace",
           "sRGB",
           "-background",
@@ -162,6 +164,11 @@ defmodule PidroServer.Accounts.Avatars do
       File.rm(output)
     end
   end
+
+  defp resize(:avatar),
+    do: ~w(-thumbnail 256x256^ -gravity center -background white -extent 256x256)
+
+  defp resize(:news), do: ["-thumbnail", "1280x1280>"]
 
   defp coder_path(path, :jpeg), do: "JPEG:#{path}"
   defp coder_path(path, :png), do: "PNG:#{path}"

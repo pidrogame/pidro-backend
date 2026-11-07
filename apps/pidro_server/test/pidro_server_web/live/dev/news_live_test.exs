@@ -2,6 +2,7 @@ defmodule PidroServerWeb.Dev.NewsLiveTest do
   use PidroServerWeb.ConnCase, async: true
 
   import Phoenix.LiveViewTest
+  import Ecto.Query
 
   alias PidroServer.Feedback
   alias PidroServer.News.Post
@@ -89,6 +90,106 @@ defmodule PidroServerWeb.Dev.NewsLiveTest do
     assert Repo.reload!(welcome)
   end
 
+  test "pop-up preview renders only safe Markdown and switches update controls", %{conn: conn} do
+    {:ok, view, _} = live(conn, ~p"/admin/news")
+    view |> element("button", "New post") |> render_click()
+
+    view
+    |> form("#news-form",
+      post: %{
+        title_en: "A steadier table",
+        eyebrow_en: "New in Pidro 3.2.4",
+        body_en:
+          "**Keep your seat**\n[Read more](https://pidro.com) <script>alert(1)</script> [bad](javascript:alert)",
+        show_as_popup: true,
+        button_label_en: "Learn more",
+        button_url: "https://pidro.com"
+      }
+    )
+    |> render_change()
+
+    view |> element("button[phx-value-mode=popup]") |> render_click()
+    assert has_element?(view, "#news-preview strong", "Keep your seat")
+    assert has_element?(view, "#news-preview a[href='https://pidro.com']", "Read more")
+    refute has_element?(view, "#news-preview script")
+    refute has_element?(view, "#news-preview a[href^='javascript:']")
+    assert has_element?(view, "#news-preview", "Learn more")
+
+    view |> form("#news-form", post: %{app_update: true}) |> render_change()
+    refute has_element?(view, "#post_button_url")
+    assert has_element?(view, "#post_show_below_android")
+    assert has_element?(view, "#news-preview", "Update in Google Play")
+    assert has_element?(view, "#news-preview", "Later")
+    view |> element("button[phx-value-platform=ios]") |> render_click()
+    view |> element("button[phx-value-locale=sv]") |> render_click()
+    assert has_element?(view, "#news-preview", "Uppdatera i App Store")
+    assert has_element?(view, "#news-preview", "Senare")
+
+    view |> form("#news-form", post: %{show_below_ios: "3.2.4"}) |> render_change()
+    view |> form("#news-form", post: %{app_update: false}) |> render_change()
+    assert has_element?(view, "#post_button_label_en[value='Learn more']")
+    assert has_element?(view, "#post_button_url[value='https://pidro.com']")
+    view |> form("#news-form", post: %{app_update: true}) |> render_change()
+    assert has_element?(view, "#post_show_below_ios[value='3.2.4']")
+    view |> form("#news-form") |> render_submit()
+    view |> form("#news-form", post: %{show_below_ios: ""}) |> render_change()
+    view |> form("#news-form", post: %{app_update: false}) |> render_change()
+    view |> form("#news-form", post: %{app_update: true}) |> render_change()
+    view |> form("#news-form") |> render_submit()
+    assert Repo.get_by!(Post, title_en: "A steadier table").show_below_ios == nil
+
+    view |> form("#news-form", post: %{show_below_ios: "3.2"}) |> render_change()
+    view |> form("#news-form", post: %{app_update: false}) |> render_change()
+    view |> form("#news-form") |> render_submit()
+    assert has_element?(view, "#hidden-settings-error", "Toggle App update")
+    view |> form("#news-form", post: %{app_update: true}) |> render_change()
+    view |> form("#news-form", post: %{show_below_ios: ""}) |> render_change()
+    refute has_element?(view, "#hidden-settings-error")
+    view |> form("#news-form", post: %{app_update: false}) |> render_change()
+
+    render_change(view, "validate", %{"post" => %{"button_url" => "", "_unused_button_url" => ""}})
+
+    view |> form("#news-form", post: %{button_url: "javascript:alert"}) |> render_change()
+    assert has_element?(view, "#news-form", "must be an http, https or pidro link")
+    view |> form("#news-form", post: %{app_update: true}) |> render_change()
+    view |> form("#news-form") |> render_submit()
+    assert has_element?(view, "#hidden-settings-error", "Toggle App update")
+    view |> form("#news-form", post: %{app_update: false}) |> render_change()
+    view |> form("#news-form", post: %{button_url: "https://pidro.com"}) |> render_submit()
+    refute has_element?(view, "#hidden-settings-error")
+    assert Repo.get_by!(Post, title_en: "A steadier table").button_url == "https://pidro.com"
+  end
+
+  test "uploads a landscape image, serves it publicly, and removes it", %{conn: conn} do
+    path = Path.join(System.tmp_dir!(), "news-image-#{System.unique_integer([:positive])}.png")
+    on_exit(fn -> File.rm(path) end)
+    {_, 0} = System.cmd("convert", ["-size", "1600x800", "xc:seagreen", path])
+    {:ok, view, _} = live(conn, ~p"/admin/news")
+    view |> element("button", "New post") |> render_click()
+    view |> form("#news-form", post: %{title_en: "Picture", body_en: "Look"}) |> render_change()
+
+    upload =
+      file_input(view, "#news-form", :image, [
+        %{name: "table.png", content: File.read!(path), type: "image/png"}
+      ])
+
+    assert render_upload(upload, "table.png") =~ "Cancel image"
+    view |> form("#news-form") |> render_submit()
+    post = Repo.get_by!(Post, title_en: "Picture")
+    assert post.image_version
+    url = PidroServer.News.image_url(post) |> URI.parse() |> Map.fetch!(:path)
+    image = build_conn() |> put_req_header("accept", "image/*") |> get(url)
+    assert get_resp_header(image, "content-type") == ["image/jpeg; charset=utf-8"]
+    assert get_resp_header(image, "x-content-type-options") == ["nosniff"]
+    File.write!(path, response(image, 200))
+    assert {"1280 640", 0} = System.cmd("identify", ["-format", "%w %h", path])
+    assert has_element?(view, "#news-preview img")
+    view |> element("button", "Remove image") |> render_click()
+    refute has_element?(view, "#news-preview img")
+    assert get(build_conn(), url).status == 404
+    assert Repo.one(from p in Post, where: p.id == ^post.id, select: p.image) == nil
+  end
+
   test "a note about a post says so in /admin/feedback", %{conn: conn} do
     welcome = Repo.get_by!(Post, title_en: "Welcome to the new Pidro")
 
@@ -106,13 +207,22 @@ defmodule PidroServerWeb.Dev.NewsLiveTest do
   end
 
   describe "Translate to Swedish" do
-    test "fills both Swedish fields from the answer and saves nothing", %{conn: conn} do
+    test "fills all Swedish fields from the answer and saves nothing", %{conn: conn} do
       Req.Test.stub(PidroServer.Translate, fn conn ->
+        {:ok, request, conn} = Plug.Conn.read_body(conn)
+        request = Jason.decode!(request)
+        assert Jason.decode!(hd(request["messages"])["content"])["eyebrow"] == "New"
+        assert Jason.decode!(hd(request["messages"])["content"])["button_label"] == "Read more"
+
         Req.Test.json(conn, %{
           "stop_reason" => "end_turn",
           "content" => [
             %{"type" => "thinking", "thinking" => "Casual, short.", "signature" => "sig"},
-            %{"type" => "text", "text" => ~s({"title":"Hej alla","body":"Rad ett\\nRad två"})}
+            %{
+              "type" => "text",
+              "text" =>
+                ~s({"title":"Hej alla","body":"Rad ett\\nRad två","eyebrow":"Nytt","button_label":"Läs mer"})
+            }
           ]
         })
       end)
@@ -121,7 +231,14 @@ defmodule PidroServerWeb.Dev.NewsLiveTest do
       view |> element("button", "New post") |> render_click()
 
       view
-      |> form("#news-form", post: %{title_en: "Hello all", body_en: "Line one\nLine two"})
+      |> form("#news-form",
+        post: %{
+          title_en: "Hello all",
+          body_en: "Line one\nLine two",
+          eyebrow_en: "New",
+          button_label_en: "Read more"
+        }
+      )
       |> render_change()
 
       refute has_element?(view, "#translate[data-confirm]")
@@ -129,6 +246,8 @@ defmodule PidroServerWeb.Dev.NewsLiveTest do
 
       render_async(view)
       assert has_element?(view, "#post_title_sv[value='Hej alla']")
+      assert has_element?(view, "#post_eyebrow_sv[value='Nytt']")
+      assert has_element?(view, "#post_button_label_sv[value='Läs mer']")
       assert view |> element("#post_body_sv") |> render() =~ "Rad ett\nRad två"
       assert has_element?(view, "#post_title_en[value='Hello all']")
       refute has_element?(view, "#translate-error")

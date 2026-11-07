@@ -31,12 +31,138 @@ defmodule PidroServer.News do
     %{
       localize(post, "en")
       | title: post.title_sv || post.title_en,
-        body: post.body_sv || post.body_en
+        body: post.body_sv || post.body_en,
+        eyebrow: post.eyebrow_sv || post.eyebrow_en,
+        button_label: if(!post.app_update, do: post.button_label_sv || post.button_label_en)
     }
   end
 
   def localize(post, _locale),
-    do: %{id: post.id, title: post.title_en, body: post.body_en, published_at: post.published_at}
+    do: %{
+      id: post.id,
+      title: post.title_en,
+      body: post.body_en,
+      published_at: post.published_at,
+      eyebrow: post.eyebrow_en,
+      image_url: image_url(post),
+      button_label: if(!post.app_update, do: post.button_label_en),
+      button_url: if(!post.app_update, do: post.button_url),
+      show_as_popup: post.show_as_popup,
+      app_update: post.app_update,
+      show_below_android: post.show_below_android,
+      show_below_ios: post.show_below_ios
+    }
+
+  @doc "Newest published, unseen pop-up eligible for this phone; independent of feed reads."
+  def popup(%User{id: user_id}, locale, platform, version) do
+    user_id = Ecto.UUID.dump!(user_id)
+
+    from(p in published(),
+      left_join: r in "news_popup_receipts",
+      on: r.post_id == p.id and r.user_id == ^user_id,
+      where: p.show_as_popup and is_nil(r.post_id),
+      order_by: [desc: p.published_at, desc: p.id]
+    )
+    |> Repo.all()
+    |> Enum.find(&eligible?(&1, platform, version))
+    |> case do
+      nil -> nil
+      post -> localize(post, locale)
+    end
+  end
+
+  @doc "Idempotently acknowledges one published pop-up. Later does not call this."
+  def mark_popup_seen(%User{id: user_id}, id) do
+    case get_published(id) do
+      %Post{show_as_popup: true} ->
+        Repo.insert_all(
+          "news_popup_receipts",
+          [%{user_id: Ecto.UUID.dump!(user_id), post_id: id, seen_at: DateTime.utc_now(:second)}],
+          on_conflict: :nothing
+        )
+
+        :ok
+
+      _ ->
+        {:error, :not_found}
+    end
+  end
+
+  @doc "The newest published app update owns both platform minimums, including empty ones."
+  def native_update_policy do
+    post =
+      Repo.one(
+        from p in published(),
+          where: p.app_update,
+          order_by: [desc: p.published_at, desc: p.id],
+          limit: 1
+      )
+
+    case post do
+      nil ->
+        %{
+          minimum_native_versions:
+            Application.get_env(:pidro_server, :minimum_native_versions, %{}),
+          native_update_popup: false
+        }
+
+      post ->
+        %{
+          minimum_native_versions:
+            Map.reject(
+              %{"android" => post.show_below_android, "ios" => post.show_below_ios},
+              fn {_platform, version} -> is_nil(version) end
+            ),
+          native_update_popup: post.show_as_popup
+        }
+    end
+  end
+
+  defp eligible?(%Post{app_update: false}, _platform, _version), do: true
+
+  defp eligible?(post, platform, version)
+       when platform in ~w(android ios) and is_binary(version) do
+    threshold = if platform == "android", do: post.show_below_android, else: post.show_below_ios
+
+    with true <- is_binary(threshold),
+         {:ok, version} <- Version.parse(version),
+         {:ok, threshold} <- Version.parse(threshold) do
+      Version.compare(version, threshold) == :lt
+    else
+      _ -> false
+    end
+  end
+
+  defp eligible?(_post, _platform, _version), do: false
+
+  @doc "Public URL for the post's current uploaded image."
+  def image_url(%Post{image_version: nil}), do: nil
+
+  def image_url(post),
+    do: PidroServerWeb.Endpoint.url() <> "/api/v1/news/#{post.id}/image/#{post.image_version}"
+
+  @doc "Stores an image using the same bounded normalization as profile uploads."
+  def put_image(post, upload) do
+    with {:ok, image} <- PidroServer.Accounts.Avatars.normalize_upload(upload, :news) do
+      post
+      |> Ecto.Changeset.change(
+        image: image,
+        image_version: Base.encode16(:crypto.hash(:sha256, image), case: :lower)
+      )
+      |> Repo.update()
+    end
+  end
+
+  def remove_image(post),
+    do:
+      post
+      |> Ecto.Changeset.change(image_version: nil)
+      |> Ecto.Changeset.force_change(:image, nil)
+      |> Repo.update()
+
+  def fetch_image(id, version) do
+    Repo.one(from p in Post, where: p.id == ^id and p.image_version == ^version, select: p.image)
+  end
 
   @doc """
   How many published posts `user` has not seen: all of them before the first

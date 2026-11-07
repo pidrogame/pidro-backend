@@ -33,10 +33,19 @@ defmodule PidroServerWeb.API.NewsControllerTest do
                      "id" => welcome.id,
                      "title" => "Welcome",
                      "body" => "Line one\nLine two",
-                     "published_at" => "2026-10-26T08:00:00Z"
+                     "published_at" => "2026-10-26T08:00:00Z",
+                     "eyebrow" => nil,
+                     "image_url" => nil,
+                     "button_label" => nil,
+                     "button_url" => nil,
+                     "show_as_popup" => false,
+                     "app_update" => false,
+                     "show_below_android" => nil,
+                     "show_below_ios" => nil
                    }
                  ],
-                 "unread" => 1
+                 "unread" => 1,
+                 "popup" => nil
                }
              }
     end
@@ -87,6 +96,65 @@ defmodule PidroServerWeb.API.NewsControllerTest do
       conn = build_conn() |> auth(guest) |> get(~p"/api/v1/news")
       assert %{"unread" => 0, "posts" => [_]} = json_response(conn, 200)["data"]
     end
+  end
+
+  test "popup acknowledgement survives another device, never marks the feed read", %{
+    welcome: welcome
+  } do
+    alias PidroServer.News
+    user = AccountsFixtures.guest_fixture()
+
+    {:ok, welcome} =
+      News.update(welcome, %{
+        show_as_popup: true,
+        app_update: true,
+        show_below_android: "3.2.10",
+        eyebrow_en: "New in Pidro",
+        body_en: "**Hello**\nAgain"
+      })
+
+    url = "/api/v1/news?locale=sv&platform=android&app_version=3.2.9"
+    data = build_conn() |> auth(user) |> get(url) |> json_response(200) |> Map.fetch!("data")
+
+    assert %{
+             "id" => id,
+             "title" => "Välkommen",
+             "eyebrow" => "New in Pidro",
+             "body" => "**Hello**\nAgain"
+           } = data["popup"]
+
+    assert id == welcome.id
+    assert data["unread"] == 1
+
+    for _ <- 1..2 do
+      assert build_conn() |> auth(user) |> post(~p"/api/v1/news/#{id}/seen") |> response(204) ==
+               ""
+    end
+
+    data =
+      build_conn()
+      |> auth(Repo.reload!(user))
+      |> get(url)
+      |> json_response(200)
+      |> Map.fetch!("data")
+
+    assert %{"popup" => nil, "unread" => 1, "posts" => [_]} = data
+    other = AccountsFixtures.user_fixture()
+
+    assert build_conn()
+           |> auth(other)
+           |> get(url)
+           |> json_response(200)
+           |> get_in(["data", "popup", "id"]) == id
+
+    for bad_id <- ["0", "missing", "999999999999999999999999999999"] do
+      assert build_conn() |> auth(user) |> post("/api/v1/news/#{bad_id}/seen") |> response(404) ==
+               ""
+    end
+
+    {:ok, _} = News.unpublish(welcome)
+    assert build_conn() |> auth(user) |> post(~p"/api/v1/news/#{id}/seen") |> response(404) == ""
+    assert build_conn() |> post(~p"/api/v1/news/#{id}/seen") |> response(401)
   end
 
   defp auth(conn, user),

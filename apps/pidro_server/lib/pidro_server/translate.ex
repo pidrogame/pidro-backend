@@ -16,7 +16,7 @@ defmodule PidroServer.Translate do
 
   Write natural, casual, friendly Swedish, the way a friend from the card table would say it. Not stiff, and not marketing.
 
-  Use short sentences. Keep the meaning and every line break.
+  Use short sentences. Keep the meaning, every line break, Markdown bold and link destinations.
 
   Keep the word "Pidro" as it is.
 
@@ -24,7 +24,7 @@ defmodule PidroServer.Translate do
 
   Use no emoji unless the English has them.
 
-  You get the post as JSON with "title" and "body". Answer with only a JSON object of the same shape, {"title": "…", "body": "…"}, and nothing else. Line breaks in the body are \\n.
+  You get the post as JSON with "title" and "body", and optionally "eyebrow" and "button_label". Answer with only a JSON object of the same shape and nothing else. Translate every supplied field. Line breaks in the body are \\n.
   """
 
   @doc "Whether a key is set, so translation can run."
@@ -32,8 +32,9 @@ defmodule PidroServer.Translate do
   def enabled?, do: config()[:api_key] != nil
 
   @doc "The Swedish title and body for an English post, or an error."
-  def to_swedish(title, body) do
+  def to_swedish(title, body, extra \\ %{}) do
     config = config()
+    fields = Map.merge(%{title: title, body: body}, extra)
 
     [
       method: :post,
@@ -44,26 +45,26 @@ defmodule PidroServer.Translate do
         # The model thinks before it answers, and the thinking counts here.
         max_tokens: 2_000,
         system: @system,
-        messages: [%{role: "user", content: Jason.encode!(%{title: title, body: body})}]
+        messages: [%{role: "user", content: Jason.encode!(fields)}]
       },
       receive_timeout: 30_000,
       retry: false
     ]
     |> Keyword.merge(Keyword.get(config, :req_options, []))
     |> Req.request()
-    |> answer()
+    |> answer(Map.keys(fields))
   end
 
   # Strict: the first text block, after any thinking, holds exactly the JSON
   # asked for.
-  defp answer({:ok, %{status: 200, body: %{"content" => content} = answer}})
+  defp answer({:ok, %{status: 200, body: %{"content" => content} = answer}}, fields)
        when is_list(content) do
     with %{"text" => text} when is_binary(text) <-
            Enum.find(content, &match?(%{"type" => "text"}, &1)) ||
              {:no_text, answer["stop_reason"]},
-         {:ok, %{"title" => title, "body" => body}} when is_binary(title) and is_binary(body) <-
-           Jason.decode(text) do
-      {:ok, %{title: title, body: body}}
+         {:ok, values} when is_map(values) <- Jason.decode(text),
+         true <- Enum.all?(fields, &is_binary(values[Atom.to_string(&1)])) do
+      {:ok, Map.new(fields, &{&1, values[Atom.to_string(&1)]})}
     else
       {:no_text, "max_tokens"} ->
         Logger.warning("Translation ran out of tokens before it answered")
@@ -75,17 +76,17 @@ defmodule PidroServer.Translate do
     end
   end
 
-  defp answer({:ok, %{status: 200}}) do
+  defp answer({:ok, %{status: 200}}, _fields) do
     Logger.warning("Translation answer was not the JSON asked for")
     {:error, :bad_answer}
   end
 
-  defp answer({:ok, %{status: status}}) do
+  defp answer({:ok, %{status: status}}, _fields) do
     Logger.warning("Translation failed with HTTP #{status}")
     {:error, {:status, status}}
   end
 
-  defp answer({:error, reason}) do
+  defp answer({:error, reason}, _fields) do
     Logger.warning("Translation failed: #{inspect(reason)}")
     {:error, reason}
   end

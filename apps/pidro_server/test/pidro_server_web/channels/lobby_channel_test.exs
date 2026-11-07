@@ -109,6 +109,56 @@ defmodule PidroServerWeb.LobbyChannelTest do
              subscribe_and_join(socket, LobbyChannel, "lobby", %{})
 
     assert empty == %{}
+
+    alias PidroServer.News
+
+    {:ok, older} =
+      News.create(%{
+        title_en: "Older update",
+        body_en: "x",
+        app_update: true,
+        show_below_android: "3.2.5",
+        show_below_ios: "3.2.4"
+      })
+
+    {:ok, _} = News.publish(older)
+
+    {:ok, latest} =
+      News.create(%{
+        title_en: "New update",
+        body_en: "x",
+        app_update: true,
+        show_as_popup: true,
+        show_below_android: "3.2.6"
+      })
+
+    {:ok, latest} = News.publish(latest)
+
+    {:ok, _draft} =
+      News.create(%{
+        title_en: "Not live",
+        body_en: "x",
+        app_update: true,
+        show_below_ios: "9.0.0"
+      })
+
+    Application.put_env(:pidro_server, :minimum_native_versions, %{"ios" => "8.0.0"})
+
+    assert {:ok,
+            %{
+              minimum_native_versions: %{"android" => "3.2.6"} = minimums,
+              native_update_popup: true
+            }, _} =
+             subscribe_and_join(socket, LobbyChannel, "lobby", %{})
+
+    refute Map.has_key?(minimums, "ios")
+
+    {:ok, _} = News.update(latest, %{show_as_popup: false, show_below_android: ""})
+
+    assert {:ok, %{minimum_native_versions: empty, native_update_popup: false}, _} =
+             subscribe_and_join(socket, LobbyChannel, "lobby", %{})
+
+    assert empty == %{}
   end
 
   test "a request reaches only its receiver's lobby, and its acceptance only the sender's",

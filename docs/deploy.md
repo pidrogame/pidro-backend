@@ -25,16 +25,24 @@ is already running is never cancelled.
 
 ## Native store notice
 
-Set each platform's minimum and destination together in `config/deploy.yml`
-under `env.clear`; the next automatic deploy applies them:
+When a store build is live, publish an **App update** post in `/admin/news`.
+Set **Android: show below version** and **iPhone: show below version** to the
+live versions (for example `3.2.4`). Leave a platform empty until its build is
+live: empty means nobody on that platform. The newest published app-update
+post supplies both minimums immediately, even with **Show as pop-up** off.
+Drafts do not change the minimums. Unpublishing restores the previous published
+update's minimums, or the environment fallback if none remains.
+
+`MINIMUM_NATIVE_*` in `config/deploy.yml` is now **only the fallback when no
+published app-update post exists**. Store destinations remain in `env.clear`;
+the next automatic deploy applies changes to those URLs:
 
 | Platform | Minimum (empty disables notice) | Store URL |
 | --- | --- | --- |
 | Android | `MINIMUM_NATIVE_ANDROID` | `NATIVE_STORE_URL_ANDROID` — `https://play.google.com/store/apps/details?id=com.oneapps.pidro.beta` |
 | iOS | `MINIMUM_NATIVE_IOS` | `NATIVE_STORE_URL_IOS` — `https://testflight.apple.com/join/2JR95b65` |
 
-Both minimums are empty until Marcel confirms a store build is live. An empty
-URL also disables the notice; an unset URL uses the beta default above.
+An empty URL also disables the notice; an unset URL uses the beta default above.
 At public launch, replace the beta/TestFlight URLs with the public store listings.
 
 These same URLs drive invite/play page downloads and email `app_store_url` /
@@ -43,9 +51,44 @@ download links; email templates requiring a missing URL report a missing variabl
 instead of reusing a stale destination. Android invite/friend install referrers
 are appended to the configured destination.
 
-The lobby join reply keeps `minimum_native_versions` and adds `native_store_urls`,
+The lobby join reply keeps `minimum_native_versions` and `native_store_urls`,
 both maps keyed by `android`/`ios`. The app requires both entries for its platform
-and opens only the supplied URL; old clients can ignore the new field.
+and opens only the supplied URL. `native_update_popup` is true when the newest
+published app-update post has **Show as pop-up** on. New apps then suppress the
+minimum-version fallback card: a seen pop-up must not reappear as that fallback.
+False (or absent on an older server) preserves the fallback. Old apps ignore
+the additive fields and keep their existing store notice.
+
+### News pop-up contract (PID-363)
+
+Authenticated `GET /api/v1/news?locale=sv&platform=android&app_version=3.2.3`
+returns `data.posts` (latest 30), `data.unread`, and `data.popup` (always present,
+a localized post or `null`). `locale` is `en` or `sv`, `platform` is `android`
+or `ios`, and `app_version` is the installed native version. Missing/invalid
+platform or version excludes app-update pop-ups, not general News pop-ups.
+
+Posts and pop-ups have `id`, `title`, `body`, `published_at`, `eyebrow`,
+`image_url`, `button_label`, `button_url`, `show_as_popup`, `app_update`,
+`show_below_android`, and `show_below_ios`. Optional fields are null. Swedish
+falls back to English per field. `body` is raw Markdown: bold, line breaks,
+and links only. Images are uploaded PNG/JPEG, normalized to JPEG at up to
+1280 pixels without cropping, stored in the database and served publicly.
+App-update posts return null custom button fields; the app supplies its
+localized store label and uses `native_store_urls[platform]`. A general post
+without both a button label and link uses **Got it / Okej**.
+
+Selection is newest published (publication time, then ID), unseen, pop-up on.
+An app-update post also needs a nonempty threshold for the player's platform
+and an installed version strictly below it. Selection is independent of the
+30-post feed limit and the News unread mark.
+
+`POST /api/v1/news/:id/seen` (authenticated, empty body) acknowledges only this
+player's pop-up, across devices; repeats return **204**. Missing, draft, or
+non-pop-up posts return **404**. Close/Got it or a successful CTA link open
+calls it. **Later** makes no request: suppress locally for the current cold
+start, then ask again next cold start. `POST /api/v1/news/seen` still marks
+only the feed read, not pop-ups. Do not infer update policy from `data.posts`:
+the feed is capped; use the lobby's `native_update_popup` flag.
 
 ## Secrets
 
