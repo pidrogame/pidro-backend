@@ -49,7 +49,7 @@ env:
     MAIL_FROM_ADDRESS: "noreply@pidro.online"
     MAIL_REPLY_TO: "support@pidro.online"
     # Set a minimum only once its store build is live; empty means no notice.
-    MINIMUM_NATIVE_ANDROID: ""
+    MINIMUM_NATIVE_ANDROID: "3.2.4"
     NATIVE_STORE_URL_ANDROID: "https://play.google.com/store/apps/details?id=com.oneapps.pidro.beta"
     MINIMUM_NATIVE_IOS: ""
     NATIVE_STORE_URL_IOS: "https://testflight.apple.com/join/2JR95b65"
