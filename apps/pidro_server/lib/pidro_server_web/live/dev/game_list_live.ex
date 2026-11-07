@@ -320,12 +320,12 @@ defmodule PidroServerWeb.Dev.GameListLive do
           <label class="text-sm">Game name<input
             name="game_name"
             required
-            class="block w-full rounded border-stone-300"
+            class="mt-1 block w-full rounded-md border border-stone-300 bg-white px-3 py-2"
           /></label>
           <label class="text-sm">Host ID (or dev_host)<input
             name="host_user_id"
             value="dev_host"
-            class="block w-full rounded border-stone-300"
+            class="mt-1 block w-full rounded-md border border-stone-300 bg-white px-3 py-2"
           /></label>
           <label class="text-sm">Bots<input
             name="bot_count"
@@ -333,11 +333,11 @@ defmodule PidroServerWeb.Dev.GameListLive do
             min="0"
             max="4"
             value="0"
-            class="block w-full rounded border-stone-300"
+            class="mt-1 block w-full rounded-md border border-stone-300 bg-white px-3 py-2"
           /></label>
           <label class="text-sm">Difficulty<select
             name="bot_difficulty"
-            class="block w-full rounded border-stone-300"
+            class="mt-1 block w-full rounded-md border border-stone-300 bg-white px-3 py-2"
           ><option value="random">random</option><option value="basic">basic</option><option value="smart">
             smart
           </option></select></label>
@@ -359,7 +359,7 @@ defmodule PidroServerWeb.Dev.GameListLive do
               do: "Delete all finished games?",
               else: "Delete game #{@delete_code}?"}
           </p>
-          <p class="mt-1 text-sm text-stone-500">Bots stop and anyone seated is sent back to the lobby.</p>
+          <p class="mt-1 text-sm text-stone-600">Bots stop and anyone seated is sent back to the lobby.</p>
           <div class="mt-5 flex justify-end gap-2">
             <button phx-click="cancel_confirm" class="lt-button">Cancel</button>
             <button phx-click="confirm_delete" class="lt-button lt-button-danger">Confirm</button>

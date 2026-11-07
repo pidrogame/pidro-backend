@@ -52,34 +52,42 @@ defmodule PidroServerWeb.Dev.LeaguesLive do
     <.admin_shell
       active="leagues"
       title="Weekly leagues"
-      subtitle="Sunday 19:00 UTC · rooms, movement and participation"
+      subtitle="Closes every Sunday 19:00 UTC"
       flash={@flash}
     >
       <:actions>
-        <button phx-click="refresh" class="rounded-md border border-stone-300 px-3 py-2 text-sm">Refresh</button>
+        <button
+          phx-click="refresh"
+          class="rounded-md border border-stone-300 bg-white px-3 py-2 text-sm font-medium text-stone-800 hover:bg-stone-100"
+        >Refresh</button>
       </:actions>
-      <div id="league-gate" class="rounded-lg border border-stone-200 bg-white p-4">
+      <div id="league-gate" class="rounded-lg border border-stone-200 bg-white p-4 text-sm">
         <strong>{if @report.on, do: "On", else: "Off"}</strong>
-        <span class="ml-2 text-sm text-stone-500">Start: {stamp(@report.since)} · Next close: {stamp(
+        <span class="ml-2 text-stone-600">Start: {stamp(@report.since)} · Next close: {stamp(
           @report.closes_at
         )}</span>
-        <p class="mt-2 text-sm">
+        <p class="mt-2">
           Last week's players placed: {@report.participation.placed} / {@report.participation.played} ({@report.participation.percent}%). Includes solo games and guests in the denominator.
         </p>
       </div>
       <section class="overflow-x-auto rounded-lg border border-stone-200 bg-white">
-        <h2 class="px-4 py-3 font-semibold">Distribution and this week's rooms</h2>
-        <table id="league-distribution" class="min-w-full text-sm">
-          <thead class="bg-stone-50 text-left">
+        <h2 class="px-4 py-3 text-base font-semibold">Distribution and this week's rooms</h2>
+        <table
+          id="league-distribution"
+          class="min-w-full text-sm [&_td]:px-4 [&_td]:py-2 [&_th]:px-4 [&_th]:py-2"
+        >
+          <thead class="bg-stone-50 text-xs font-medium text-stone-600">
             <tr>
-              <th class="p-3">League</th><th>Players / share</th><th>Target</th><th>Rooms</th><th>
-                Members
-              </th><th>Last up</th><th>Last down</th>
+              <th class="text-left">League</th><th class="text-right">Players / share</th><th class="text-right">
+                Target
+              </th><th class="text-right">Rooms</th><th class="text-right">Members</th><th class="text-right">
+                Last up
+              </th><th class="text-right">Last down</th>
             </tr>
           </thead>
-          <tbody>
+          <tbody class="text-right">
             <tr :for={league <- @leagues} class="border-t border-stone-100">
-              <td class="p-3 font-medium">{String.capitalize(league)}</td>
+              <td class="text-left font-medium">{String.capitalize(league)}</td>
               <td>{Map.get(@report.distribution, league, 0)} / {share(@report, league)}%</td><td>
                 ~{@targets[league]}%
               </td>
@@ -95,23 +103,26 @@ defmodule PidroServerWeb.Dev.LeaguesLive do
             </tr>
           </tbody>
         </table>
-        <p class="px-4 py-3 text-xs text-stone-500">
+        <p class="border-t border-stone-100 px-4 py-3 text-xs text-stone-600">
           Last close: {stamp(@report.last_close)}. Distribution includes all registered accounts; no row means Deuce.
         </p>
       </section>
       <section class="overflow-x-auto rounded-lg border border-stone-200 bg-white">
-        <h2 class="px-4 py-3 font-semibold">Room placement times</h2>
-        <table id="league-rooms" class="min-w-full text-sm">
-          <thead class="bg-stone-50 text-left">
+        <h2 class="px-4 py-3 text-base font-semibold">Room placement times</h2>
+        <table
+          id="league-rooms"
+          class="min-w-full text-sm [&_td]:px-4 [&_td]:py-2 [&_th]:px-4 [&_th]:py-2"
+        >
+          <thead class="bg-stone-50 text-left text-xs font-medium text-stone-600">
             <tr>
-              <th class="p-3">League / room</th><th>Members</th><th>Oldest (UTC)</th><th>
+              <th>League / room</th><th class="text-right">Members</th><th>Oldest (UTC)</th><th>
                 Newest (UTC)
               </th>
             </tr>
           </thead>
           <tbody>
             <tr :for={room <- @report.rooms} class="border-t border-stone-100">
-              <td class="p-3">{room.league} · {String.slice(room.id, 0, 8)}</td><td>
+              <td>{room.league} · {String.slice(room.id, 0, 8)}</td><td class="text-right">
                 {room.members}
               </td><td>{stamp(room.oldest)}</td><td>{stamp(room.newest)}</td>
             </tr>
@@ -119,8 +130,8 @@ defmodule PidroServerWeb.Dev.LeaguesLive do
         </table>
       </section>
       <section class="rounded-lg border border-stone-200 bg-white p-4">
-        <h2 class="font-semibold">Pairs sharing a table more than 10 times this week</h2>
-        <p :if={@report.pairs == []} class="mt-2 text-sm text-stone-500">
+        <h2 class="text-base font-semibold">Pairs sharing a table more than 10 times this week</h2>
+        <p :if={@report.pairs == []} class="mt-2 text-sm text-stone-600">
           No repeated pairs above the threshold.
         </p>
         <p :for={pair <- @report.pairs} class="mt-2 text-sm">
@@ -137,9 +148,12 @@ defmodule PidroServerWeb.Dev.LeaguesLive do
           name="moment"
           aria-label="Close moment"
           value={DateTime.to_iso8601(@report.starts_at)}
-          class="mt-1 block w-72 rounded border border-stone-300 p-2"
+          class="mt-1 block w-72 max-w-full rounded-md border border-stone-300 bg-white px-3 py-2"
         /></label>
-        <button type="submit" class="rounded bg-stone-950 px-3 py-2 text-sm font-semibold text-white">Run close</button>
+        <button
+          type="submit"
+          class="rounded-md bg-stone-950 px-3 py-2 text-sm font-medium text-white hover:bg-stone-800"
+        >Run close</button>
       </form>
     </.admin_shell>
     """

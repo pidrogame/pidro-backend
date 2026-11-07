@@ -1211,37 +1211,37 @@ defmodule PidroServerWeb.Dev.GameDetailLive do
 
   defp render_room_info(assigns) do
     ~H"""
-    <div class="overflow-hidden rounded-md border border-stone-300 bg-white shadow-sm">
+    <div class="overflow-hidden rounded-lg border border-stone-200 bg-white">
       <div class="px-4 py-3">
-        <h3 class="font-mono text-xs font-black uppercase tracking-[0.16em] text-stone-700">
+        <h3 class="text-base font-semibold text-stone-950">
           Room Information
         </h3>
       </div>
       <div class="border-t border-stone-200 px-4 py-4">
         <dl class="grid grid-cols-1 gap-x-4 gap-y-4 sm:grid-cols-3">
           <div>
-            <dt class="font-mono text-[0.68rem] font-bold uppercase tracking-[0.14em] text-stone-500">
+            <dt class="text-xs font-medium text-stone-600">
               Status
             </dt>
-            <dd class="mt-1 text-sm text-zinc-900">
+            <dd class="mt-1 text-sm text-stone-950">
               <span class={"px-2 inline-flex text-xs leading-5 font-semibold rounded-full #{status_color(@room.status)}"}>
                 {@room.status}
               </span>
             </dd>
           </div>
           <div>
-            <dt class="font-mono text-[0.68rem] font-bold uppercase tracking-[0.14em] text-stone-500">
+            <dt class="text-xs font-medium text-stone-600">
               Players
             </dt>
-            <dd class="mt-1 text-sm text-zinc-900">
+            <dd class="mt-1 text-sm text-stone-950">
               {PidroServer.Games.Room.Positions.count(@room)} / 4
             </dd>
           </div>
           <div>
-            <dt class="font-mono text-[0.68rem] font-bold uppercase tracking-[0.14em] text-stone-500">
+            <dt class="text-xs font-medium text-stone-600">
               Host
             </dt>
-            <dd class="mt-1 text-sm text-zinc-900">
+            <dd class="mt-1 text-sm text-stone-950">
               <%= if @room.host_id do %>
                 {String.slice(@room.host_id, 0..7)}...
               <% else %>
@@ -1333,11 +1333,11 @@ defmodule PidroServerWeb.Dev.GameDetailLive do
     ~H"""
     <%= if @active_tab == :controls do %>
       <!-- Position Selector - DEV-401 & DEV-502 -->
-      <div class="bg-white shadow overflow-hidden sm:rounded-lg mb-8">
+      <div class="overflow-hidden rounded-lg border border-stone-200 bg-white">
         <div class="px-4 py-5 sm:px-6 flex justify-between items-start">
           <div>
-            <h3 class="text-lg leading-6 font-medium text-zinc-900">Position Filter & View Mode</h3>
-            <p class="mt-1 text-sm text-zinc-500">Select a position to view and execute actions</p>
+            <h3 class="text-base font-semibold text-stone-950">Position Filter & View Mode</h3>
+            <p class="mt-1 text-sm text-stone-600">Select a position to view and execute actions</p>
           </div>
           <%!-- DEV-502: Split View Toggle --%>
           <button
@@ -1347,7 +1347,7 @@ defmodule PidroServerWeb.Dev.GameDetailLive do
               "px-4 py-2 text-sm font-medium rounded-md transition-all shadow-sm",
               if(@view_mode == :split,
                 do: "bg-purple-600 text-white ring-2 ring-purple-300",
-                else: "bg-zinc-100 text-zinc-700 hover:bg-zinc-200"
+                else: "bg-zinc-100 text-stone-700 hover:bg-zinc-200"
               )
             ]}
             title="Toggle split screen view (4 quadrants)"
@@ -1375,7 +1375,7 @@ defmodule PidroServerWeb.Dev.GameDetailLive do
             <% end %>
           </button>
         </div>
-        <div class="border-t border-zinc-200 px-4 py-5 sm:p-6">
+        <div class="border-t border-stone-200 p-4 sm:p-6">
           <div class="mb-4 flex justify-between items-center">
             <div class={[
               "inline-flex items-center px-3 py-1 rounded-md text-sm font-medium",
@@ -1400,17 +1400,17 @@ defmodule PidroServerWeb.Dev.GameDetailLive do
       </div>
 
       <!-- Take a Seat Shortcut -->
-      <div class="bg-white shadow overflow-hidden sm:rounded-lg mb-8">
+      <div class="overflow-hidden rounded-lg border border-stone-200 bg-white">
         <div class="px-4 py-5 sm:px-6">
-          <h3 class="text-lg leading-6 font-medium text-zinc-900">Take a Seat</h3>
-          <p class="mt-1 text-sm text-zinc-500">
+          <h3 class="text-base font-semibold text-stone-950">Take a Seat</h3>
+          <p class="mt-1 text-sm text-stone-600">
             Quick seat assignment without leaving the Board tab
           </p>
         </div>
         <div class="border-t border-zinc-200 px-4 py-4 sm:px-6">
           <form phx-submit="assign_seat" class="flex items-end gap-3">
             <div class="flex-shrink-0">
-              <label class="block text-xs font-medium text-zinc-700 mb-1">Position</label>
+              <label class="block text-xs font-medium text-stone-700 mb-1">Position</label>
               <select name="position" class="text-sm rounded border-zinc-300 py-1.5">
                 <%= for pos <- [:north, :east, :south, :west] do %>
                   <option value={to_string(pos)}>
@@ -1425,7 +1425,7 @@ defmodule PidroServerWeb.Dev.GameDetailLive do
               </select>
             </div>
             <div class="flex-1">
-              <label class="block text-xs font-medium text-zinc-700 mb-1">User</label>
+              <label class="block text-xs font-medium text-stone-700 mb-1">User</label>
               <select name="user_id" class="w-full text-sm rounded border-zinc-300 py-1.5">
                 <option value="empty">-- Clear seat --</option>
                 <%= for user <- @users do %>
@@ -1437,7 +1437,7 @@ defmodule PidroServerWeb.Dev.GameDetailLive do
             </div>
             <button
               type="submit"
-              class="px-4 py-1.5 text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 transition-colors"
+              class="px-4 py-1.5 text-sm font-medium rounded-md text-white bg-stone-950 hover:bg-stone-800 transition-colors"
             >
               Assign
             </button>
@@ -1446,19 +1446,19 @@ defmodule PidroServerWeb.Dev.GameDetailLive do
       </div>
 
       <!-- Dev Quick Actions - DEV-1001 to DEV-1003 Implementation -->
-      <div class="bg-white shadow overflow-hidden sm:rounded-lg mb-8">
+      <div class="overflow-hidden rounded-lg border border-stone-200 bg-white">
         <div class="px-4 py-5 sm:px-6">
-          <h3 class="text-lg leading-6 font-medium text-zinc-900">Dev Quick Actions</h3>
-          <p class="mt-1 text-sm text-zinc-500">
+          <h3 class="text-base font-semibold text-stone-950">Dev Quick Actions</h3>
+          <p class="mt-1 text-sm text-stone-600">
             Testing shortcuts for rapid development iteration
           </p>
         </div>
-        <div class="border-t border-zinc-200 px-4 py-5 sm:p-6">
+        <div class="border-t border-stone-200 p-4 sm:p-6">
           <div class="flex flex-wrap gap-3">
             <button
               type="button"
               phx-click="undo_last_action"
-              class="inline-flex items-center px-4 py-2 border border-zinc-300 shadow-sm text-sm font-medium rounded-md text-zinc-700 bg-white hover:bg-zinc-50 transition-colors"
+              class="inline-flex items-center px-4 py-2 border border-zinc-300 shadow-sm text-sm font-medium rounded-md text-stone-700 bg-white hover:bg-zinc-50 transition-colors"
               title="Undo the last game action"
             >
               <svg
@@ -1481,7 +1481,7 @@ defmodule PidroServerWeb.Dev.GameDetailLive do
             <button
               type="button"
               phx-click="auto_bid"
-              class="inline-flex items-center px-4 py-2 border border-zinc-300 shadow-sm text-sm font-medium rounded-md text-zinc-700 bg-white hover:bg-zinc-50 transition-colors"
+              class="inline-flex items-center px-4 py-2 border border-zinc-300 shadow-sm text-sm font-medium rounded-md text-stone-700 bg-white hover:bg-zinc-50 transition-colors"
               title="Automatically complete the bidding phase"
             >
               <svg
@@ -1504,7 +1504,7 @@ defmodule PidroServerWeb.Dev.GameDetailLive do
             <button
               type="button"
               phx-click="fast_forward"
-              class="inline-flex items-center px-4 py-2 border border-zinc-300 shadow-sm text-sm font-medium rounded-md text-zinc-700 bg-white hover:bg-zinc-50 transition-colors"
+              class="inline-flex items-center px-4 py-2 border border-zinc-300 shadow-sm text-sm font-medium rounded-md text-stone-700 bg-white hover:bg-zinc-50 transition-colors"
               title="Fast forward the game to completion"
             >
               <svg
@@ -1529,11 +1529,11 @@ defmodule PidroServerWeb.Dev.GameDetailLive do
     <% end %>
     <!-- DEV-1301: Hand Replay Controls -->
     <%= if @replay_total_events > 0 and @active_tab in [:board, :controls] do %>
-      <div class="bg-white shadow overflow-hidden sm:rounded-lg mb-8">
+      <div class="overflow-hidden rounded-lg border border-stone-200 bg-white">
         <div class="px-4 py-5 sm:px-6 flex justify-between items-center">
           <div>
-            <h3 class="text-lg leading-6 font-medium text-zinc-900">Hand Replay</h3>
-            <p class="mt-1 text-sm text-zinc-500">
+            <h3 class="text-base font-semibold text-stone-950">Hand Replay</h3>
+            <p class="mt-1 text-sm text-stone-600">
               Step through game history event by event
             </p>
           </div>
@@ -1544,7 +1544,7 @@ defmodule PidroServerWeb.Dev.GameDetailLive do
               "px-4 py-2 text-sm font-medium rounded-md transition-all shadow-sm",
               if(@replay_mode,
                 do: "bg-amber-600 text-white ring-2 ring-amber-300",
-                else: "bg-zinc-100 text-zinc-700 hover:bg-zinc-200"
+                else: "bg-zinc-100 text-stone-700 hover:bg-zinc-200"
               )
             ]}
           >
@@ -1582,10 +1582,10 @@ defmodule PidroServerWeb.Dev.GameDetailLive do
           </button>
         </div>
         <%= if @replay_mode do %>
-          <div class="border-t border-zinc-200 px-4 py-5 sm:p-6 bg-amber-50">
+          <div class="border-t border-stone-200 p-4 sm:p-6 bg-amber-50">
             <!-- Event Progress Bar -->
             <div class="mb-4">
-              <div class="flex justify-between text-sm text-zinc-700 mb-2">
+              <div class="flex justify-between text-sm text-stone-700 mb-2">
                 <span>Event {@replay_index + 1} of {@replay_total_events}</span>
                 <%= if @replay_index >= 0 && @replay_index < @replay_total_events do %>
                   <%= case ReplayController.get_event_info(@replay_source, @replay_index) do %>
@@ -1612,7 +1612,7 @@ defmodule PidroServerWeb.Dev.GameDetailLive do
                 <button
                   type="button"
                   phx-click="replay_step_backward"
-                  class="px-3 py-2 border border-zinc-300 shadow-sm text-sm font-medium rounded-md text-zinc-700 bg-white hover:bg-zinc-50 disabled:opacity-50"
+                  class="px-3 py-2 border border-zinc-300 shadow-sm text-sm font-medium rounded-md text-stone-700 bg-white hover:bg-zinc-50 disabled:opacity-50"
                   disabled={@replay_index <= 0}
                 >
                   <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1650,7 +1650,7 @@ defmodule PidroServerWeb.Dev.GameDetailLive do
                 <button
                   type="button"
                   phx-click="replay_step_forward"
-                  class="px-3 py-2 border border-zinc-300 shadow-sm text-sm font-medium rounded-md text-zinc-700 bg-white hover:bg-zinc-50 disabled:opacity-50"
+                  class="px-3 py-2 border border-zinc-300 shadow-sm text-sm font-medium rounded-md text-stone-700 bg-white hover:bg-zinc-50 disabled:opacity-50"
                   disabled={@replay_index >= @replay_total_events - 1}
                 >
                   <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1664,7 +1664,7 @@ defmodule PidroServerWeb.Dev.GameDetailLive do
                 </button>
               </div>
               <div class="flex items-center gap-3">
-                <label class="text-sm text-zinc-700">Speed:</label>
+                <label class="text-sm text-stone-700">Speed:</label>
                 <select
                   name="speed"
                   phx-change="replay_set_speed"
@@ -1678,7 +1678,7 @@ defmodule PidroServerWeb.Dev.GameDetailLive do
               </div>
               <!-- Jump to Phase -->
               <div class="flex items-center gap-2">
-                <label class="text-sm text-zinc-700">Jump to:</label>
+                <label class="text-sm text-stone-700">Jump to:</label>
                 <select
                   phx-change="replay_jump_to_phase"
                   name="phase"
@@ -1743,7 +1743,7 @@ defmodule PidroServerWeb.Dev.GameDetailLive do
             <div class="absolute inset-0 bg-gray-900/60 backdrop-blur-sm flex items-center justify-center z-10 rounded-xl">
               <div class="bg-white rounded-xl shadow-2xl max-w-lg w-full overflow-hidden transform transition-all scale-100 ring-1 ring-black/5 m-4">
                 <div class="p-6 text-center border-b bg-gradient-to-r from-indigo-50 to-purple-50">
-                  <h2 class="text-3xl font-extrabold text-gray-900 mb-2">Game Over!</h2>
+                  <h2 class="text-3xl font-extrabold text-stone-950 mb-2">Game Over!</h2>
                   <p class="text-lg text-indigo-600 font-medium">
                     <%= case @game_state.winner do %>
                       <% :north_south -> %>
@@ -1776,14 +1776,14 @@ defmodule PidroServerWeb.Dev.GameDetailLive do
                     </div>
                   </div>
 
-                  <h3 class="text-sm font-bold text-gray-500 uppercase tracking-wider mb-3">
+                  <h3 class="mb-3 text-sm font-semibold text-stone-600">
                     Score History
                   </h3>
                   <div class="bg-gray-50 rounded-lg border overflow-hidden max-h-48 overflow-y-auto mb-6">
                     <table class="min-w-full divide-y divide-gray-200">
                       <thead class="bg-gray-100">
                         <tr>
-                          <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">
+                          <th class="px-4 py-2 text-left text-xs font-medium text-stone-600 uppercase">
                             Hand
                           </th>
                           <th class="px-4 py-2 text-center text-xs font-medium text-blue-600 uppercase">
@@ -1797,7 +1797,7 @@ defmodule PidroServerWeb.Dev.GameDetailLive do
                       <tbody class="divide-y divide-gray-200 bg-white">
                         <%= for {score, index} <- get_score_history(@game_state.events) do %>
                           <tr>
-                            <td class="px-4 py-2 text-sm text-gray-900">#{index}</td>
+                            <td class="px-4 py-2 text-sm text-stone-950">#{index}</td>
                             <td class="px-4 py-2 text-sm text-center font-medium text-blue-700">
                               {if score.ns > 0, do: "+#{score.ns}", else: score.ns}
                             </td>
@@ -1819,7 +1819,7 @@ defmodule PidroServerWeb.Dev.GameDetailLive do
                     </.link>
                     <button
                       phx-click="play_again"
-                      class="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-4 rounded-lg text-center transition-colors shadow-md"
+                      class="flex-1 bg-stone-950 hover:bg-stone-800 text-white font-bold py-3 px-4 rounded-lg text-center transition-colors shadow-md"
                     >
                       Play Again
                     </button>
@@ -1832,10 +1832,10 @@ defmodule PidroServerWeb.Dev.GameDetailLive do
       <% end %>
 
       <!-- Action Execution - DEV-901 to DEV-904 Implementation -->
-      <div class="bg-white shadow overflow-hidden sm:rounded-lg mb-8">
+      <div class="overflow-hidden rounded-lg border border-stone-200 bg-white">
         <div class="px-4 py-5 sm:px-6">
-          <h3 class="text-lg leading-6 font-medium text-zinc-900">Legal Actions</h3>
-          <p class="mt-1 text-sm text-zinc-500">
+          <h3 class="text-base font-semibold text-stone-950">Legal Actions</h3>
+          <p class="mt-1 text-sm text-stone-600">
             <%= if @selected_position == :all do %>
               Select a specific position to view and execute actions
             <% else %>
@@ -1844,9 +1844,9 @@ defmodule PidroServerWeb.Dev.GameDetailLive do
             <% end %>
           </p>
         </div>
-        <div class="border-t border-zinc-200 px-4 py-5 sm:p-6">
+        <div class="border-t border-stone-200 p-4 sm:p-6">
           <%= if @selected_position == :all do %>
-            <div class="text-sm text-zinc-500 italic">
+            <div class="text-sm text-stone-600 italic">
               Please select a specific position above to view legal actions.
             </div>
           <% else %>
@@ -1857,7 +1857,7 @@ defmodule PidroServerWeb.Dev.GameDetailLive do
               </div>
             <% else %>
               <%= if Enum.empty?(@legal_actions) do %>
-                <div class="text-sm text-zinc-500 italic">
+                <div class="text-sm text-stone-600 italic">
                   No legal actions available for this position at this time.
                 </div>
               <% else %>
@@ -1871,39 +1871,42 @@ defmodule PidroServerWeb.Dev.GameDetailLive do
     <% end %>
     <!-- Game State Card -->
     <%= if @game_state do %>
-      <div :if={@active_tab == :inspect} class="bg-white shadow overflow-hidden sm:rounded-lg mb-8">
+      <div
+        :if={@active_tab == :inspect}
+        class="overflow-hidden rounded-lg border border-stone-200 bg-white"
+      >
         <div class="px-4 py-5 sm:px-6">
-          <h3 class="text-lg leading-6 font-medium text-zinc-900">Game State</h3>
-          <p class="mt-1 max-w-2xl text-sm text-zinc-500">
+          <h3 class="text-base font-semibold text-stone-950">Game State</h3>
+          <p class="mt-1 max-w-2xl text-sm text-stone-600">
             Current phase: <span class="font-semibold">{@game_state.phase}</span>
           </p>
         </div>
-        <div class="border-t border-zinc-200 px-4 py-5 sm:p-6">
+        <div class="border-t border-stone-200 p-4 sm:p-6">
           <dl class="grid grid-cols-1 gap-x-4 gap-y-4 sm:grid-cols-2">
             <div>
-              <dt class="text-sm font-medium text-zinc-500">Current Turn</dt>
-              <dd class="mt-1 text-sm text-zinc-900">
+              <dt class="text-sm font-medium text-stone-600">Current Turn</dt>
+              <dd class="mt-1 text-sm text-stone-950">
                 {inspect(@game_state.current_turn)}
               </dd>
             </div>
             <%= if Map.has_key?(@game_state, :dealer) do %>
               <div>
-                <dt class="text-sm font-medium text-zinc-500">Dealer</dt>
-                <dd class="mt-1 text-sm text-zinc-900">{inspect(@game_state.dealer)}</dd>
+                <dt class="text-sm font-medium text-stone-600">Dealer</dt>
+                <dd class="mt-1 text-sm text-stone-950">{inspect(@game_state.dealer)}</dd>
               </div>
             <% end %>
             <%= if Map.has_key?(@game_state, :trump_suit) && @game_state.trump_suit do %>
               <div>
-                <dt class="text-sm font-medium text-zinc-500">Trump Suit</dt>
-                <dd class="mt-1 text-sm text-zinc-900">
+                <dt class="text-sm font-medium text-stone-600">Trump Suit</dt>
+                <dd class="mt-1 text-sm text-stone-950">
                   {format_suit(@game_state.trump_suit)}
                 </dd>
               </div>
             <% end %>
             <%= if Map.has_key?(@game_state, :winning_bid) && @game_state.winning_bid do %>
               <div>
-                <dt class="text-sm font-medium text-zinc-500">Winning Bid</dt>
-                <dd class="mt-1 text-sm text-zinc-900">
+                <dt class="text-sm font-medium text-stone-600">Winning Bid</dt>
+                <dd class="mt-1 text-sm text-stone-950">
                   {@game_state.winning_bid.amount} by {@game_state.winning_bid.team}
                 </dd>
               </div>
@@ -1913,7 +1916,7 @@ defmodule PidroServerWeb.Dev.GameDetailLive do
           <!-- Scores -->
           <%= if Map.has_key?(@game_state, :scores) do %>
             <div class="mt-6">
-              <h4 class="text-sm font-medium text-zinc-500 mb-3">Scores</h4>
+              <h4 class="text-sm font-medium text-stone-600 mb-3">Scores</h4>
               <div class="grid grid-cols-2 gap-4">
                 <div class="bg-blue-50 p-4 rounded-lg">
                   <div class="text-sm font-medium text-blue-900">North-South</div>
@@ -1944,7 +1947,7 @@ defmodule PidroServerWeb.Dev.GameDetailLive do
           <div class="flex gap-2">
             <button
               phx-click="refresh_events"
-              class="px-3 py-1 text-sm bg-blue-500 text-white rounded hover:bg-blue-600"
+              class="px-3 py-1 text-sm bg-stone-950 text-white rounded-md hover:bg-stone-800"
             >
               Refresh
             </button>
@@ -2024,13 +2027,13 @@ defmodule PidroServerWeb.Dev.GameDetailLive do
         <%!-- Event List --%>
         <div id="watch-activity" class="bg-gray-50 rounded p-4 max-h-[600px] overflow-y-auto text-sm">
           <%= if Enum.empty?(@events) do %>
-            <p class="text-gray-500 italic">No events recorded yet</p>
+            <p class="text-stone-600 italic">No events recorded yet</p>
           <% else %>
             <div class="space-y-1">
               <%= for event <- Enum.reverse(@events) do %>
                 <div class="border-b border-stone-200 py-2">
                   <strong :if={event.player}>{CardComponents.seat_name(@seats[event.player])} · </strong>
-                  <span class="text-gray-500">[#{event.metadata[:index] || "?"}]</span>
+                  <span class="text-stone-600">[#{event.metadata[:index] || "?"}]</span>
                   <span class={event_type_color(event.type)}>
                     {Event.format(event)}
                   </span>
@@ -2053,7 +2056,7 @@ defmodule PidroServerWeb.Dev.GameDetailLive do
               <h3 class="text-lg font-semibold">Export Events</h3>
               <button
                 phx-click="toggle_export_modal"
-                class="text-gray-500 hover:text-gray-700"
+                class="text-stone-600 hover:text-gray-700"
               >
                 x
               </button>
@@ -2071,7 +2074,7 @@ defmodule PidroServerWeb.Dev.GameDetailLive do
                   id="copy-json-button"
                   phx-hook="Clipboard"
                   data-target="export-json"
-                  class="mt-2 px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+                  class="mt-2 px-4 py-2 bg-stone-950 text-white rounded-md hover:bg-stone-800"
                 >
                   Copy JSON
                 </button>
@@ -2090,7 +2093,7 @@ defmodule PidroServerWeb.Dev.GameDetailLive do
                   id="copy-text-button"
                   phx-hook="Clipboard"
                   data-target="export-text"
-                  class="mt-2 px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+                  class="mt-2 px-4 py-2 bg-stone-950 text-white rounded-md hover:bg-stone-800"
                 >
                   Copy Text
                 </button>
@@ -2105,7 +2108,7 @@ defmodule PidroServerWeb.Dev.GameDetailLive do
         <summary class="px-4 py-5 sm:px-6 cursor-pointer hover:bg-zinc-50">
           <div class="flex items-center justify-between">
             <div>
-              <h3 class="text-lg leading-6 font-medium text-zinc-900 inline">
+              <h3 class="text-base font-semibold text-stone-950 inline">
                 Full Game State (Raw)
               </h3>
             </div>
@@ -2116,7 +2119,7 @@ defmodule PidroServerWeb.Dev.GameDetailLive do
               data-clipboard-text={
                 inspect(%{game: @game_state, seats: @seats}, pretty: true, limit: :infinity)
               }
-              class="px-3 py-1 text-sm font-medium rounded-md bg-indigo-600 text-white hover:bg-indigo-700 transition-colors"
+              class="px-3 py-1 text-sm font-medium rounded-md bg-stone-950 text-white hover:bg-stone-800 transition-colors"
               onclick="event.stopPropagation()"
             >
               <%= if @copy_feedback do %>
@@ -2127,7 +2130,7 @@ defmodule PidroServerWeb.Dev.GameDetailLive do
             </button>
           </div>
         </summary>
-        <div class="border-t border-zinc-200 px-4 py-5 sm:p-6">
+        <div class="border-t border-stone-200 p-4 sm:p-6">
           <pre class="text-xs bg-zinc-50 p-4 rounded overflow-auto"><%= inspect(%{game: @game_state, seats: @seats}, pretty: true, limit: :infinity) %></pre>
         </div>
       </details>
@@ -2144,10 +2147,10 @@ defmodule PidroServerWeb.Dev.GameDetailLive do
   defp render_seats_tab(assigns) do
     ~H"""
     <!-- Bot Configuration - DEV-1106 -->
-    <div class="bg-white shadow overflow-hidden sm:rounded-lg mb-8">
+    <div class="overflow-hidden rounded-lg border border-stone-200 bg-white">
       <div class="px-4 py-5 sm:px-6">
-        <h3 class="text-lg leading-6 font-medium text-zinc-900">Bot Configuration</h3>
-        <p class="mt-1 text-sm text-zinc-500">Configure bot players for each seat</p>
+        <h3 class="text-base font-semibold text-stone-950">Bot Configuration</h3>
+        <p class="mt-1 text-sm text-stone-600">Configure bot players for each seat</p>
       </div>
       <div class="border-t border-zinc-200 px-4 py-4">
         <div class="grid grid-cols-2 gap-3 mb-3">
@@ -2158,7 +2161,7 @@ defmodule PidroServerWeb.Dev.GameDetailLive do
         <button
           type="button"
           phx-click="apply_bot_config"
-          class="w-full px-3 py-2 text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700"
+          class="w-full px-3 py-2 text-sm font-medium rounded-md text-white bg-stone-950 hover:bg-stone-800"
         >
           Apply Changes
         </button>
@@ -2166,17 +2169,17 @@ defmodule PidroServerWeb.Dev.GameDetailLive do
     </div>
 
     <!-- Seat Management -->
-    <div class="bg-white shadow overflow-hidden sm:rounded-lg mb-8">
+    <div class="overflow-hidden rounded-lg border border-stone-200 bg-white">
       <div class="px-4 py-5 sm:px-6">
-        <h3 class="text-lg leading-6 font-medium text-zinc-900">Seat Management</h3>
-        <p class="mt-1 text-sm text-zinc-500">Assign users to seats or manage bot positions</p>
+        <h3 class="text-base font-semibold text-stone-950">Seat Management</h3>
+        <p class="mt-1 text-sm text-stone-600">Assign users to seats or manage bot positions</p>
       </div>
-      <div class="border-t border-zinc-200 px-4 py-5 sm:p-6">
+      <div class="border-t border-stone-200 p-4 sm:p-6">
         <div class="grid grid-cols-2 gap-4">
           <%= for position <- [:north, :east, :south, :west] do %>
             <div class="bg-zinc-50 rounded-lg p-4">
               <div class="flex items-center justify-between mb-2">
-                <h4 class="text-sm font-semibold text-zinc-900">{format_position(position)}</h4>
+                <h4 class="text-sm font-semibold text-stone-950">{format_position(position)}</h4>
                 <span class={[
                   "px-2 py-0.5 text-xs rounded-full font-medium",
                   if(@room.positions[position],
@@ -2207,7 +2210,7 @@ defmodule PidroServerWeb.Dev.GameDetailLive do
                 </select>
                 <button
                   type="submit"
-                  class="px-3 py-1 text-xs font-medium rounded bg-indigo-600 text-white hover:bg-indigo-700"
+                  class="px-3 py-1 text-xs font-medium rounded bg-stone-950 text-white hover:bg-stone-800"
                 >
                   Set
                 </button>
@@ -2239,7 +2242,7 @@ defmodule PidroServerWeb.Dev.GameDetailLive do
       <%!-- Position Header --%>
       <div class={[
         "px-3 py-2 rounded-t-lg border-b flex justify-between items-center",
-        if(@is_active, do: "bg-indigo-50 border-indigo-200", else: "bg-gray-50 border-gray-200")
+        if(@is_active, do: "bg-stone-100 border-stone-300", else: "bg-white border-stone-200")
       ]}>
         <div class="flex items-center gap-2">
           <span class={[
@@ -2249,7 +2252,7 @@ defmodule PidroServerWeb.Dev.GameDetailLive do
             {format_position(@position)}
           </span>
           <%= if @is_active do %>
-            <span class="text-xs bg-indigo-600 text-white px-2 py-0.5 rounded">Active</span>
+            <span class="text-xs bg-stone-950 text-white px-2 py-0.5 rounded">Active</span>
           <% end %>
           <%= if @game_state.current_turn == @position do %>
             <span class="text-xs bg-green-500 text-white px-2 py-0.5 rounded animate-pulse">
@@ -2266,7 +2269,7 @@ defmodule PidroServerWeb.Dev.GameDetailLive do
       <div class="p-3">
         <%!-- Hand Display (Compact) --%>
         <div class="mb-2">
-          <div class="text-xs font-medium text-gray-500 mb-1">Hand:</div>
+          <div class="text-xs font-medium text-stone-600 mb-1">Hand:</div>
           <div class="flex flex-wrap gap-1">
             <%= for card <- get_selected_hand(@game_state, @position) |> Enum.take(12) do %>
               <div class="inline-block">
@@ -2274,7 +2277,7 @@ defmodule PidroServerWeb.Dev.GameDetailLive do
               </div>
             <% end %>
             <%= if length(get_selected_hand(@game_state, @position)) > 12 do %>
-              <span class="text-xs text-gray-500 self-center">
+              <span class="text-xs text-stone-600 self-center">
                 +{length(get_selected_hand(@game_state, @position)) - 12} more
               </span>
             <% end %>
@@ -2301,7 +2304,7 @@ defmodule PidroServerWeb.Dev.GameDetailLive do
   defp render_bot_position_config(assigns) do
     ~H"""
     <div class="bg-zinc-50 rounded p-2 text-xs">
-      <div class="font-semibold text-zinc-900 mb-1">{format_position(@position)}</div>
+      <div class="font-semibold text-stone-950 mb-1">{format_position(@position)}</div>
       <div class="flex gap-1 mb-1">
         <button
           type="button"
@@ -2310,7 +2313,7 @@ defmodule PidroServerWeb.Dev.GameDetailLive do
           phx-value-type="human"
           class={[
             "flex-1 px-2 py-1 rounded",
-            if(@config.type == :human, do: "bg-indigo-600 text-white", else: "bg-white text-zinc-700")
+            if(@config.type == :human, do: "bg-stone-950 text-white", else: "bg-white text-stone-700")
           ]}
         >
           Human
@@ -2322,7 +2325,7 @@ defmodule PidroServerWeb.Dev.GameDetailLive do
           phx-value-type="bot"
           class={[
             "flex-1 px-2 py-1 rounded",
-            if(@config.type == :bot, do: "bg-indigo-600 text-white", else: "bg-white text-zinc-700")
+            if(@config.type == :bot, do: "bg-stone-950 text-white", else: "bg-white text-stone-700")
           ]}
         >
           Bot
@@ -2353,14 +2356,14 @@ defmodule PidroServerWeb.Dev.GameDetailLive do
     <div class="space-y-6">
       <%= for {group_name, group_actions} <- @grouped_actions do %>
         <div>
-          <h4 class="text-sm font-medium text-zinc-700 mb-2">{group_name}</h4>
+          <h4 class="text-sm font-medium text-stone-700 mb-2">{group_name}</h4>
           <div class="flex flex-wrap gap-2">
             <%= for action <- group_actions do %>
               <button
                 type="button"
                 phx-click="execute_action"
                 phx-value-action={encode_action(action)}
-                class="px-3 py-2 text-sm font-medium rounded-md bg-indigo-600 text-white hover:bg-indigo-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                class="px-3 py-2 text-sm font-medium rounded-md bg-stone-950 text-white hover:bg-stone-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {format_action_text(action)}
               </button>
@@ -2673,7 +2676,7 @@ defmodule PidroServerWeb.Dev.GameDetailLive do
   defp event_type_color(type) do
     case type do
       :bid_made -> "text-blue-600"
-      :bid_passed -> "text-gray-500"
+      :bid_passed -> "text-stone-600"
       :trump_declared -> "text-purple-600"
       :card_played -> "text-green-600"
       :trick_won -> "text-yellow-600"

@@ -218,7 +218,6 @@ defmodule PidroServerWeb.Dev.EmailMigrationLive do
     <.admin_shell
       active="emails"
       title="Email Studio"
-      subtitle="Draft transactional emails and campaigns. Transactional templates expose stable keys for server-side sends."
       flash={@flash}
     >
       <:actions>
@@ -261,7 +260,7 @@ defmodule PidroServerWeb.Dev.EmailMigrationLive do
               campaigns
             </span>
           </div>
-          <p class="text-sm text-stone-500">
+          <p class="text-sm text-stone-600">
             {format_number(@subscriber_summary.contacts_with_email)} exportable contacts · {format_number(
               @subscriber_summary.missing_email
             )} players missing email
@@ -308,7 +307,6 @@ defmodule PidroServerWeb.Dev.EmailMigrationLive do
               <.empty_state
                 icon="hero-envelope"
                 title={"No #{kind_label(@kind_filter)} emails yet"}
-                body="Create a draft to start writing."
               />
             </div>
           <% else %>
@@ -324,10 +322,10 @@ defmodule PidroServerWeb.Dev.EmailMigrationLive do
                   <span class={kind_dot_class(template.kind)}></span>
                   <span class="truncate">{template.name}</span>
                 </span>
-                <span class="mt-1 block truncate pl-4 text-xs font-normal text-stone-500">
+                <span class="mt-1 block truncate pl-4 text-xs font-normal text-stone-600">
                   {template.subject}
                 </span>
-                <span class="mt-1 block truncate pl-4 font-mono text-[11px] font-normal text-stone-400">
+                <span class="mt-1 block truncate pl-4 font-mono text-[11px] font-normal text-stone-600">
                   :{template.key}
                 </span>
               </button>
@@ -347,7 +345,7 @@ defmodule PidroServerWeb.Dev.EmailMigrationLive do
           >
             <input type="hidden" name="template_id" value={@selected_template.id} />
             <div class={panel_class(["min-w-0"])}>
-              <div class="flex flex-col gap-3 border-b border-stone-200 px-4 py-3 lg:flex-row lg:items-start lg:justify-between">
+              <div class="flex flex-col gap-3 border-b border-stone-200 px-4 py-3 2xl:flex-row 2xl:items-start 2xl:justify-between">
                 <div>
                   <div class="flex flex-wrap items-center gap-2">
                     <span class={kind_badge_class(@selected_template.kind)}>
@@ -426,7 +424,7 @@ defmodule PidroServerWeb.Dev.EmailMigrationLive do
                     value={field_value(@form, :key)}
                     class={text_input_class(["font-mono"])}
                   />
-                  <p class="mt-1 truncate text-xs text-stone-500">
+                  <p class="mt-1 truncate text-xs text-stone-600">
                     Use
                     <code class="font-mono">
                       Emails.deliver_transactional(:{field_value(
@@ -561,7 +559,7 @@ defmodule PidroServerWeb.Dev.EmailMigrationLive do
                     <.icon name="hero-eraser" class="size-4" />
                   </button>
                   <div class="mx-2 hidden h-6 w-px bg-stone-300 sm:block"></div>
-                  <span class="px-2 text-xs font-medium text-stone-500">
+                  <span class="px-2 text-xs font-medium text-stone-600">
                     Variables
                   </span>
                   <button
@@ -593,7 +591,7 @@ defmodule PidroServerWeb.Dev.EmailMigrationLive do
                     <h2 class={section_heading_class()}>
                       Preview
                     </h2>
-                    <p class="mt-1 text-xs text-stone-500">
+                    <p class="mt-1 text-xs text-stone-600">
                       The same rendering used for delivery, with sample data.
                     </p>
                   </div>
@@ -654,7 +652,7 @@ defmodule PidroServerWeb.Dev.EmailMigrationLive do
                       class={text_input_class()}
                     />
                   </label>
-                  <p class="text-xs text-stone-500">
+                  <p class="text-xs text-stone-600">
                     Uses this preview, including unsaved edits. Five tests per ten-minute window.
                   </p>
                   <button
@@ -731,7 +729,7 @@ defmodule PidroServerWeb.Dev.EmailMigrationLive do
                 </div>
                 <div class="divide-y divide-stone-100">
                   <div :for={group <- @variable_groups} class="px-4 py-3">
-                    <p class="text-xs font-medium text-stone-500">
+                    <p class="text-xs font-medium text-stone-600">
                       {group.name}
                     </p>
                     <div class="mt-2 flex flex-wrap gap-2">
@@ -754,13 +752,7 @@ defmodule PidroServerWeb.Dev.EmailMigrationLive do
             <input type="hidden" name="template_id" value={@selected_template.id} />
           </form>
         <% else %>
-          <div class="rounded-lg border border-dashed border-stone-200 bg-white p-8">
-            <.empty_state
-              icon="hero-envelope"
-              title="No email selected"
-              body="Create a transactional email or campaign to open the editor."
-            />
-          </div>
+          <.empty_state icon="hero-envelope" title="No email selected" />
         <% end %>
       </section>
 
@@ -772,7 +764,7 @@ defmodule PidroServerWeb.Dev.EmailMigrationLive do
                 <.icon name="hero-exclamation-triangle" class="size-6" />
               </div>
               <div>
-                <h2 class="text-lg font-semibold text-stone-950">
+                <h2 class="text-base font-semibold text-stone-950">
                   Delete {@template_to_delete.name}?
                 </h2>
                 <p class="mt-2 text-sm leading-6 text-stone-600">
@@ -896,7 +888,7 @@ defmodule PidroServerWeb.Dev.EmailMigrationLive do
   end
 
   defp field_label_class do
-    "text-xs font-medium text-stone-500"
+    "text-xs font-medium text-stone-600"
   end
 
   defp subtle_badge_class do
@@ -930,7 +922,7 @@ defmodule PidroServerWeb.Dev.EmailMigrationLive do
   end
 
   defp kind_tab_class(false) do
-    "rounded-md px-2 py-2 text-xs font-medium text-stone-500 transition hover:text-stone-950"
+    "rounded-md px-2 py-2 text-xs font-medium text-stone-600 transition hover:text-stone-950"
   end
 
   defp kind_dot_class(:transactional), do: "size-2 rounded-full bg-amber-500"

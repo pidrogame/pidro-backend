@@ -131,19 +131,18 @@ defmodule PidroServerWeb.Dev.AdminSettingsLive do
     <.admin_shell
       active="admins"
       title="Admins"
-      subtitle="Manage individual access to the production operations panel."
       flash={@flash}
     >
       <div class="grid gap-4 lg:grid-cols-2">
         <section class="rounded-lg border border-stone-200 bg-white p-5">
-          <h2 class="text-lg font-semibold">Change your password</h2>
-          <p class="mt-1 text-sm text-stone-500">Changing it signs out all of your sessions.</p>
+          <h2 class="text-base font-semibold">Change your password</h2>
+          <p class="mt-1 text-sm text-stone-600">Changing it signs out all of your sessions.</p>
           <.password_form form={@password_form} />
         </section>
 
         <section class="rounded-lg border border-stone-200 bg-white p-5">
-          <h2 class="text-lg font-semibold">Add an admin</h2>
-          <p class="mt-1 text-sm text-stone-500">
+          <h2 class="text-base font-semibold">Add an admin</h2>
+          <p class="mt-1 text-sm text-stone-600">
             A one-time temporary password is generated and shown only here.
           </p>
           <.form
@@ -183,7 +182,7 @@ defmodule PidroServerWeb.Dev.AdminSettingsLive do
 
       <section class="overflow-hidden rounded-lg border border-stone-200 bg-white">
         <div class="border-b border-stone-200 px-5 py-4">
-          <h2 class="text-lg font-semibold">Current admins</h2>
+          <h2 class="text-base font-semibold">Current admins</h2>
         </div>
         <ul class="divide-y divide-stone-200">
           <li :for={admin <- @admins} class="flex items-center justify-between gap-4 px-5 py-4">

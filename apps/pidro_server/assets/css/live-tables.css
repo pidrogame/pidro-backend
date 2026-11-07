@@ -88,7 +88,7 @@
 }
 .lt-filter:has(input:checked) { background: var(--lt-ink); border-color: var(--lt-ink); color: white; }
 .lt-filter:has(input:checked) .lt-filter-count { background: rgba(255, 255, 255, 0.16); }
-.lt-filter:has(input:focus-visible) { outline: 2px solid var(--lt-ns-ink); outline-offset: 2px; }
+.lt-filter:has(input:focus-visible) { outline: 2px solid var(--color-stone-950); outline-offset: 2px; }
 .lt-filter-alert .lt-filter-count { background: oklch(93% 0.05 20); color: oklch(45% 0.17 22); }
 
 .lt-toolbar-end { display: flex; align-items: center; gap: 0.75rem; }
@@ -735,7 +735,6 @@ button.lt-seat-button:focus-visible { outline: 2px solid var(--lt-turn); outline
 .lt-button-dark:hover { background: oklch(32% 0.04 255); border-color: oklch(32% 0.04 255); }
 .lt-button-danger { background: oklch(52% 0.19 22); border-color: oklch(52% 0.19 22); color: white; }
 .lt-button-danger:hover { background: oklch(47% 0.18 22); border-color: oklch(47% 0.18 22); }
-.live-tables :is(button, a, summary):focus-visible { outline: 2px solid var(--lt-ns-ink); outline-offset: 2px; }
 
 .lt-confirm {
   width: min(100%, 380px);

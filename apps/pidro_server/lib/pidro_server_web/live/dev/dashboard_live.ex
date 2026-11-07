@@ -122,8 +122,7 @@ defmodule PidroServerWeb.Dev.DashboardLive do
     ~H"""
     <.admin_shell
       active="dashboard"
-      title="Live overview"
-      subtitle="The room is open. Follow the players, arrivals and tables as they happen."
+      title="Dashboard"
       flash={@flash}
       class="campaign-desk"
     >

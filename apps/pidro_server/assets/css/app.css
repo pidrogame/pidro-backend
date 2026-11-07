@@ -491,39 +491,32 @@
     animation: deal-in 260ms cubic-bezier(0.25, 1, 0.5, 1);
   }
 
-  .admin-card-lift {
-    transition:
-      border-color 180ms ease,
-      box-shadow 180ms ease;
-  }
-
-  .admin-card-lift:hover {
-    border-color: oklch(86.9% 0.005 56.366);
-    box-shadow: 0 1px 2px 0 oklch(20% 0.01 70 / 0.04);
-  }
-
   .dev-admin-shell .shadow-sm {
     box-shadow: none;
   }
 
-  .admin-game-inspection :is(button, select, input, summary) {
+  :where(.dev-admin-shell) :where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
+    outline: 2px solid var(--color-stone-950);
+    outline-offset: 2px;
+  }
+
+  .dev-admin-shell :is(td, th, dd) {
+    font-variant-numeric: tabular-nums;
+  }
+
+  .admin-game-inspection main :is(button, select, input, summary) {
     min-height: 44px;
     min-width: 44px;
   }
 
-  .admin-game-inspection a {
+  .admin-game-inspection main a {
     display: inline-flex;
     align-items: center;
     min-height: 44px;
     min-width: 44px;
   }
 
-  .admin-game-inspection :is(button, a, input, select, summary):focus-visible {
-    outline: 2px solid #6366f1;
-    outline-offset: 3px;
-  }
-
-  .admin-game-inspection button:enabled:hover {
+  .admin-game-inspection main button:enabled:hover {
     filter: brightness(0.92);
   }
 
@@ -752,12 +745,6 @@
 
     .animate-deal-in {
       animation: none;
-    }
-
-    .admin-card-lift,
-    .admin-card-lift:hover {
-      transform: none;
-      transition: none;
     }
   }
 }

@@ -114,7 +114,6 @@ defmodule PidroServerWeb.Dev.UserListLive do
     <.admin_shell
       active="players"
       title="Players"
-      subtitle="Search game accounts, inspect history, edit profile fields, and remove accounts while preserving completed match records."
       flash={@flash}
     >
       <:actions>
@@ -168,24 +167,24 @@ defmodule PidroServerWeb.Dev.UserListLive do
           class="grid gap-3 lg:grid-cols-[minmax(16rem,1fr)_12rem_12rem]"
         >
           <label class="block">
-            <span class="font-mono text-[0.68rem] font-bold uppercase tracking-[0.14em] text-stone-500">
+            <span class="text-xs font-medium text-stone-600">
               Search players
             </span>
             <div class="mt-1 flex items-center rounded-md border border-stone-300 bg-white px-3 shadow-sm transition focus-within:border-orange-500 focus-within:ring-2 focus-within:ring-orange-200">
-              <.icon name="hero-magnifying-glass" class="mr-2 size-4 text-stone-400" />
+              <.icon name="hero-magnifying-glass" class="mr-2 size-4 text-stone-600" />
               <input
                 type="search"
                 name="filters[search]"
                 value={@filters.search}
                 phx-debounce="250"
                 placeholder="Username, email, or player id"
-                class="w-full border-0 bg-transparent py-2 text-sm text-stone-950 placeholder:text-stone-400 focus:ring-0"
+                class="w-full border-0 bg-transparent py-2 text-sm text-stone-950 placeholder:text-stone-600 focus:ring-0"
               />
             </div>
           </label>
 
           <label class="block">
-            <span class="font-mono text-[0.68rem] font-bold uppercase tracking-[0.14em] text-stone-500">
+            <span class="text-xs font-medium text-stone-600">
               Account type
             </span>
             <select
@@ -201,7 +200,7 @@ defmodule PidroServerWeb.Dev.UserListLive do
           </label>
 
           <label class="block">
-            <span class="font-mono text-[0.68rem] font-bold uppercase tracking-[0.14em] text-stone-500">
+            <span class="text-xs font-medium text-stone-600">
               Sort
             </span>
             <select
@@ -217,13 +216,13 @@ defmodule PidroServerWeb.Dev.UserListLive do
         </form>
       </section>
 
-      <section class="overflow-hidden rounded-md border border-stone-300 bg-white shadow-sm">
+      <section class="overflow-hidden rounded-lg border border-stone-200 bg-white">
         <div class="flex flex-col gap-3 border-b border-stone-200 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h2 class="font-mono text-xs font-black uppercase tracking-[0.16em] text-stone-700">
+            <h2 class="text-base font-semibold text-stone-950">
               Player index
             </h2>
-            <p class="mt-1 text-xs text-stone-500">
+            <p class="mt-1 text-xs text-stone-600">
               Showing {first_result(@page)}-{last_result(@page)} of {@page.total} players
             </p>
           </div>
@@ -235,38 +234,35 @@ defmodule PidroServerWeb.Dev.UserListLive do
 
         <%= if Enum.empty?(@users) do %>
           <div class="p-5">
-            <.empty_state
-              title="No players match this view"
-              body="Try a different search or switch the account type filter back to all players."
-            />
+            <.empty_state title="No players match this search or account type" />
           </div>
         <% else %>
           <div class="overflow-x-auto">
             <table class="min-w-full divide-y divide-stone-200">
               <thead class="bg-stone-50">
                 <tr>
-                  <th class="px-4 py-2.5 text-left text-xs font-bold uppercase tracking-[0.16em] text-stone-500">
+                  <th class="px-4 py-2.5 text-left text-xs font-medium text-stone-600">
                     Player
                   </th>
-                  <th class="px-4 py-2.5 text-left text-xs font-bold uppercase tracking-[0.16em] text-stone-500">
+                  <th class="px-4 py-2.5 text-left text-xs font-medium text-stone-600">
                     Email
                   </th>
-                  <th class="px-4 py-2.5 text-left text-xs font-bold uppercase tracking-[0.16em] text-stone-500">
+                  <th class="px-4 py-2.5 text-right text-xs font-medium text-stone-600">
                     Games
                   </th>
-                  <th class="px-4 py-2.5 text-left text-xs font-bold uppercase tracking-[0.16em] text-stone-500">
+                  <th class="px-4 py-2.5 text-right text-xs font-medium text-stone-600">
                     Win rate
                   </th>
-                  <th class="px-4 py-2.5 text-left text-xs font-bold uppercase tracking-[0.16em] text-stone-500">
+                  <th class="px-4 py-2.5 text-left text-xs font-medium text-stone-600">
                     Level
                   </th>
-                  <th class="px-4 py-2.5 text-left text-xs font-bold uppercase tracking-[0.16em] text-stone-500">
+                  <th class="px-4 py-2.5 text-left text-xs font-medium text-stone-600">
                     Skill tier
                   </th>
-                  <th class="px-4 py-2.5 text-left text-xs font-bold uppercase tracking-[0.16em] text-stone-500">
+                  <th class="px-4 py-2.5 text-left text-xs font-medium text-stone-600">
                     Joined
                   </th>
-                  <th class="px-4 py-2.5 text-right text-xs font-bold uppercase tracking-[0.16em] text-stone-500">
+                  <th class="px-4 py-2.5 text-right text-xs font-medium text-stone-600">
                     Actions
                   </th>
                 </tr>
@@ -285,12 +281,12 @@ defmodule PidroServerWeb.Dev.UserListLive do
                         >
                           {User.public_name(user)}
                         </.link>
-                        <div class="text-xs text-stone-500">@{user.username}</div>
+                        <div class="text-xs text-stone-600">@{user.username}</div>
                         <div class="mt-1 flex flex-wrap items-center gap-2">
                           <span class={account_badge_class(user)}>
                             {account_label(user)}
                           </span>
-                          <span class="font-mono text-xs text-stone-400">
+                          <span class="font-mono text-xs text-stone-600">
                             {short_id(user.id)}
                           </span>
                         </div>
@@ -301,21 +297,21 @@ defmodule PidroServerWeb.Dev.UserListLive do
                     <%= if present?(user.email) do %>
                       {user.email}
                     <% else %>
-                      <span class="text-stone-400">No email</span>
+                      <span class="text-stone-600">No email</span>
                     <% end %>
                   </td>
-                  <td class="px-4 py-3 text-sm">
+                  <td class="px-4 py-3 text-right text-sm">
                     <div class="font-bold text-stone-950">
                       {row_stats(@stats_by_user, user.id).games_played}
                     </div>
-                    <div class="text-xs text-stone-500">
+                    <div class="text-xs text-stone-600">
                       {row_stats(@stats_by_user, user.id).wins} wins · {row_stats(
                         @stats_by_user,
                         user.id
                       ).games_abandoned} abandons
                     </div>
                   </td>
-                  <td class="px-4 py-3 text-sm font-semibold text-stone-700">
+                  <td class="px-4 py-3 text-right text-sm font-semibold text-stone-700">
                     {format_percent(row_stats(@stats_by_user, user.id).win_rate)}
                   </td>
                   <td class="px-4 py-3 text-sm font-semibold text-stone-700">
@@ -360,7 +356,7 @@ defmodule PidroServerWeb.Dev.UserListLive do
         <% end %>
 
         <div class="flex flex-col gap-3 border-t border-stone-200 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-          <p class="text-sm text-stone-500">
+          <p class="text-sm text-stone-600">
             Completed game stats are preserved even when an account is deleted.
           </p>
           <div class="flex gap-2">

@@ -50,40 +50,32 @@ defmodule PidroServerWeb.Dev.GameSettingsLive do
     ~H"""
     <.admin_shell
       active="game-settings"
-      title="Game Settings"
-      subtitle="Tune runtime game pacing."
+      title="Game settings"
       flash={@flash}
     >
-      <section class="rounded-md border border-stone-300 bg-white p-4 shadow-sm">
-        <h2 class="font-mono text-xs font-black uppercase tracking-[0.16em] text-stone-700">
-          Game Pacing
-        </h2>
-        <p class="mt-2 text-sm text-stone-500">
+      <section class="rounded-lg border border-stone-200 bg-white p-4 sm:p-6">
+        <h2 class="text-base font-semibold text-stone-950">Game Pacing</h2>
+        <p class="mt-1 text-sm text-stone-600">
           Bot delays and trick/hand pauses apply immediately. A server restart restores the configured defaults.
         </p>
-        <div class="mt-4 rounded-sm border border-stone-200 bg-stone-50 p-4 text-sm">
-          <p class="font-bold">
+        <p class="mt-4 text-sm text-stone-600">
+          <span class="font-semibold text-stone-950">
             Bots will act between {@pacing_preview.bot_delay_min_ms}ms and {@pacing_preview.bot_delay_max_ms}ms
-          </p>
-          <p class="mt-1 text-stone-500">
-            Trick pause: {@pacing_form["trick_transition_delay_ms"]}ms
-            · Hand pause: {@pacing_form["hand_transition_delay_ms"]}ms
-            · Deal pause: {@pacing_form["deal_transition_delay_ms"]}ms
-          </p>
-        </div>
+          </span>
+          · Trick pause: {@pacing_form["trick_transition_delay_ms"]}ms
+          · Hand pause: {@pacing_form["hand_transition_delay_ms"]}ms
+          · Deal pause: {@pacing_form["deal_transition_delay_ms"]}ms
+        </p>
         <form
           id="pacing-form"
           phx-submit="save_pacing"
           phx-change="update_pacing_form"
           class="mt-6 space-y-6"
         >
-          <div class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-            <div
-              :for={field <- @pacing_fields}
-              class="rounded-md border border-stone-200 bg-stone-50/60 p-4"
-            >
+          <div class="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3">
+            <div :for={field <- @pacing_fields}>
               <label for={pacing_input_id(field)} class="block text-sm font-medium">{field.label}</label>
-              <p class="mt-1 text-xs leading-5 text-stone-500">{field.description}</p>
+              <p class="mt-1 text-xs text-stone-600">{field.description}</p>
               <input
                 type="number"
                 min={field.min}
@@ -92,26 +84,26 @@ defmodule PidroServerWeb.Dev.GameSettingsLive do
                 id={pacing_input_id(field)}
                 name={"pacing[#{field_key(field)}]"}
                 value={@pacing_form[field_key(field)]}
-                class="mt-3 block w-full rounded-md border-stone-300 bg-white shadow-sm"
+                class="mt-2 block w-full rounded-md border border-stone-300 bg-white px-3 py-2 text-sm tabular-nums"
               />
-              <div class="mt-2 flex justify-between text-xs text-stone-500">
+              <p class="mt-1 flex justify-between text-xs text-stone-600">
                 <span>Range: {field.min}ms to {field.max}ms</span>
                 <span>Step: {field.step}ms</span>
-              </div>
-              <p :if={@pacing_errors[field_key(field)]} class="mt-2 text-xs font-medium text-red-600">
+              </p>
+              <p :if={@pacing_errors[field_key(field)]} class="mt-1 text-xs font-medium text-red-700">
                 {@pacing_errors[field_key(field)]}
               </p>
             </div>
           </div>
-          <div class="flex flex-wrap gap-3">
+          <div class="flex flex-wrap gap-2">
             <button
               type="submit"
-              class="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700"
+              class="rounded-md bg-stone-950 px-3 py-2 text-sm font-medium text-white hover:bg-stone-800"
             >Save Pacing</button>
             <button
               type="button"
               phx-click="reset_pacing"
-              class="rounded-md border border-stone-300 bg-white px-4 py-2 text-sm font-medium hover:bg-stone-50"
+              class="rounded-md border border-stone-300 bg-white px-3 py-2 text-sm font-medium text-stone-800 hover:bg-stone-100"
             >Reset to Defaults</button>
           </div>
         </form>

@@ -39,12 +39,12 @@ defmodule PidroServerWeb.Dev.BetaLive do
     <.admin_shell
       active="beta"
       title="Beta players"
-      subtitle="How the beta plays, from the server's own records: which rules, whether the two-minute promise holds, the pace, and who comes back. Beta players are everyone who has played a game here."
+      subtitle="Everyone who has played a game here, from the server's own records."
       flash={@flash}
     >
       <:actions>
         <form id="beta-range" phx-submit="range" class="flex flex-wrap items-end gap-2">
-          <label class="text-xs font-medium text-stone-500">
+          <label class="text-xs font-medium text-stone-600">
             From
             <input
               type="date"
@@ -53,7 +53,7 @@ defmodule PidroServerWeb.Dev.BetaLive do
               class="mt-1 block rounded-md border border-stone-300 px-2 py-1.5 text-sm text-stone-900"
             />
           </label>
-          <label class="text-xs font-medium text-stone-500">
+          <label class="text-xs font-medium text-stone-600">
             To
             <input
               type="date"
@@ -77,7 +77,7 @@ defmodule PidroServerWeb.Dev.BetaLive do
         </form>
       </:actions>
 
-      <p class="text-sm text-stone-500">
+      <p class="text-sm text-stone-600">
         {@report.from} to {@report.to} (UTC). A game counts once in each column it belongs to, so a table with a guest and an account counts under both; All also counts deleted accounts.
       </p>
 
@@ -146,7 +146,7 @@ defmodule PidroServerWeb.Dev.BetaLive do
         ]}
       />
 
-      <p class="text-xs leading-5 text-stone-500">
+      <p class="text-xs leading-5 text-stone-600">
         Started games, early endings and computer seats come from the game archive, which keeps 30 days; after that, a day on which a player only started games no longer counts as a day played. Guest or account is as the player is today. A player counts as due for day 2 or day 7 once that day is over, or as soon as they are back on it. Whether they still play the old app: compare the Classic ids CSV with Classic's records.
       </p>
     </.admin_shell>
@@ -167,10 +167,10 @@ defmodule PidroServerWeb.Dev.BetaLive do
       <table class="min-w-full divide-y divide-stone-200 text-sm">
         <thead class="bg-stone-50">
           <tr>
-            <th class="px-4 py-2 text-left text-xs font-medium text-stone-500"></th>
+            <th class="px-4 py-2 text-left text-xs font-medium text-stone-600"></th>
             <th
               :for={{_key, label} <- @columns}
-              class="w-40 px-4 py-2 text-right text-xs font-medium text-stone-500"
+              class="w-40 px-4 py-2 text-right text-xs font-medium text-stone-600"
             >
               {label}
             </th>
@@ -180,7 +180,7 @@ defmodule PidroServerWeb.Dev.BetaLive do
           <tr :for={{label, values, hint} <- @rows}>
             <td class="px-4 py-2.5">
               <span class="font-medium text-stone-900">{label}</span>
-              <span class="ml-2 text-xs text-stone-500">{hint}</span>
+              <span class="ml-2 text-xs text-stone-600">{hint}</span>
             </td>
             <td
               :for={{key, _label} <- @columns}

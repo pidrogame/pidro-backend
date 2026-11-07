@@ -140,7 +140,7 @@ defmodule PidroServerWeb.Dev.UserDetailLive do
         </.link>
       </:actions>
 
-      <section class="overflow-hidden rounded-md border border-stone-300 bg-white shadow-sm">
+      <section class="overflow-hidden rounded-lg border border-stone-200 bg-white">
         <div class="grid gap-4 p-4 lg:grid-cols-[minmax(0,1fr)_24rem] lg:items-center">
           <div class="flex flex-col gap-5 sm:flex-row sm:items-center">
             <div class="flex size-14 shrink-0 items-center justify-center rounded-sm bg-stone-950 text-xl font-black text-white shadow-sm">
@@ -149,7 +149,7 @@ defmodule PidroServerWeb.Dev.UserDetailLive do
             <div>
               <div class="flex flex-wrap items-center gap-2">
                 <span class={account_badge_class(@user)}>{account_label(@user)}</span>
-                <span class="rounded-md bg-stone-100 px-2 py-1 font-mono text-xs text-stone-500">
+                <span class="rounded-md bg-stone-100 px-2 py-1 font-mono text-xs text-stone-600">
                   {short_id(@user.id)}
                 </span>
               </div>
@@ -178,7 +178,7 @@ defmodule PidroServerWeb.Dev.UserDetailLive do
         <span :if={@connection.platform}>({@connection.platform})</span>
       </p>
 
-      <section id="connection-strength" class="rounded-md border border-stone-300 bg-white p-4">
+      <section id="connection-strength" class="rounded-lg border border-stone-200 bg-white p-4">
         <p class="text-sm">
           <span class={[
             "inline-block size-2 rounded-full mr-1",
@@ -187,7 +187,7 @@ defmodule PidroServerWeb.Dev.UserDetailLive do
           Connection: {connection_label(@connection_strength)} · mostly {@connection_strength.network} · {@connection_strength.platform ||
             "unknown platform"} {@connection_strength.app_version || "unknown version"} · last 7 days
         </p>
-        <p class="mt-2 text-xs text-stone-500">
+        <p class="mt-2 text-xs text-stone-600">
           {@connection_strength.checks_sent} checks · {@connection_strength.unanswered_checks} unanswered · {round(
             @connection_strength.disconnected_seconds
           )} s disconnected.
@@ -196,7 +196,7 @@ defmodule PidroServerWeb.Dev.UserDetailLive do
         <p class="mt-3 text-xs font-semibold text-stone-600">
           Typical round trip / drops per game · last 7 days
         </p>
-        <p :if={@connection_games == []} class="mt-2 text-sm text-stone-500">
+        <p :if={@connection_games == []} class="mt-2 text-sm text-stone-600">
           No measured games yet.
         </p>
         <ol id="connection-strip" class="mt-2 flex gap-2 overflow-x-auto pb-2">
@@ -216,23 +216,23 @@ defmodule PidroServerWeb.Dev.UserDetailLive do
               {if game.median_ms, do: "#{round(game.median_ms)} ms", else: "RTT unknown"}
             </p>
             <p>{game.drops} drops</p>
-            <p class="mt-1 font-mono text-stone-500">{game.room_code}</p>
+            <p class="mt-1 font-mono text-stone-600">{game.room_code}</p>
           </li>
         </ol>
       </section>
 
-      <section id="connection-timeline" class="rounded-md border border-stone-300 bg-white p-4">
+      <section id="connection-timeline" class="rounded-lg border border-stone-200 bg-white p-4">
         <h2 class="font-semibold">Connection timeline</h2>
-        <p :if={@connection_events == []} class="mt-2 text-sm text-stone-500">
+        <p :if={@connection_events == []} class="mt-2 text-sm text-stone-600">
           No connection events yet.
         </p>
         <ol class="mt-3 divide-y divide-stone-200 text-sm">
           <li :for={event <- @connection_events} class="flex flex-wrap gap-x-4 gap-y-1 py-2">
-            <time class="font-mono text-xs text-stone-500">{event.inserted_at} UTC</time>
+            <time class="font-mono text-xs text-stone-600">{event.inserted_at} UTC</time>
             <span class="font-mono">{event.room_code}</span>
             <span>{connection_event(event)}</span>
-            <span class="text-stone-500">{event.reason || "unknown"} · {event.network || "unknown"}</span>
-            <span class="text-stone-500">{event.platform} {event.app_version || "unknown version"}</span>
+            <span class="text-stone-600">{event.reason || "unknown"} · {event.network || "unknown"}</span>
+            <span class="text-stone-600">{event.platform} {event.app_version || "unknown version"}</span>
           </li>
         </ol>
       </section>
@@ -268,12 +268,12 @@ defmodule PidroServerWeb.Dev.UserDetailLive do
         />
       </dl>
 
-      <section class="rounded-md border border-stone-300 bg-white shadow-sm">
+      <section class="rounded-lg border border-stone-200 bg-white">
         <div class="border-b border-stone-200 px-4 py-3">
-          <h2 class="font-mono text-xs font-black uppercase tracking-[0.16em] text-stone-700">
+          <h2 class="text-base font-semibold text-stone-950">
             Progression
           </h2>
-          <p class="mt-1 text-xs text-stone-500">
+          <p class="mt-1 text-xs text-stone-600">
             Veteran level, skill tier, playstyle, mastery, and heritage for this player.
           </p>
         </div>
@@ -281,7 +281,7 @@ defmodule PidroServerWeb.Dev.UserDetailLive do
         <div class="grid gap-4 p-4 lg:grid-cols-2">
           <div class="rounded-lg border border-stone-200 bg-stone-50/70 p-4">
             <div class="flex items-center justify-between gap-2">
-              <p class="font-mono text-[0.68rem] font-bold uppercase tracking-[0.14em] text-stone-500">
+              <p class="text-xs font-medium text-stone-600">
                 Veteran
               </p>
               <span class="rounded-md bg-stone-950 px-2 py-1 text-xs font-black text-white">
@@ -289,7 +289,7 @@ defmodule PidroServerWeb.Dev.UserDetailLive do
               </span>
             </div>
             <p class="mt-2 text-lg font-black text-stone-950">{@profile.veteran_title}</p>
-            <p class="mt-1 text-xs text-stone-500">{@profile.veteran_xp} XP total</p>
+            <p class="mt-1 text-xs text-stone-600">{@profile.veteran_xp} XP total</p>
             <%= case @profile.veteran_progress do %>
               <% {into, span} -> %>
                 <div class="mt-3">
@@ -300,7 +300,7 @@ defmodule PidroServerWeb.Dev.UserDetailLive do
                     >
                     </div>
                   </div>
-                  <p class="mt-1 text-xs text-stone-500">
+                  <p class="mt-1 text-xs text-stone-600">
                     {into}/{span} XP to next level
                   </p>
                 </div>
@@ -310,7 +310,7 @@ defmodule PidroServerWeb.Dev.UserDetailLive do
           </div>
 
           <div class="rounded-lg border border-stone-200 bg-stone-50/70 p-4">
-            <p class="font-mono text-[0.68rem] font-bold uppercase tracking-[0.14em] text-stone-500">
+            <p class="text-xs font-medium text-stone-600">
               Skill
             </p>
             <div class="mt-2 flex flex-wrap items-center gap-2">
@@ -322,27 +322,27 @@ defmodule PidroServerWeb.Dev.UserDetailLive do
                 Provisional
               </span>
             </div>
-            <p class="mt-3 font-mono text-[0.7rem] leading-5 text-stone-400">
+            <p class="mt-3 font-mono text-[0.7rem] leading-5 text-stone-600">
               Internal · μ {format_float(@profile.rating_mu)} · σ {format_float(@profile.rating_sigma)} · {@profile.rating_games_count} rated games
             </p>
           </div>
 
           <div class="rounded-lg border border-stone-200 bg-stone-50/70 p-4">
-            <p class="font-mono text-[0.68rem] font-bold uppercase tracking-[0.14em] text-stone-500">
+            <p class="text-xs font-medium text-stone-600">
               Playstyle
             </p>
             <%= if @profile.aggression_insufficient do %>
-              <p class="mt-2 text-sm font-semibold text-stone-500">
+              <p class="mt-2 text-sm font-semibold text-stone-600">
                 Not enough data yet
               </p>
-              <p class="mt-1 text-xs text-stone-400">
+              <p class="mt-1 text-xs text-stone-600">
                 Bidding tendencies appear once this player has bid in more games.
               </p>
             <% else %>
               <p class="mt-2 text-lg font-black text-stone-950">
                 {aggression_label(@profile.aggression_label)}
               </p>
-              <p class="mt-1 text-xs text-stone-500">
+              <p class="mt-1 text-xs text-stone-600">
                 Aggression {format_percent(@profile.aggression_needle)} · Avg winning bid {avg_bid_label(
                   @profile.avg_winning_bid
                 )}
@@ -351,11 +351,11 @@ defmodule PidroServerWeb.Dev.UserDetailLive do
           </div>
 
           <div class="rounded-lg border border-stone-200 bg-stone-50/70 p-4">
-            <p class="font-mono text-[0.68rem] font-bold uppercase tracking-[0.14em] text-stone-500">
+            <p class="text-xs font-medium text-stone-600">
               Mastery
             </p>
             <%= if Enum.empty?(@profile.achievements) do %>
-              <p class="mt-2 text-sm font-semibold text-stone-500">No achievements earned yet</p>
+              <p class="mt-2 text-sm font-semibold text-stone-600">No achievements earned yet</p>
             <% else %>
               <div class="mt-2 flex flex-wrap gap-2">
                 <span
@@ -370,11 +370,11 @@ defmodule PidroServerWeb.Dev.UserDetailLive do
           </div>
 
           <div class="rounded-lg border border-stone-200 bg-stone-50/70 p-4 lg:col-span-2">
-            <p class="font-mono text-[0.68rem] font-bold uppercase tracking-[0.14em] text-stone-500">
+            <p class="text-xs font-medium text-stone-600">
               Heritage
             </p>
             <%= if Enum.empty?(@profile.heritage) do %>
-              <p class="mt-2 text-sm font-semibold text-stone-500">
+              <p class="mt-2 text-sm font-semibold text-stone-600">
                 No heritage recognition (not a migrated Pidro 1 player)
               </p>
             <% else %>
@@ -391,15 +391,15 @@ defmodule PidroServerWeb.Dev.UserDetailLive do
         </div>
       </section>
 
-      <div class="grid gap-6 xl:grid-cols-[minmax(0,1fr)_24rem]">
-        <main class="space-y-6">
-          <section class="rounded-md border border-stone-300 bg-white shadow-sm">
+      <div class="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_24rem]">
+        <div class="space-y-6">
+          <section class="rounded-lg border border-stone-200 bg-white">
             <div class="flex flex-col gap-3 border-b border-stone-200 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
-                <h2 class="font-mono text-xs font-black uppercase tracking-[0.16em] text-stone-700">
+                <h2 class="text-base font-semibold text-stone-950">
                   Live table presence
                 </h2>
-                <p class="mt-1 text-xs text-stone-500">
+                <p class="mt-1 text-xs text-stone-600">
                   Current rooms where this player is seated, reserved, or spectating.
                 </p>
               </div>
@@ -413,26 +413,25 @@ defmodule PidroServerWeb.Dev.UserDetailLive do
                 <.empty_state
                   icon="hero-signal-slash"
                   title="Not at a live table"
-                  body="When this player joins, reconnects, or watches a room, it will appear here."
                 />
               <% else %>
                 <div class="overflow-x-auto">
                   <table class="min-w-full divide-y divide-stone-200">
                     <thead class="bg-stone-50">
                       <tr>
-                        <th class="px-4 py-3 text-left text-xs font-bold uppercase tracking-[0.16em] text-stone-500">
+                        <th class="px-4 py-3 text-left text-xs font-medium text-stone-600">
                           Room
                         </th>
-                        <th class="px-4 py-3 text-left text-xs font-bold uppercase tracking-[0.16em] text-stone-500">
+                        <th class="px-4 py-3 text-left text-xs font-medium text-stone-600">
                           Role
                         </th>
-                        <th class="px-4 py-3 text-left text-xs font-bold uppercase tracking-[0.16em] text-stone-500">
+                        <th class="px-4 py-3 text-left text-xs font-medium text-stone-600">
                           Status
                         </th>
-                        <th class="px-4 py-3 text-left text-xs font-bold uppercase tracking-[0.16em] text-stone-500">
+                        <th class="px-4 py-3 text-right text-xs font-medium text-stone-600">
                           Players
                         </th>
-                        <th class="px-4 py-3 text-right text-xs font-bold uppercase tracking-[0.16em] text-stone-500">
+                        <th class="px-4 py-3 text-right text-xs font-medium text-stone-600">
                           Open
                         </th>
                       </tr>
@@ -441,7 +440,7 @@ defmodule PidroServerWeb.Dev.UserDetailLive do
                       <tr :for={room <- @active_rooms} class="hover:bg-orange-50/50">
                         <td class="px-4 py-3">
                           <div class="font-bold text-stone-950">{room_name(room)}</div>
-                          <div class="font-mono text-xs text-stone-400">{room.code}</div>
+                          <div class="font-mono text-xs text-stone-600">{room.code}</div>
                         </td>
                         <td class="px-4 py-3 text-sm text-stone-700">
                           {room_role(room, @user.id)}
@@ -449,7 +448,7 @@ defmodule PidroServerWeb.Dev.UserDetailLive do
                         <td class="px-4 py-3">
                           <span class={room_status_class(room.status)}>{room.status}</span>
                         </td>
-                        <td class="px-4 py-3 text-sm text-stone-600">
+                        <td class="px-4 py-3 text-right text-sm text-stone-600">
                           {Positions.count(room)} / {room.max_players}
                         </td>
                         <td class="px-4 py-3 text-right text-sm font-semibold">
@@ -468,12 +467,12 @@ defmodule PidroServerWeb.Dev.UserDetailLive do
             </div>
           </section>
 
-          <section class="rounded-md border border-stone-300 bg-white shadow-sm">
+          <section class="rounded-lg border border-stone-200 bg-white">
             <div class="border-b border-stone-200 px-4 py-3">
-              <h2 class="font-mono text-xs font-black uppercase tracking-[0.16em] text-stone-700">
+              <h2 class="text-base font-semibold text-stone-950">
                 Completed games
               </h2>
-              <p class="mt-1 text-xs text-stone-500">
+              <p class="mt-1 text-xs text-stone-600">
                 Recent stored game results that include this player.
               </p>
             </div>
@@ -483,29 +482,28 @@ defmodule PidroServerWeb.Dev.UserDetailLive do
                 <.empty_state
                   icon="hero-queue-list"
                   title="No completed games recorded"
-                  body="Finished games will appear here once the stats table has results for this player."
                 />
               <% else %>
                 <div class="overflow-x-auto">
                   <table class="min-w-full divide-y divide-stone-200">
                     <thead class="bg-stone-50">
                       <tr>
-                        <th class="px-4 py-3 text-left text-xs font-bold uppercase tracking-[0.16em] text-stone-500">
+                        <th class="px-4 py-3 text-left text-xs font-medium text-stone-600">
                           Game
                         </th>
-                        <th class="px-4 py-3 text-left text-xs font-bold uppercase tracking-[0.16em] text-stone-500">
+                        <th class="px-4 py-3 text-left text-xs font-medium text-stone-600">
                           Result
                         </th>
-                        <th class="px-4 py-3 text-left text-xs font-bold uppercase tracking-[0.16em] text-stone-500">
+                        <th class="px-4 py-3 text-left text-xs font-medium text-stone-600">
                           Seat
                         </th>
-                        <th class="px-4 py-3 text-left text-xs font-bold uppercase tracking-[0.16em] text-stone-500">
+                        <th class="px-4 py-3 text-right text-xs font-medium text-stone-600">
                           Score
                         </th>
-                        <th class="px-4 py-3 text-left text-xs font-bold uppercase tracking-[0.16em] text-stone-500">
+                        <th class="px-4 py-3 text-left text-xs font-medium text-stone-600">
                           Bid
                         </th>
-                        <th class="px-4 py-3 text-left text-xs font-bold uppercase tracking-[0.16em] text-stone-500">
+                        <th class="px-4 py-3 text-right text-xs font-medium text-stone-600">
                           Duration
                         </th>
                       </tr>
@@ -517,7 +515,7 @@ defmodule PidroServerWeb.Dev.UserDetailLive do
                           <div class="font-mono text-sm font-bold text-stone-950">
                             {game.room_code}
                           </div>
-                          <div class="text-xs text-stone-500">
+                          <div class="text-xs text-stone-600">
                             {format_datetime_full(game.completed_at)}
                           </div>
                         </td>
@@ -525,20 +523,20 @@ defmodule PidroServerWeb.Dev.UserDetailLive do
                           <span class={result_badge_class(result)}>
                             {result_label(result)}
                           </span>
-                          <div class="mt-1 text-xs text-stone-500">
+                          <div class="mt-1 text-xs text-stone-600">
                             {participation_label(result)}
                           </div>
                         </td>
                         <td class="px-4 py-3 text-sm text-stone-600">
                           {position_label(result)}
                         </td>
-                        <td class="px-4 py-3 font-mono text-sm text-stone-700">
+                        <td class="px-4 py-3 text-right text-sm text-stone-700">
                           {game_score(game)}
                         </td>
                         <td class="px-4 py-3 text-sm text-stone-600">
                           {bid_label(game)}
                         </td>
-                        <td class="px-4 py-3 text-sm text-stone-600">
+                        <td class="px-4 py-3 text-right text-sm text-stone-600">
                           {format_duration(game.duration_seconds)}
                         </td>
                       </tr>
@@ -548,14 +546,14 @@ defmodule PidroServerWeb.Dev.UserDetailLive do
               <% end %>
             </div>
           </section>
-        </main>
+        </div>
 
         <aside class="space-y-4">
-          <section class="rounded-md border border-stone-300 bg-white p-4 shadow-sm">
-            <h2 class="font-mono text-xs font-black uppercase tracking-[0.16em] text-stone-700">
+          <section class="rounded-lg border border-stone-200 bg-white p-4 shadow-sm">
+            <h2 class="text-base font-semibold text-stone-950">
               Edit player
             </h2>
-            <p class="mt-1 text-sm leading-6 text-stone-500">
+            <p class="mt-1 text-sm leading-6 text-stone-600">
               Update the profile fields the game app uses to identify this player.
             </p>
 
@@ -574,7 +572,7 @@ defmodule PidroServerWeb.Dev.UserDetailLive do
                   placeholder={@user.username}
                 />
               </div>
-              <p class="text-xs leading-5 text-stone-500">
+              <p class="text-xs leading-5 text-stone-600">
                 Players see the name; the username is for signing in.
                 Leave the name empty to show the username.
               </p>
@@ -596,7 +594,7 @@ defmodule PidroServerWeb.Dev.UserDetailLive do
                 />
                 <span>
                   <span class="block text-sm font-bold text-stone-950">Guest account</span>
-                  <span class="mt-1 block text-xs leading-5 text-stone-500">
+                  <span class="mt-1 block text-xs leading-5 text-stone-600">
                     Use this when the player should be treated as temporary in admin views.
                   </span>
                 </span>
@@ -611,11 +609,11 @@ defmodule PidroServerWeb.Dev.UserDetailLive do
             </.form>
           </section>
 
-          <section class="rounded-md border border-stone-300 bg-white p-4 shadow-sm">
-            <h2 class="font-mono text-xs font-black uppercase tracking-[0.16em] text-stone-700">
+          <section class="rounded-lg border border-stone-200 bg-white p-4 shadow-sm">
+            <h2 class="text-base font-semibold text-stone-950">
               Abandonment events
             </h2>
-            <p class="mt-1 text-sm leading-6 text-stone-500">
+            <p class="mt-1 text-sm leading-6 text-stone-600">
               Recorded when reconnect grace expired during a game.
             </p>
 
@@ -646,7 +644,7 @@ defmodule PidroServerWeb.Dev.UserDetailLive do
           </section>
 
           <section class="rounded-md border border-rose-200 bg-white p-4 shadow-sm">
-            <h2 class="font-mono text-xs font-black uppercase tracking-[0.16em] text-rose-900">
+            <h2 class="text-base font-semibold text-rose-900">
               Danger zone
             </h2>
             <p class="mt-1 text-sm leading-6 text-rose-700">

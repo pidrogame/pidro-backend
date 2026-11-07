@@ -55,7 +55,7 @@ defmodule PidroServerWeb.Dev.FeedbackLive do
     <.admin_shell
       active="feedback"
       title="Feedback"
-      subtitle="What players tell us from inside the app, and how the pace feels. Skipped questions are not counted."
+      subtitle="Skipped questions are not counted."
       flash={@flash}
     >
       <section
@@ -68,10 +68,10 @@ defmodule PidroServerWeb.Dev.FeedbackLive do
         <table class="min-w-full divide-y divide-stone-200 text-sm">
           <thead class="bg-stone-50">
             <tr>
-              <th class="px-4 py-2 text-left text-xs font-medium text-stone-500">Pace</th>
+              <th class="px-4 py-2 text-left text-xs font-medium text-stone-600">Pace</th>
               <th
                 :for={{_key, label} <- @pace}
-                class="w-32 px-4 py-2 text-right text-xs font-medium text-stone-500"
+                class="w-32 px-4 py-2 text-right text-xs font-medium text-stone-600"
               >
                 {label}
               </th>
@@ -90,12 +90,12 @@ defmodule PidroServerWeb.Dev.FeedbackLive do
           </tbody>
           <thead class="bg-stone-50">
             <tr>
-              <th class="px-4 py-2 text-left text-xs font-medium text-stone-500">
+              <th class="px-4 py-2 text-left text-xs font-medium text-stone-600">
                 Compared with the old Pidro
               </th>
               <th
                 :for={{_key, label} <- @old_pidro}
-                class="px-4 py-2 text-right text-xs font-medium text-stone-500"
+                class="px-4 py-2 text-right text-xs font-medium text-stone-600"
               >
                 {label}
               </th>
@@ -136,7 +136,7 @@ defmodule PidroServerWeb.Dev.FeedbackLive do
             </.link>
           </nav>
         </div>
-        <p :if={@notes == []} class="px-4 py-6 text-sm text-stone-500">
+        <p :if={@notes == []} class="px-4 py-6 text-sm text-stone-600">
           {if @status == "reports", do: "No reports.", else: "No notes here."}
         </p>
         <article
@@ -145,7 +145,7 @@ defmodule PidroServerWeb.Dev.FeedbackLive do
           id={"report-#{report.id}"}
           class="flex flex-col gap-3 border-b border-stone-100 px-4 py-4 last:border-b-0 lg:flex-row"
         >
-          <div class="w-56 shrink-0 space-y-1 text-xs text-stone-500">
+          <div class="w-56 shrink-0 space-y-1 text-xs text-stone-600">
             <p class="font-mono text-sm font-semibold text-stone-950">#{report.id}</p>
             <p>{Calendar.strftime(report.inserted_at, "%Y-%m-%d %H:%M")} UTC</p>
             <p>From <.who user={report.user} /></p>
@@ -182,7 +182,7 @@ defmodule PidroServerWeb.Dev.FeedbackLive do
           id={"note-#{note.id}"}
           class="flex flex-col gap-3 border-b border-stone-100 px-4 py-4 last:border-b-0 lg:flex-row"
         >
-          <div class="w-56 shrink-0 space-y-1 text-xs text-stone-500">
+          <div class="w-56 shrink-0 space-y-1 text-xs text-stone-600">
             <p class="font-mono text-sm font-semibold text-stone-950">#{note.id}</p>
             <p>{Calendar.strftime(note.inserted_at, "%Y-%m-%d %H:%M")} UTC</p>
             <p>

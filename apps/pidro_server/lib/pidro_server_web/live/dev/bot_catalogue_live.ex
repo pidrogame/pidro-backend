@@ -129,10 +129,13 @@ defmodule PidroServerWeb.Dev.BotCatalogueLive do
       flash={@flash}
     >
       <div class="grid gap-6 lg:grid-cols-2">
-        <section class="min-w-0 rounded-lg border border-stone-200 bg-white p-5">
+        <section class="min-w-0 rounded-lg border border-stone-200 bg-white p-4 sm:p-6">
           <div class="flex items-center justify-between">
-            <h2 class="text-lg font-semibold">Catalogue</h2>
-            <button phx-click="new" class="rounded-md bg-stone-950 px-4 py-2 text-white">Add bot</button>
+            <h2 class="text-base font-semibold">Catalogue</h2>
+            <button
+              phx-click="new"
+              class="rounded-md bg-stone-950 px-3 py-2 text-sm font-medium text-white hover:bg-stone-800"
+            >Add bot</button>
           </div>
           <ul id="bot-list" class="mt-4 divide-y divide-stone-200">
             <li
@@ -148,7 +151,7 @@ defmodule PidroServerWeb.Dev.BotCatalogueLive do
               <div class="min-w-0 flex-1">
                 <h3 class="font-semibold">{profile.name}</h3>
                 <p class="break-words text-sm text-stone-600">{profile.description}</p>
-                <p class="text-xs text-stone-500">
+                <p class="text-xs text-stone-600">
                   {if profile.enabled, do: "Enabled", else: "Disabled"} · {profile.strategy} · {profile.tempo}
                 </p>
               </div>
@@ -160,18 +163,18 @@ defmodule PidroServerWeb.Dev.BotCatalogueLive do
               >Edit</button>
             </li>
           </ul>
-          <p class="mt-4 text-sm text-stone-500">
+          <p class="mt-4 text-sm text-stone-600">
             If all bots are disabled, games use the original crew. Disabling does not evict a seated bot.
           </p>
         </section>
         <section
           id={"bot-editor-#{@profile.id}"}
-          class="min-w-0 rounded-lg border border-stone-200 bg-white p-5"
+          class="min-w-0 rounded-lg border border-stone-200 bg-white p-4 sm:p-6"
         >
-          <h2 class="text-lg font-semibold">
+          <h2 class="text-base font-semibold">
             {if @profile.__meta__.state == :built, do: "Add bot", else: "Edit #{@profile.name}"}
           </h2>
-          <p class="mt-1 break-all text-xs text-stone-500">Stable persona ID: {@profile.id}</p>
+          <p class="mt-1 break-all text-xs text-stone-600">Stable persona ID: {@profile.id}</p>
           <img
             :if={@profile.name}
             src={BotCatalogue.avatar_url(@profile)}
@@ -238,7 +241,7 @@ defmodule PidroServerWeb.Dev.BotCatalogueLive do
             </div>
             <button
               disabled={Enum.any?(@uploads.avatar.entries, &(!&1.done?))}
-              class="rounded-md bg-stone-950 px-4 py-2 font-semibold text-white disabled:opacity-50"
+              class="rounded-md bg-stone-950 px-3 py-2 text-sm font-medium text-white hover:bg-stone-800 disabled:opacity-50"
             >Save bot</button>
           </.form>
         </section>

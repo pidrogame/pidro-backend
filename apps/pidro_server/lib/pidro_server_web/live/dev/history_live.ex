@@ -190,7 +190,7 @@ defmodule PidroServerWeb.Dev.HistoryLive do
       active="history"
       title={@page_title}
       class="admin-game-inspection"
-      subtitle="Private admin evidence · Read-only · Display timezone: UTC"
+      subtitle="Private · read-only · times in UTC"
       flash={@flash}
     >
       <:actions>
@@ -324,7 +324,7 @@ defmodule PidroServerWeb.Dev.HistoryLive do
             placeholder="123"
           />
         </div>
-        <p class="text-xs text-stone-500">
+        <p class="text-xs text-stone-600">
           ISO 8601 with offset; displayed in UTC. {if @action == :archives,
             do: "Time filters use game start."} 25 results per page.
         </p>
@@ -354,7 +354,7 @@ defmodule PidroServerWeb.Dev.HistoryLive do
     <.empty_state
       :if={@data.rows == []}
       title="No matching evidence"
-      body="No records match these filters. Older, expired or never-saved games may have no archive; absence is not proof a game never happened."
+      body="older, expired or never-saved games may have no archive, so absence is not proof a game never happened"
     />
     <div>
       <div :if={@action == :archives && @data.rows != []} class="match-columns" aria-hidden="true">
@@ -398,7 +398,7 @@ defmodule PidroServerWeb.Dev.HistoryLive do
                 />
                 {evidence(row.evidence_status)}
               </p>
-              <p :if={row.participants == %{}} class="mt-1 text-xs text-stone-500">
+              <p :if={row.participants == %{}} class="mt-1 text-xs text-stone-600">
                 No initial seat evidence
               </p>
             </div>
@@ -427,7 +427,7 @@ defmodule PidroServerWeb.Dev.HistoryLive do
               </div>
             </div>
             <p class="mt-2 text-sm">{row_time(@action, row)}</p>
-            <details class="mt-3 border-t border-stone-100 pt-2 text-xs text-stone-500">
+            <details class="mt-3 border-t border-stone-100 pt-2 text-xs text-stone-600">
               <summary class="min-h-11 cursor-pointer py-3">Instance and evidence</summary>
               <p class="break-all">{row.game_instance_id || "No recorded instance"}</p>
             </details>
@@ -495,7 +495,7 @@ defmodule PidroServerWeb.Dev.HistoryLive do
           <.link navigate={~p"/admin/reports?#{%{game_instance_id: @data.archive.game_instance_id}}"}>Reports for this exact instance</.link>
         </div>
         <h2 class="mt-4 font-semibold">Initial participants</h2>
-        <p class="text-xs text-stone-500">
+        <p class="text-xs text-stone-600">
           Names and avatars are current account labels; seat facts are from game start, not a complete replacement or connection history.
         </p>
         <.participant_teams seats={Presentation.teams(@data.archive.participants, @data.names)} />
@@ -528,7 +528,7 @@ defmodule PidroServerWeb.Dev.HistoryLive do
         <summary class="min-h-11 cursor-pointer py-3 font-semibold">
           Authoritative saved timeline
         </summary>
-        <p class="mt-1 text-sm text-stone-500">
+        <p class="mt-1 text-sm text-stone-600">
           Ordered by server revision; missing revisions are explicit. Connection events appear only if captured; client connections are claims in reports.
         </p>
         <ol class="mt-4 space-y-4" id="archive-timeline">
@@ -539,7 +539,7 @@ defmodule PidroServerWeb.Dev.HistoryLive do
               }
               class="font-semibold underline"
             >Revision {event.revision} · {event.payload["kind"]}</.link>
-            <p class="text-xs text-stone-500">
+            <p class="text-xs text-stone-600">
               Observed {utc(event.occurred_at)} · Saved {utc(event.saved_at)}
             </p>
             <p :if={event.payload["missing_revisions"]} class="text-sm text-amber-800">
@@ -591,7 +591,7 @@ defmodule PidroServerWeb.Dev.HistoryLive do
     <% else %>
       <.empty_state
         title="No archive for this instance"
-        body="The game may predate archiving, have expired, or never have saved evidence. Check completed summaries; a room code alone cannot identify this game."
+        body="it may predate archiving, have expired or never saved evidence; check completed summaries, as a room code alone cannot identify this game"
       />
     <% end %>
     """
@@ -636,7 +636,7 @@ defmodule PidroServerWeb.Dev.HistoryLive do
               do: "revision #{@data.revision}",
               else: "snapshot unavailable"}
           </h2>
-          <span id="playback-state" role="status" class="text-sm text-stone-500">{cond do
+          <span id="playback-state" role="status" class="text-sm text-stone-600">{cond do
             @playing -> "Playing"
             @data.checkpoints.count == 0 -> "No saved checkpoints"
             @data.revision == @data.checkpoints.last -> "End of saved checkpoints"
@@ -727,7 +727,7 @@ defmodule PidroServerWeb.Dev.HistoryLive do
             </select>
           </form>
         </div>
-        <p class="text-xs leading-5 text-stone-500">
+        <p class="text-xs leading-5 text-stone-600">
           Checkpoint cadence: 1× = one saved checkpoint per second, not original elapsed time. Each scrubber position selects a saved checkpoint; missing revisions are skipped. Read-only; no engine rules are rerun.
         </p>
         <p :if={@data.selected} class="mt-2 text-xs text-stone-600">
@@ -813,8 +813,8 @@ defmodule PidroServerWeb.Dev.HistoryLive do
         <% end %>
       </section>
       <section class="rounded-lg border bg-white p-4">
-        <h2 class="text-lg font-semibold">Client-reported timeline · Unverified claims</h2>
-        <p class="mt-1 text-sm text-stone-500">
+        <h2 class="text-base font-semibold">Client-reported timeline · Unverified claims</h2>
+        <p class="mt-1 text-sm text-stone-600">
           Offsets are relative to the first retained client event, not UTC timestamps. Report order is preserved; a timeout does not prove server rejection.
         </p>
         <ol id="client-timeline" class="mt-4 space-y-3">
@@ -840,7 +840,7 @@ defmodule PidroServerWeb.Dev.HistoryLive do
     <% else %>
       <.empty_state
         title="Report not found"
-        body="This report ID is invalid, absent or expired. No client evidence is available."
+        body="the ID is invalid, absent or expired"
       />
     <% end %>
     """
@@ -879,7 +879,7 @@ defmodule PidroServerWeb.Dev.HistoryLive do
         </p>
       </section>
     <% else %>
-      <.empty_state title="Summary not found" body="No completed summary exists with this record ID." />
+      <.empty_state title="Summary not found" body="no completed summary has this record ID" />
     <% end %>
     """
   end

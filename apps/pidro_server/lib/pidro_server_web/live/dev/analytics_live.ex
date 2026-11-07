@@ -59,43 +59,33 @@ defmodule PidroServerWeb.Dev.AnalyticsLive do
     ~H"""
     <.admin_shell
       active="analytics"
-      title="Development Analytics"
-      subtitle="Monitor server health, room status, process count, memory, and live game volume while testing."
+      title="Analytics"
       flash={@flash}
     >
-      <:actions>
-        <.link
-          navigate={~p"/admin/games"}
-          class="inline-flex items-center gap-2 rounded-sm border border-stone-300 bg-white px-3 py-2 text-sm font-bold text-stone-700 shadow-sm hover:border-orange-300 hover:text-stone-950"
-        >
-          <.icon name="hero-arrow-left" class="size-4" /> Games
-        </.link>
-      </:actions>
-
-      <section id="connection-analytics" class="rounded-md border border-stone-300 bg-white p-4">
-        <h2 class="font-semibold">Connections and human tables</h2>
-        <p class="mt-1 text-xs text-stone-500">Poor connection: share of recorded player time, graded per player and app version. Insufficient data is separate.</p>
-        <p class="mt-1 text-xs text-stone-500">Bot-played turns: timer or stand-in bids, passes and cards / all such turns at human tables. Original bots count only in the total.</p>
-        <p class="mt-1 text-xs text-stone-500">All other humans finished: the other humans at first takeover were connected and foreground at game end, with no deliberate departure. Temporary drops are allowed. Closed tables count as not finished; solo takeovers are excluded.</p>
-        <p class="mt-1 text-xs text-stone-500">Finished or closed tables only, counted once per represented platform/version. Restored tables and incomplete accounting are excluded. Refresh for new results.</p>
+      <section id="connection-analytics" class="rounded-lg border border-stone-200 bg-white p-4 sm:p-6">
+        <h2 class="text-base font-semibold text-stone-950">Connections and human tables</h2>
+        <p class="mt-1 text-xs text-stone-600">Poor connection: share of recorded player time, graded per player and app version. Insufficient data is separate.</p>
+        <p class="mt-1 text-xs text-stone-600">Bot-played turns: timer or stand-in bids, passes and cards / all such turns at human tables. Original bots count only in the total.</p>
+        <p class="mt-1 text-xs text-stone-600">All other humans finished: the other humans at first takeover were connected and foreground at game end, with no deliberate departure. Temporary drops are allowed. Closed tables count as not finished; solo takeovers are excluded.</p>
+        <p class="mt-1 text-xs text-stone-600">Finished or closed tables only, counted once per represented platform/version. Restored tables and incomplete accounting are excluded. Refresh for new results.</p>
         <div class="mt-4 grid gap-6 lg:grid-cols-2">
           <div :for={{days, rows} <- @connection_reports} data-connection-period={days}>
             <h3 class="text-sm font-semibold">Last {days} days</h3>
-            <p :if={rows == []} class="mt-2 text-sm text-stone-500">No measured games yet.</p>
+            <p :if={rows == []} class="mt-2 text-sm text-stone-600">No measured games yet.</p>
             <ul class="mt-2 divide-y divide-stone-200 text-sm">
               <li :for={row <- rows} class="space-y-2 py-3">
                 <p class="font-semibold">{row.platform || "unknown platform"} · {row.app_version || "unknown version"}</p>
                 <p>{Float.round(row.poor_percent / 1, 1)}% poor · {Float.round(row.unknown_percent / 1, 1)}% insufficient · {Float.round(row.duration_seconds / 3600, 1)} h</p>
                 <dl class="grid gap-2 sm:grid-cols-2">
-                  <div class="rounded-sm bg-stone-50 p-2">
+                  <div class="rounded-md bg-stone-50 p-3">
                     <dt class="text-xs text-stone-600">Bot-played turns</dt>
                     <dd class="text-lg font-semibold">{if row.bot_turn_percent, do: "#{Float.round(row.bot_turn_percent / 1, 1)}%", else: "—"}</dd>
-                    <dd class="text-xs text-stone-500">{row.bot_turns} / {row.turns} turns</dd>
+                    <dd class="text-xs text-stone-600">{row.bot_turns} / {row.turns} turns</dd>
                   </div>
-                  <div class="rounded-sm bg-stone-50 p-2">
+                  <div class="rounded-md bg-stone-50 p-3">
                     <dt class="text-xs text-stone-600">All other humans finished</dt>
                     <dd class="text-lg font-semibold">{if row.others_finished_percent, do: "#{Float.round(row.others_finished_percent / 1, 1)}%", else: "—"}</dd>
-                    <dd class="text-xs text-stone-500">{row.takeover_games} takeover games<%= if row.others_finished_percent do %> · {Float.round((100 - row.others_finished_percent) / 1, 1)}% did not finish<% end %></dd>
+                    <dd class="text-xs text-stone-600">{row.takeover_games} takeover games<%= if row.others_finished_percent do %> · {Float.round((100 - row.others_finished_percent) / 1, 1)}% did not finish<% end %></dd>
                   </div>
                 </dl>
               </li>
@@ -104,17 +94,12 @@ defmodule PidroServerWeb.Dev.AnalyticsLive do
         </div>
       </section>
 
-    <!-- Server Status -->
-      <div class="overflow-hidden rounded-md border border-stone-300 bg-white shadow-sm">
-        <div class="px-4 py-3">
-          <h3 class="font-mono text-xs font-black uppercase tracking-[0.16em] text-stone-700">
-            Server Status
-          </h3>
-        </div>
-        <div class="border-t border-stone-200 px-4 py-4">
+      <div class="rounded-lg border border-stone-200 bg-white p-4 sm:p-6">
+        <h2 class="text-base font-semibold text-stone-950">Server status</h2>
+        <div class="mt-4">
           <dl class="grid grid-cols-1 gap-x-4 gap-y-4 sm:grid-cols-3">
             <div>
-              <dt class="font-mono text-[0.68rem] font-bold uppercase tracking-[0.14em] text-stone-500">
+              <dt class="text-xs font-medium text-stone-600">
                 Status
               </dt>
               <dd class="mt-1">
@@ -124,7 +109,7 @@ defmodule PidroServerWeb.Dev.AnalyticsLive do
               </dd>
             </div>
             <div>
-              <dt class="font-mono text-[0.68rem] font-bold uppercase tracking-[0.14em] text-stone-500">
+              <dt class="text-xs font-medium text-stone-600">
                 Uptime
               </dt>
               <dd class="mt-1 text-sm font-bold text-stone-900">
@@ -132,7 +117,7 @@ defmodule PidroServerWeb.Dev.AnalyticsLive do
               </dd>
             </div>
             <div>
-              <dt class="font-mono text-[0.68rem] font-bold uppercase tracking-[0.14em] text-stone-500">
+              <dt class="text-xs font-medium text-stone-600">
                 Current Time (UTC)
               </dt>
               <dd class="mt-1 font-mono text-sm text-stone-900">
@@ -143,7 +128,6 @@ defmodule PidroServerWeb.Dev.AnalyticsLive do
         </div>
       </div>
 
-    <!-- Game Statistics -->
       <dl class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <.stat_card
           label="Total rooms"
@@ -174,20 +158,15 @@ defmodule PidroServerWeb.Dev.AnalyticsLive do
         />
       </dl>
 
-    <!-- Room Status Breakdown -->
-      <div class="overflow-hidden rounded-md border border-stone-300 bg-white shadow-sm">
-        <div class="px-4 py-3">
-          <h3 class="font-mono text-xs font-black uppercase tracking-[0.16em] text-stone-700">
-            Room Status Breakdown
-          </h3>
-        </div>
-        <div class="border-t border-stone-200 px-4 py-4">
+      <div class="rounded-lg border border-stone-200 bg-white p-4 sm:p-6">
+        <h2 class="text-base font-semibold text-stone-950">Room status breakdown</h2>
+        <div class="mt-4">
           <div class="space-y-4">
             <%= for {status, count} <- @stats.by_status do %>
               <div>
                 <div class="flex items-center justify-between mb-1">
-                  <span class="text-sm font-medium text-zinc-700 capitalize">{status}</span>
-                  <span class="text-sm text-zinc-500">{count} rooms</span>
+                  <span class="text-sm font-medium text-stone-700 capitalize">{status}</span>
+                  <span class="text-sm text-stone-600">{count} rooms</span>
                 </div>
                 <div class="w-full bg-zinc-200 rounded-full h-2">
                   <div
@@ -202,30 +181,25 @@ defmodule PidroServerWeb.Dev.AnalyticsLive do
         </div>
       </div>
 
-    <!-- System Information -->
-      <div class="overflow-hidden rounded-md border border-stone-300 bg-white shadow-sm">
-        <div class="px-4 py-3">
-          <h3 class="font-mono text-xs font-black uppercase tracking-[0.16em] text-stone-700">
-            System Information
-          </h3>
-        </div>
-        <div class="border-t border-stone-200 px-4 py-4">
+      <div class="rounded-lg border border-stone-200 bg-white p-4 sm:p-6">
+        <h2 class="text-base font-semibold text-stone-950">System information</h2>
+        <div class="mt-4">
           <dl class="grid grid-cols-1 gap-x-4 gap-y-4 sm:grid-cols-2">
             <div>
-              <dt class="text-sm font-medium text-zinc-500">Elixir Version</dt>
-              <dd class="mt-1 text-sm text-zinc-900">{System.version()}</dd>
+              <dt class="text-sm font-medium text-stone-600">Elixir Version</dt>
+              <dd class="mt-1 text-sm text-stone-950">{System.version()}</dd>
             </div>
             <div>
-              <dt class="text-sm font-medium text-zinc-500">OTP Version</dt>
-              <dd class="mt-1 text-sm text-zinc-900">{:erlang.system_info(:otp_release)}</dd>
+              <dt class="text-sm font-medium text-stone-600">OTP Version</dt>
+              <dd class="mt-1 text-sm text-stone-950">{:erlang.system_info(:otp_release)}</dd>
             </div>
             <div>
-              <dt class="text-sm font-medium text-zinc-500">Total Processes</dt>
-              <dd class="mt-1 text-sm text-zinc-900">{:erlang.system_info(:process_count)}</dd>
+              <dt class="text-sm font-medium text-stone-600">Total Processes</dt>
+              <dd class="mt-1 text-sm text-stone-950">{:erlang.system_info(:process_count)}</dd>
             </div>
             <div>
-              <dt class="text-sm font-medium text-zinc-500">Memory Usage</dt>
-              <dd class="mt-1 text-sm text-zinc-900">
+              <dt class="text-sm font-medium text-stone-600">Memory Usage</dt>
+              <dd class="mt-1 text-sm text-stone-950">
                 {format_memory(:erlang.memory(:total))}
               </dd>
             </div>
@@ -233,10 +207,9 @@ defmodule PidroServerWeb.Dev.AnalyticsLive do
         </div>
       </div>
 
-    <!-- Auto-refresh indicator -->
-      <div class="text-center text-sm text-stone-500">
+      <div class="text-sm text-stone-600">
         <span class="inline-flex items-center">
-          <span class="h-2 w-2 bg-green-500 rounded-full mr-2 animate-pulse"></span>
+          <span class="mr-2 size-2 rounded-full bg-emerald-500 motion-safe:animate-pulse"></span>
           Live updates enabled (refreshing every second)
         </span>
       </div>

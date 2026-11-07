@@ -241,7 +241,7 @@ defmodule PidroServerWeb.Dev.NewsLive do
       </:actions>
 
       <section id="news-posts" class="overflow-hidden rounded-lg border border-stone-200 bg-white">
-        <p :if={@posts == []} class="px-4 py-6 text-sm text-stone-500">No posts yet.</p>
+        <p :if={@posts == []} class="px-4 py-6 text-sm text-stone-600">No posts yet.</p>
         <article
           :for={post <- @posts}
           id={"post-#{post.id}"}
@@ -249,7 +249,7 @@ defmodule PidroServerWeb.Dev.NewsLive do
         >
           <div class="min-w-0 flex-1">
             <p class="truncate text-sm font-semibold text-stone-950">{post.title_en}</p>
-            <p class="mt-0.5 text-xs text-stone-500">
+            <p class="mt-0.5 text-xs text-stone-600">
               <span
                 :if={!post.published_at}
                 class="rounded bg-amber-50 px-1.5 py-0.5 font-medium text-amber-800"
@@ -320,7 +320,7 @@ defmodule PidroServerWeb.Dev.NewsLive do
           class="min-w-0 flex-1 space-y-3"
         >
           <div class="flex items-center justify-between">
-            <h2 class="text-lg font-semibold">
+            <h2 class="text-base font-semibold">
               {if @post.id, do: "Edit post", else: "New post"}
             </h2>
             <button type="button" phx-click="close" class="text-sm text-stone-600 underline">
@@ -337,7 +337,7 @@ defmodule PidroServerWeb.Dev.NewsLive do
             maxlength="5000"
             required
           />
-          <p class="text-xs text-stone-500">
+          <p class="text-xs text-stone-600">
             Markdown: **bold**, line breaks and [links](https://…). Nothing else.
           </p>
           <div class="flex items-center justify-between gap-3 border-t border-stone-100 pt-3">
@@ -363,7 +363,7 @@ defmodule PidroServerWeb.Dev.NewsLive do
               {if @translating, do: "Translating…", else: "Translate to Swedish"}
             </button>
           </div>
-          <p :if={!@translate?} id="translate-off" class="text-xs text-stone-500">
+          <p :if={!@translate?} id="translate-off" class="text-xs text-stone-600">
             Add ANTHROPIC_API_KEY to turn on translation.
           </p>
           <p :if={@translate_error} id="translate-error" class="text-sm text-rose-700">
@@ -378,7 +378,7 @@ defmodule PidroServerWeb.Dev.NewsLive do
             rows="6"
             maxlength="5000"
           />
-          <p class="text-xs text-stone-500">
+          <p class="text-xs text-stone-600">
             Markdown: **bold**, line breaks and [links](https://…). An empty Swedish field falls back to English.
           </p>
           <div class="space-y-3 border-t border-stone-100 pt-3">
@@ -387,7 +387,7 @@ defmodule PidroServerWeb.Dev.NewsLive do
               upload={@uploads.image}
               class="block w-full min-w-0 text-sm text-stone-600"
             />
-            <p class="text-xs text-stone-500">
+            <p class="text-xs text-stone-600">
               Upload PNG or JPEG, up to 5 MiB. Stored on this server, resized without cropping.
             </p>
             <div :for={entry <- @uploads.image.entries} class="space-y-2">
@@ -445,7 +445,7 @@ defmodule PidroServerWeb.Dev.NewsLive do
               placeholder="3.2.4"
             />
             <.store_hint store={@stores["ios"]} version={@form[:show_below_ios].value} platform="ios" />
-            <p class="text-xs text-stone-500">
+            <p class="text-xs text-stone-600">
               Empty = nobody on that platform. Set a version only when it is live in the store. The app supplies the Update button and the store link from server settings.
             </p>
           </div>
@@ -465,7 +465,7 @@ defmodule PidroServerWeb.Dev.NewsLive do
               label="Button link (optional)"
               placeholder="https://… or pidro://…"
             />
-            <p class="text-xs text-stone-500">
+            <p class="text-xs text-stone-600">
               Without a label and link the button says Got it / Okej.
             </p>
           </div>
@@ -487,7 +487,7 @@ defmodule PidroServerWeb.Dev.NewsLive do
 
         <div class="w-full shrink-0 lg:w-[390px]">
           <div class="mb-2 flex items-center justify-between">
-            <p class="text-xs font-medium text-stone-500">In the app</p>
+            <p class="text-xs font-medium text-stone-600">In the app</p>
             <nav class="flex gap-1 text-sm" aria-label="Preview language">
               <button
                 :for={{locale, label} <- [{"en", "English"}, {"sv", "Swedish"}]}
@@ -563,7 +563,7 @@ defmodule PidroServerWeb.Dev.NewsLive do
     assigns = assign(assigns, live: get_in(assigns.store, [:data, :live, :version]))
 
     ~H"""
-    <div id={"store-hint-#{@platform}"} class="text-xs leading-5 text-stone-500">
+    <div id={"store-hint-#{@platform}"} class="text-xs leading-5 text-stone-600">
       <p>{StoreBuilds.hint(@store)}</p>
       <p :if={@store.checked_at}>
         Checked {Calendar.strftime(@store.checked_at, "%Y-%m-%d %H:%M UTC")}
