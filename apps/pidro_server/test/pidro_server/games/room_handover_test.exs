@@ -15,6 +15,7 @@ defmodule PidroServer.Games.RoomHandoverTest do
   alias PidroServer.Accounts.Token
   alias PidroServerWeb.UserSocket
 
+  import Ecto.Query, only: [from: 2]
   import Phoenix.ConnTest
   import Plug.Conn, only: [put_req_header: 3]
   @endpoint PidroServerWeb.Endpoint
@@ -165,7 +166,7 @@ defmodule PidroServer.Games.RoomHandoverTest do
     # East had dropped before the deploy and a substitute covers the seat.
     RoomManager.handle_player_disconnect(code, east)
     {:ok, _} = RoomManagerCase.expire_phase(code, :east, :phase2_start)
-    wait(fn -> event_count(SeatEvent) == 2 end)
+    wait(fn -> seat_kinds() == ["bot_took_seat", "drop"] end)
 
     new_node()
     {:ok, room} = RoomManager.find_room(code)
@@ -180,8 +181,9 @@ defmodule PidroServer.Games.RoomHandoverTest do
     assert is_reference(room.phase_timers.east)
 
     # Only east's drop and bot takeover are on record; the deploy added none.
+    # The bot's plays for east's seat are not the deploy's doing.
     Process.sleep(100)
-    assert event_count(SeatEvent) == 2
+    assert seat_kinds() == ["bot_took_seat", "drop"]
     assert event_count(AbandonmentEvent) == 0
 
     five_seconds_later = DateTime.to_unix(room.seats.north.disconnected_at, :millisecond) + 5000
@@ -384,6 +386,9 @@ defmodule PidroServer.Games.RoomHandoverTest do
   end
 
   defp event_count(schema), do: Repo.aggregate(schema, :count)
+
+  defp seat_kinds,
+    do: Repo.all(from e in SeatEvent, where: e.kind != "away_play", select: e.kind) |> Enum.sort()
 
   defp wait(fun, attempts \\ 100) do
     cond do
