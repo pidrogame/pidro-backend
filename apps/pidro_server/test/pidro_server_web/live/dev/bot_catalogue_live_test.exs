@@ -39,12 +39,15 @@ defmodule PidroServerWeb.Dev.BotCatalogueLiveTest do
         description: "Public biography",
         portrait: "jocke",
         strategy: "random",
+        tempo: "slow",
         enabled: true
       }
     )
     |> render_submit()
 
     fourth = Repo.get_by!(Profile, name: "Fourth")
+    assert fourth.tempo == "slow"
+    assert render(view) =~ "random · slow"
     assert {:ok, _} = Ecto.UUID.cast(fourth.id)
     assert Repo.aggregate(PidroServer.Accounts.User, :count) == users_before
     refute Repo.get_by(PidroServer.Profiles.PlayerProfile, user_id: fourth.id)
@@ -58,7 +61,29 @@ defmodule PidroServerWeb.Dev.BotCatalogueLiveTest do
     public = Enum.find(data, &(&1["id"] == fourth.id))
     assert public["name"] == "Fourth edited"
     assert public["avatar_url"] =~ "/images/bots/jocke.svg"
-    assert Enum.sort(Map.keys(public)) == ~w(avatar_url description id name)
+    assert public["tempo"] == "slow"
+    assert Enum.sort(Map.keys(public)) == ~w(avatar_url description id name tempo)
+  end
+
+  test "a new bot is steady, and the tempo only takes quick, steady or slow", %{conn: conn} do
+    %{conn: conn} = register_and_log_in_admin(%{conn: conn})
+    {:ok, view, _} = live(conn, ~p"/admin/bots")
+    assert has_element?(view, "#bot-form select[name='bot[tempo]'] option[selected]", "Steady")
+
+    view |> element("#bot-antti button") |> render_click()
+    html = render_change(view, "validate", %{"bot" => %{"id" => "antti", "tempo" => "frantic"}})
+    assert html =~ "is invalid"
+    html = render_submit(view, "save", %{"bot" => %{"id" => "antti", "tempo" => "frantic"}})
+    assert html =~ "is invalid"
+    assert BotCatalogue.get!("antti").tempo == "steady"
+
+    view |> form("#bot-form", bot: %{tempo: "quick"}) |> render_submit()
+    assert BotCatalogue.get!("antti").tempo == "quick"
+    assert BotCatalogue.profile("antti").tempo == "quick"
+
+    assert_raise Postgrex.Error, ~r/supported_tempo/, fn ->
+      Repo.update_all(Profile, set: [tempo: "frantic"])
+    end
   end
 
   test "a delayed form from the previous selection cannot overwrite another bot", %{conn: conn} do

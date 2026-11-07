@@ -77,7 +77,10 @@ defmodule PidroServerWeb.Dev.BotCatalogueLive do
          socket
          |> edit(profile)
          |> assign(:profiles, BotCatalogue.list())
-         |> put_flash(:info, "Bot saved. Strategy changes apply to newly seated bots only.")}
+         |> put_flash(
+           :info,
+           "Bot saved. Strategy applies to newly seated bots; tempo whenever a bot next starts."
+         )}
 
       {:error, %Ecto.Changeset{} = changeset} ->
         {:noreply, assign(socket, :form, to_form(changeset, as: :bot))}
@@ -146,7 +149,7 @@ defmodule PidroServerWeb.Dev.BotCatalogueLive do
                 <h3 class="font-semibold">{profile.name}</h3>
                 <p class="break-words text-sm text-stone-600">{profile.description}</p>
                 <p class="text-xs text-stone-500">
-                  {if profile.enabled, do: "Enabled", else: "Disabled"} · {profile.strategy}
+                  {if profile.enabled, do: "Enabled", else: "Disabled"} · {profile.strategy} · {profile.tempo}
                 </p>
               </div>
               <button
@@ -198,6 +201,16 @@ defmodule PidroServerWeb.Dev.BotCatalogueLive do
               options={[
                 {"Rulebook (production default)", "rulebook"},
                 {"Random (existing strategy)", "random"}
+              ]}
+            />
+            <.input
+              field={@form[:tempo]}
+              type="select"
+              label="Tempo"
+              options={[
+                {"Quick (0.75 × the bot delay)", "quick"},
+                {"Steady (the bot delay)", "steady"},
+                {"Slow (1.3 × the bot delay)", "slow"}
               ]}
             />
             <.input

@@ -15,15 +15,18 @@ GameDetailLive and card_components belong to the separate Watch branch.
       "id": "marcel",
       "name": "Marcel",
       "description": "",
-      "avatar_url": "https://BACKEND_ORIGIN/images/bots/marcel.svg"
+      "avatar_url": "https://BACKEND_ORIGIN/images/bots/marcel.svg",
+      "tempo": "steady"
     }
   ]
 }
 ```
 
-Each entry contains **only** `id`, `name`, `description`, `avatar_url`.
-All are strings; description can be empty. IDs are opaque, immutable strings:
-legacy IDs remain exactly `marcel`, `antti`, `jocke`; new profiles receive a
+Each entry contains **only** `id`, `name`, `description`, `avatar_url`,
+`tempo`. All are strings; description can be empty. `tempo` is `quick`,
+`steady` or `slow`: how fast the character acts at the table (PID-378);
+older servers omit it, so treat a missing value as `steady`. IDs are opaque,
+immutable strings: legacy IDs remain exactly `marcel`, `antti`, `jocke`; new profiles receive a
 server-generated UUID string. Do not enumerate persona IDs in client code.
 Catalogue reads include disabled profiles so seated identities still resolve.
 There is no public enabled flag, strategy key, module name, process identifier,
@@ -49,7 +52,8 @@ HTTP projections) gain optional `bot_profile`:
     "id": "marcel",
     "name": "Marcel",
     "description": "",
-    "avatar_url": "https://BACKEND_ORIGIN/images/bots/marcel.svg"
+    "avatar_url": "https://BACKEND_ORIGIN/images/bots/marcel.svg",
+    "tempo": "steady"
   }
 }
 ```
