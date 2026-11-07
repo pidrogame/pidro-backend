@@ -150,6 +150,51 @@ defmodule PidroServerWeb.Dev.StoreBuildsLiveTest do
     assert render(view) =~ "Google Play not connected"
   end
 
+  test "the sidebar dot lights for a release step, never for an unchecked or failed store", %{
+    conn: conn
+  } do
+    stores = Cache.snapshot()
+    approved = %{stores["ios"].data.newest | state: "IN_BETA_TESTING", friends: true}
+
+    ios_done =
+      put_in(stores, ["ios", :data], %{stores["ios"].data | newest: approved, live: approved})
+
+    unchecked = %{stores["android"] | data: nil, checked_at: nil, good_at: nil}
+
+    dot? = fn stores ->
+      :sys.replace_state(Cache, &%{&1 | stores: stores})
+      {:ok, view, _} = live(conn, ~p"/admin/store-builds")
+      has_element?(view, "#store-builds-attention")
+    end
+
+    for android <- [
+          unchecked,
+          %{unchecked | error: "Store request failed (HTTP 503). Try Refresh."},
+          %{unchecked | error: :not_connected}
+        ] do
+      refute dot?.(%{ios_done | "android" => android})
+    end
+
+    # The page itself still asks for a Refresh.
+    refute dot?.(%{ios_done | "android" => unchecked})
+    {:ok, view, _} = live(conn, ~p"/admin/store-builds")
+    assert has_element?(view, "#next-steps", "Android not checked yet")
+
+    assert dot?.(%{stores | "android" => unchecked})
+    assert dot?.(put_in(stores, ["ios", :data, :newest, :friends], false))
+    refute dot?.(ios_done)
+
+    PidroServer.Repo.insert!(%PidroServer.Stats.SeatEvent{
+      user_id: "older-android-player",
+      platform: "android",
+      app_version: "3.2.3",
+      kind: "join",
+      room_code: "TEST"
+    })
+
+    assert dot?.(ios_done)
+  end
+
   test "anonymous visitors cannot read store builds" do
     assert {:error, {:redirect, %{to: "/admin/login"}}} =
              live(build_conn(), ~p"/admin/store-builds")

@@ -374,13 +374,20 @@ defmodule PidroServer.StoreBuilds do
     %{segments: segments, summary: summary}
   end
 
-  @doc "Whether Store builds needs a look. Reads the cache; never asks a store."
+  @doc """
+  Whether a release needs a step, such as a review, a Team-only build or a
+  nudge. A store that is unchecked or failed its check doesn't count: Play
+  is unchecked after every deploy. Reads the cache; never asks a store.
+  """
   def attention? do
     policy = PidroServer.News.native_update_policy()
+    counts = player_versions()
 
-    Cache.snapshot()
-    |> next_steps(policy.minimum_native_versions, player_versions())
-    |> Enum.any?(&(&1.tone != :good))
+    Enum.any?(Cache.snapshot(), fn {platform, store} ->
+      store.error == nil and store.data != nil and
+        release_steps(platform, store.data, policy.minimum_native_versions[platform], counts) !=
+          []
+    end)
   end
 
   defp newer_build?(newest, live) do
