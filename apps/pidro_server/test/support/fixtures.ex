@@ -9,9 +9,12 @@ defmodule PidroServer.AccountsFixtures do
 
   def unique_user_email, do: "user#{System.unique_integer()}@example.com"
 
+  # The word list reads letters between digits as words, so a suffix can spell
+  # one ("user3KYS"); take the next one, as a player would pick another name.
   def unique_username do
     suffix = System.unique_integer([:positive]) |> Integer.to_string(36)
-    "user#{suffix}"
+    name = "user#{suffix}"
+    if PidroServer.Moderation.allowed?(name), do: name, else: unique_username()
   end
 
   def valid_user_password, do: "hello world!"
