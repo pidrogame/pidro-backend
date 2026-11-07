@@ -357,8 +357,8 @@ defmodule PidroServer.Games.RoomManager do
     with :ok <- validate_hold_users(holds, []),
          {:ok, room, bot_pid} <-
            GenServer.call(__MODULE__, {:set_seat, String.upcase(code), host_id, position, entry}) do
-      # Stopped here, not in the room manager: the bot manager may be waiting
-      # on the room manager for a bot it is starting.
+      # Stopped here, not in the room manager, which never waits on the bot
+      # manager.
       if bot_pid && BotManager.bot_pid(room.code, position) == bot_pid,
         do: BotManager.stop_bot(room.code, position)
 
@@ -4143,7 +4143,7 @@ defmodule PidroServer.Games.RoomManager do
 
   # A bot entry seats its bot in the host's own call, so nobody can take the
   # seat first. The bot's process, started by the caller, attaches to the seat
-  # from its own `init/1` like a restarted bot does.
+  # once it has started, like a restarted bot does.
   defp seat_entry_bot(room, position, :bot) do
     bot_id = "bot_#{room.code}_#{position}"
 

@@ -14,7 +14,9 @@ defmodule PidroServer.Games.Bots.BotPlayer do
   - Can be paused/resumed during gameplay
   """
 
-  use GenServer
+  # A bot that could not join stops for good; one that crashes later comes back
+  # for its seat.
+  use GenServer, restart: :transient
   require Logger
   alias PidroServer.Games.Bots.{BotBrain, Strategy}
   alias PidroServer.Games.Bots.Strategies.RulebookStrategy
@@ -44,61 +46,71 @@ defmodule PidroServer.Games.Bots.BotPlayer do
     GenServer.cast(pid, :stop)
   end
 
+  @doc "Returns once the bot, just started, has tried to take its seat."
+  @spec await_join(pid()) :: :ok
+  def await_join(pid) do
+    GenServer.call(pid, :await_join)
+  catch
+    :exit, _ -> :ok
+  end
+
   ## GenServer Callbacks
 
   @impl true
   def init(opts) do
     opts = if is_list(opts), do: Map.new(opts), else: opts
-
     room_code = Map.fetch!(opts, :room_code)
     position = Map.fetch!(opts, :position)
-    strategy = Map.get(opts, :strategy, @default_strategy)
-    delay_ms_override = Map.get(opts, :delay_ms)
-    paused? = Map.get(opts, :paused?, false)
-
-    bot_user_id = "bot_#{room_code}_#{position}"
-
-    {strategy_module, persona} =
-      case PidroServer.Games.RoomManager.join_bot(room_code, bot_user_id, self(), position) do
-        {:ok, room, ^position} ->
-          Logger.info("Bot #{bot_user_id} joined room #{room_code} at #{position}")
-          seat = room.seats[position]
-          {seat.bot_strategy || Strategy.resolve(strategy), seat.bot_persona}
-
-        {:ok, _room, other_position} ->
-          Logger.warning(
-            "Bot #{bot_user_id} requested #{position} but got #{other_position} in room #{room_code}"
-          )
-
-          {Strategy.resolve(strategy), nil}
-
-        {:error, reason} ->
-          Logger.warning(
-            "Bot #{bot_user_id} could not join room #{room_code}: #{inspect(reason)}"
-          )
-
-          {Strategy.resolve(strategy), nil}
-      end
-
-    tempo_factor = PidroServer.BotCatalogue.tempo_factor(persona)
     :ok = GameAdapter.subscribe(room_code)
-
-    Logger.info(
-      "BotPlayer started for room #{room_code}, position #{position}, strategy #{inspect(strategy_module)}, persona #{persona}, tempo factor #{tempo_factor}"
-    )
 
     state = %{
       room_code: room_code,
       position: position,
-      user_id: bot_user_id,
-      strategy: strategy_module,
-      delay_ms_override: delay_ms_override,
-      tempo_factor: tempo_factor,
+      user_id: "bot_#{room_code}_#{position}",
+      strategy: Map.get(opts, :strategy, @default_strategy),
+      delay_ms_override: Map.get(opts, :delay_ms),
+      tempo_factor: 1.0,
       move_scheduled?: false,
-      paused?: paused?
+      paused?: Map.get(opts, :paused?, false)
     }
 
-    {:ok, state, {:continue, :check_initial_move}}
+    # Joins once started: the room manager may be waiting on the bot
+    # supervisor, which waits for this init.
+    {:ok, state, {:continue, :join_room}}
+  end
+
+  @impl true
+  def handle_continue(:join_room, %{room_code: room_code, position: position} = state) do
+    bot_user_id = state.user_id
+
+    with {:ok, room, joined_position} <- join_bot(state) do
+      {strategy_module, persona} =
+        if joined_position == position do
+          Logger.info("Bot #{bot_user_id} joined room #{room_code} at #{position}")
+          seat = room.seats[position]
+          {seat.bot_strategy || Strategy.resolve(state.strategy), seat.bot_persona}
+        else
+          Logger.warning(
+            "Bot #{bot_user_id} requested #{position} but got #{joined_position} in room #{room_code}"
+          )
+
+          {Strategy.resolve(state.strategy), nil}
+        end
+
+      tempo_factor = PidroServer.BotCatalogue.tempo_factor(persona)
+
+      Logger.info(
+        "BotPlayer started for room #{room_code}, position #{position}, strategy #{inspect(strategy_module)}, persona #{persona}, tempo factor #{tempo_factor}"
+      )
+
+      state = %{state | strategy: strategy_module, tempo_factor: tempo_factor}
+      {:noreply, state, {:continue, :check_initial_move}}
+    else
+      {:error, reason} ->
+        Logger.warning("Bot #{bot_user_id} could not join room #{room_code}: #{inspect(reason)}")
+        # A bot without a seat has nothing to play; stopping frees its slot.
+        {:stop, :normal, state}
+    end
   end
 
   @impl true
@@ -218,6 +230,9 @@ defmodule PidroServer.Games.Bots.BotPlayer do
   end
 
   @impl true
+  def handle_call(:await_join, _from, state), do: {:reply, :ok, state}
+
+  @impl true
   def handle_cast(:pause, state) do
     Logger.info("BotPlayer paused for room #{state.room_code}, position #{state.position}")
     {:noreply, %{state | paused?: true}}
@@ -246,6 +261,13 @@ defmodule PidroServer.Games.Bots.BotPlayer do
   end
 
   ## Private Functions
+
+  # A room manager that does not answer is a failed join, not a crash to restart.
+  defp join_bot(state) do
+    PidroServer.Games.RoomManager.join_bot(state.room_code, state.user_id, self(), state.position)
+  catch
+    :exit, reason -> {:error, reason}
+  end
 
   defp should_make_move?(game_state, state) do
     not state.paused? and BotBrain.should_make_move?(game_state, state.position)

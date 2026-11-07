@@ -86,7 +86,12 @@ defmodule PidroServer.Games.Bots.BotManager do
       when position in [:north, :east, :south, :west] and
              strategy in [:random, :basic, :smart] and
              (is_nil(delay_ms) or (is_integer(delay_ms) and delay_ms >= 0 and delay_ms <= 5000)) do
-    GenServer.call(__MODULE__, {:start_bot, room_code, position, strategy, delay_ms})
+    # Callers read the room next, so the bot has taken its seat by the time this returns.
+    with {:ok, pid} <-
+           GenServer.call(__MODULE__, {:start_bot, room_code, position, strategy, delay_ms}) do
+      PidroServer.Games.Bots.BotPlayer.await_join(pid)
+      {:ok, pid}
+    end
   end
 
   @doc "The pid registered for a bot slot, or `nil`. Reads the slot table directly."

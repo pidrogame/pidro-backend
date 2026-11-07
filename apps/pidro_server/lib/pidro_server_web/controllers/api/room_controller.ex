@@ -1807,9 +1807,8 @@ defmodule PidroServerWeb.API.RoomController do
   # The bot seats itself through `RoomManager.join_bot/4`, which is where the
   # seat is really claimed: the vacancy check above is only a read, and a human
   # or another request may have taken the seat since. This cannot be one
-  # RoomManager call: the bot joins from its own `init/1`, which would deadlock
-  # a RoomManager that was waiting for it. So cleanup is scoped to the bot this
-  # request started, never to whatever holds the slot.
+  # RoomManager call: the bot joins from its own process. So cleanup is scoped
+  # to the bot this request started, never to whatever holds the slot.
   defp start_seated_bot(%Room{code: code} = room, position, retry? \\ true) do
     case BotManager.start_bot(code, position, room.config.bot_difficulty) do
       {:ok, pid} ->

@@ -215,6 +215,30 @@ defmodule PidroServer.Games.TableCleanupTest do
     assert restored.phase_timers == %{}
   end
 
+  # Removing a table stops its bots through the bot supervisor, which may be
+  # starting another bot right then: that bot's join must not wait on the room
+  # manager that is waiting on the supervisor.
+  test "removing a restored bot table while a bot starts keeps the room manager answering" do
+    {room, _user} = bot_table(false, :quick)
+    # The bots lived on the node that released the table; this one holds no slots.
+    for position <- [:east, :south, :west], do: :ok = BotManager.stop_bot(room.code, position)
+    restore(room.code)
+    await_bots(room.code)
+    age_absence(room.code, 30)
+    {:ok, other} = RoomManager.create_room(AccountsFixtures.user_fixture().id)
+
+    :ok = :sys.suspend(RoomManager)
+    send(RoomManager, :cleanup_abandoned_rooms)
+    {:ok, _} = Task.start(fn -> BotManager.start_bot(other.code, :east, :basic, 5_000) end)
+    await_join_bot_call()
+    :ok = :sys.resume(RoomManager)
+
+    call = Task.async(fn -> RoomManager.get_room(other.code) end)
+    assert {:ok, {:ok, _}} = Task.yield(call, 500) || Task.shutdown(call, :brutal_kill)
+    assert {:error, :room_not_found} = RoomManager.get_room(room.code)
+    assert {:ok, %{seats: %{east: %{occupant_type: :bot}}}} = RoomManager.get_room(other.code)
+  end
+
   test "unclean recovery excludes a room checkpoint older than its committed engine move" do
     Application.put_env(
       :pidro_server,
@@ -359,6 +383,38 @@ defmodule PidroServer.Games.TableCleanupTest do
       true ->
         Process.sleep(10)
         wait_for_progress(code, before, attempts - 1)
+    end
+  end
+
+  defp await_bots(code, attempts \\ 100) do
+    {:ok, room} = RoomManager.get_room(code)
+
+    cond do
+      Enum.all?([:east, :south, :west], &is_pid(room.seats[&1].bot_pid)) ->
+        :ok
+
+      attempts == 0 ->
+        flunk("restored bots did not take their seats")
+
+      true ->
+        Process.sleep(10)
+        await_bots(code, attempts - 1)
+    end
+  end
+
+  defp await_join_bot_call(attempts \\ 100) do
+    {:messages, messages} = Process.info(Process.whereis(RoomManager), :messages)
+
+    cond do
+      Enum.any?(messages, &match?({:"$gen_call", _, {:join_bot, _, _, _, _}}, &1)) ->
+        :ok
+
+      attempts == 0 ->
+        flunk("the bot did not ask to join")
+
+      true ->
+        Process.sleep(10)
+        await_join_bot_call(attempts - 1)
     end
   end
 
