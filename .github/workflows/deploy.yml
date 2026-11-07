@@ -60,6 +60,8 @@ jobs:
       SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
       # Optional, so it is not in the check below: empty turns translation off.
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      # Optional too: empty sends pushes without an Expo access token.
+      EXPO_ACCESS_TOKEN: ${{ secrets.EXPO_ACCESS_TOKEN }}
       ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
       ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
       ASC_PRIVATE_KEY: ${{ secrets.ASC_PRIVATE_KEY }}
@@ -116,7 +118,7 @@ jobs:
           # Kamal expands each $NAME from the next step's environment; this file holds references only.
           for name in KAMAL_REGISTRY_PASSWORD SECRET_KEY_BASE POSTGRES_PASSWORD \
             CLASSIC_API_URL CLASSIC_CLAIM_SECRET FB_APP_SECRET \
-            SMTP_RELAY SMTP_PORT SMTP_USERNAME SMTP_PASSWORD ANTHROPIC_API_KEY \
+            SMTP_RELAY SMTP_PORT SMTP_USERNAME SMTP_PASSWORD ANTHROPIC_API_KEY EXPO_ACCESS_TOKEN \
             ASC_KEY_ID ASC_ISSUER_ID ASC_PRIVATE_KEY_BASE64 PLAY_SERVICE_ACCOUNT_JSON_BASE64; do
             echo "$name=\$$name"
           done > .kamal/secrets-common

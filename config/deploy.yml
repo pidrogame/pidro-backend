@@ -77,6 +77,8 @@ env:
     - SMTP_PASSWORD
     # Optional: without it /admin/news has no Translate to Swedish.
     - ANTHROPIC_API_KEY
+    # Optional: without it pushes go to Expo without an access token.
+    - EXPO_ACCESS_TOKEN
     # Optional read-only store checks; multiline values travel base64-encoded.
     - ASC_KEY_ID
     - ASC_ISSUER_ID

@@ -191,6 +191,9 @@ defmodule PidroServerWeb.Router do
     post "/auth/upgrade", AuthController, :upgrade, private: %{rate_limit: [:auth_upgrade]}
     post "/auth/age", AuthController, :age, private: %{rate_limit: [:auth_age]}
 
+    post "/me/push-tokens", PushTokenController, :create, private: %{rate_limit: [:push_token]}
+    delete "/me/push-tokens/:token", PushTokenController, :delete
+
     # Game state route (authenticated to prevent hand exposure)
     get "/rooms/:code/state", RoomController, :state
 

@@ -210,7 +210,9 @@ rate_limit_overrides =
     {:avatar_upload, :limit, "RATE_LIMIT_AVATAR_UPLOAD_LIMIT"},
     {:avatar_upload, :scale_ms, "RATE_LIMIT_AVATAR_UPLOAD_SCALE_MS"},
     {:avatar_read, :limit, "RATE_LIMIT_AVATAR_READ_LIMIT"},
-    {:avatar_read, :scale_ms, "RATE_LIMIT_AVATAR_READ_SCALE_MS"}
+    {:avatar_read, :scale_ms, "RATE_LIMIT_AVATAR_READ_SCALE_MS"},
+    {:push_token, :limit, "RATE_LIMIT_PUSH_TOKEN_LIMIT"},
+    {:push_token, :scale_ms, "RATE_LIMIT_PUSH_TOKEN_SCALE_MS"}
   ]
   |> Enum.reduce([], fn {policy, field, env_var}, acc ->
     case System.get_env(env_var) do
@@ -622,4 +624,13 @@ if config_env() != :test do
 
   config :pidro_server, PidroServer.Translate,
     api_key: if(anthropic_api_key in [nil, ""], do: nil, else: anthropic_api_key)
+end
+
+# Expo push (PID-392). Optional: without a token Expo still accepts pushes
+# unless the project's enhanced push security requires one.
+if config_env() != :test do
+  expo_access_token = System.get_env("EXPO_ACCESS_TOKEN")
+
+  config :pidro_server, PidroServer.Push.Expo,
+    access_token: if(expo_access_token in [nil, ""], do: nil, else: expo_access_token)
 end

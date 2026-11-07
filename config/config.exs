@@ -100,7 +100,9 @@ config :pidro_server, PidroServerWeb.Plugs.RateLimit,
   feedback_note_user: %{limit: 20, scale_ms: 86_400_000, key: :user},
   feedback_answer: %{limit: 60, scale_ms: 3_600_000, key: :ip},
   avatar_upload: %{limit: 10, scale_ms: 600_000, key: :user},
-  avatar_read: %{limit: 300, scale_ms: 60_000, key: :ip}
+  avatar_read: %{limit: 300, scale_ms: 60_000, key: :ip},
+  # The app registers its push token on start and after sign-in (PID-392).
+  push_token: %{limit: 30, scale_ms: 3_600_000, key: :user}
 
 # PidroServerWeb.Plugs.TrustedProxy honours X-Forwarded-For / X-Forwarded-Proto
 # only when this is true and the TCP peer is proxy-side. config/runtime.exs sets

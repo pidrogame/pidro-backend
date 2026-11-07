@@ -26,6 +26,13 @@ config :pidro_server, PidroServer.RevenueCat,
   webhook_secret: "revenuecat-test-webhook-secret",
   req_options: [plug: {Req.Test, PidroServer.RevenueCat}]
 
+config :pidro_server, PidroServer.Push.Expo,
+  access_token: "expo-test-token",
+  req_options: [plug: {Req.Test, PidroServer.Push.Expo}]
+
+# Tests read receipts by calling PidroServer.Push.check_receipts/0 themselves.
+config :pidro_server, PidroServer.Push.Receipts, enabled: false
+
 config :pidro_server, PidroServer.Accounts.ProviderIdentity,
   apple_jwks_url: "https://apple.test/auth/keys",
   apple_audience: ["com.oneapps.pidro", "com.oneapps.pidro.beta"],
@@ -170,7 +177,8 @@ config :pidro_server, PidroServerWeb.Plugs.RateLimit,
   feedback_note_user: %{limit: 1_000_000, scale_ms: 86_400_000, key: :user},
   feedback_answer: %{limit: 1_000_000, scale_ms: 3_600_000, key: :ip},
   avatar_upload: %{limit: 1_000_000, scale_ms: 600_000, key: :user},
-  avatar_read: %{limit: 1_000_000, scale_ms: 60_000, key: :ip}
+  avatar_read: %{limit: 1_000_000, scale_ms: 60_000, key: :ip},
+  push_token: %{limit: 1_000_000, scale_ms: 3_600_000, key: :user}
 
 # Ops routes require a real admin session in tests. Only local development bypasses auth.
 config :pidro_server, dev_routes: false
