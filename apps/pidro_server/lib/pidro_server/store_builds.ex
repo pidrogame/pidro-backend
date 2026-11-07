@@ -102,26 +102,24 @@ defmodule PidroServer.StoreBuilds do
             }
           ]
 
-      minimum in [nil, ""] or above?(data.live.version, minimum) ->
+      pending == nil and (minimum in [nil, ""] or above?(data.live.version, minimum)) ->
         older =
           counts
           |> Enum.filter(&(&1.platform == platform and above?(data.live.version, &1.version)))
           |> Enum.map(& &1.count)
           |> Enum.sum()
 
-        detail =
-          if older > 0,
-            do: " #{older} player-version records below it in the last 7 days.",
-            else: ""
-
-        steps ++
+        if older > 0 do
           [
             %{
               text:
-                "#{name(platform)} #{data.live.version} is live, but players below it aren't nudged. Publish an app-update post.#{detail}",
+                "#{name(platform)} #{data.live.version} is live, but players below it aren't nudged. Publish an app-update post. #{older} player-version records below it in the last 7 days.",
               action: :news
             }
           ]
+        else
+          steps
+        end
 
       true ->
         steps

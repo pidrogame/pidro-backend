@@ -17,11 +17,19 @@ defmodule PidroServer.StoreBuildsTest do
     %{stores: stores, minimums: %{"android" => "3.2.4", "ios" => "3.2.1"}}
   end
 
-  test "today: external review holds iPhone players on 3.2.1, not internal 3.2.4", %{
-    stores: stores,
-    minimums: minimums
-  } do
-    assert [%{text: text, action: nil}] = StoreBuilds.next_steps(stores, minimums, [])
+  test "today: only Apple's review is pending, with no iOS minimum and Android minimum at live",
+       %{
+         stores: stores
+       } do
+    counts = [
+      %{platform: "ios", version: "3.2.1", count: 8},
+      %{platform: "android", version: "3.2.3", count: 3},
+      %{platform: "android", version: "3.2.4", count: 5}
+    ]
+
+    assert [%{text: text, action: nil}] =
+             StoreBuilds.next_steps(stores, %{"android" => "3.2.4"}, counts)
+
     assert text =~ "3.2.4 is waiting for Apple's review"
     assert text =~ "Players are on 3.2.1"
     assert stores["ios"].data.newest.number == "10"
@@ -32,6 +40,48 @@ defmodule PidroServer.StoreBuildsTest do
              stores["android"].data.tracks,
              &(&1.track == "production" and &1.state == "draft")
            )
+  end
+
+  test "a nudge needs older players on that platform, not just a missing or lower minimum", %{
+    stores: stores
+  } do
+    stores = put_in(stores, ["ios", :data, :newest], stores["ios"].data.live)
+
+    counts = [
+      %{platform: "ios", version: "3.2.1", count: 8},
+      %{platform: "android", version: "3.2.3", count: 3},
+      %{platform: "android", version: "3.2.4", count: 5}
+    ]
+
+    for ios_minimum <- [nil, "3.2.0"] do
+      assert [%{action: :news, text: text}] =
+               StoreBuilds.next_steps(stores, %{"ios" => ios_minimum}, counts)
+
+      assert text =~ "Android 3.2.4 is live"
+      assert text =~ "3 player-version records"
+    end
+
+    assert StoreBuilds.next_steps(stores, %{}, []) == [%{text: "All good", action: nil}]
+  end
+
+  test "review and Team-only steps take priority even when older iPhone players were seen", %{
+    stores: stores
+  } do
+    counts = [%{platform: "ios", version: "3.2.0", count: 7}]
+    minimums = %{"android" => "3.2.4"}
+
+    for state <- ["WAITING_FOR_BETA_REVIEW", "IN_BETA_REVIEW"] do
+      reviewing = put_in(stores, ["ios", :data, :newest, :state], state)
+      assert [%{action: nil, text: text}] = StoreBuilds.next_steps(reviewing, minimums, counts)
+      assert text =~ "Apple's review"
+    end
+
+    team_only = put_in(stores, ["ios", :data, :newest, :friends], false)
+    assert [%{action: nil, text: text}] = StoreBuilds.next_steps(team_only, minimums, counts)
+    assert text =~ "only in the Team group"
+
+    released = put_in(stores, ["ios", :data, :newest], stores["ios"].data.live)
+    assert [%{action: :news}] = StoreBuilds.next_steps(released, minimums, counts)
   end
 
   test "Team-only tells the admin to add Friends and submit", %{
@@ -72,7 +122,9 @@ defmodule PidroServer.StoreBuildsTest do
     assert StoreBuilds.next_steps(stores, minimums, []) == [%{text: "All good", action: nil}]
 
     assert [%{action: :news}] =
-             StoreBuilds.next_steps(stores, Map.delete(minimums, "android"), [])
+             StoreBuilds.next_steps(stores, Map.delete(minimums, "android"), [
+               %{platform: "android", version: "3.2.3", count: 1}
+             ])
 
     assert [%{text: text}] =
              StoreBuilds.next_steps(stores, %{minimums | "android" => "3.2.10"}, [])

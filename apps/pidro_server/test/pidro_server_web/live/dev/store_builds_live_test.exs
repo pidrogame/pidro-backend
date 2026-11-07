@@ -88,6 +88,18 @@ defmodule PidroServerWeb.Dev.StoreBuildsLiveTest do
     assert has_element?(view, "#store-ios", "3.2.1 (7)")
     assert has_element?(view, "#store-android", "production: 3.2.3 (8)")
     assert has_element?(view, "#store-android", "from deploy config")
+    assert has_element?(view, "#next-steps li:only-child", "waiting for Apple's review")
+    refute has_element?(view, "#next-steps a")
+
+    PidroServer.Repo.insert!(%PidroServer.Stats.SeatEvent{
+      user_id: "older-android-player",
+      platform: "android",
+      app_version: "3.2.3",
+      kind: "join",
+      room_code: "TEST"
+    })
+
+    {:ok, view, _} = live(conn, ~p"/admin/store-builds")
 
     result = view |> element("#next-steps li:last-child a") |> render_click()
     {:ok, news, _} = follow_redirect(result, conn, "/admin/news?app_update=true")
