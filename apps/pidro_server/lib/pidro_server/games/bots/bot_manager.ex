@@ -260,7 +260,8 @@ defmodule PidroServer.Games.Bots.BotManager do
     case Map.pop(state.monitors, ref) do
       {{room_code, position, ^pid}, new_monitors} ->
         Logger.info("Bot for room #{room_code}, position #{position} exited: #{inspect(reason)}")
-        # Idempotent cleanup — may already be cleaned up by stop_bot/stop_all_bots
+        # A bot that dies without stop_bot (with its room, say) frees its slot here.
+        :ets.delete_object(@table_name, {{room_code, position}, pid})
         state = %{state | monitors: new_monitors}
         {:noreply, cleanup_bot_state(state, room_code, position)}
 

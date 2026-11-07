@@ -24,7 +24,7 @@ defmodule PidroServer.Games.Bots.BotManagerTest do
       _pid -> :ok
     end
 
-    PidroServer.RoomManagerCase.cleanup()
+    RoomManager.reset_for_test()
     on_exit(&PidroServer.RoomManagerCase.cleanup/0)
 
     # Ensure BotSupervisor is running
@@ -45,6 +45,21 @@ defmodule PidroServer.Games.Bots.BotManagerTest do
   # Helper: stop all bots for a room to clean up after tests
   defp cleanup_bots(room_code) do
     BotManager.stop_all_bots(room_code)
+  end
+
+  # The bot manager hears of a bot's death on its own, right after the caller.
+  defp slot_freed?(room_code, position, attempts \\ 50) do
+    cond do
+      BotManager.bot_pid(room_code, position) == nil ->
+        true
+
+      attempts == 0 ->
+        false
+
+      true ->
+        Process.sleep(10)
+        slot_freed?(room_code, position, attempts - 1)
+    end
   end
 
   describe "start_bots/4 skips occupied seats" do
@@ -246,6 +261,28 @@ defmodule PidroServer.Games.Bots.BotManagerTest do
 
       # All pids should be dead
       refute Enum.any?(pids, &Process.alive?/1)
+    end
+
+    test "a bot that dies with its room frees its slot" do
+      {:ok, room} = RoomManager.create_room("host_user", %{})
+      {:ok, pid} = BotManager.start_bot(room.code, :east, :random, 0)
+      ref = Process.monitor(pid)
+
+      :ok = RoomManager.close_room(room.code)
+
+      assert_receive {:DOWN, ^ref, :process, ^pid, _reason}
+      assert slot_freed?(room.code, :east)
+      assert BotManager.list_bots(room.code) == %{}
+    end
+
+    test "a bot that cannot join its room stops and frees its slot" do
+      {:ok, room} = RoomManager.create_room("host_user", %{})
+      :ok = RoomManager.close_room(room.code)
+
+      {:ok, pid} = BotManager.start_bot(room.code, :east, :random, 0)
+
+      refute Process.alive?(pid)
+      assert slot_freed?(room.code, :east)
     end
 
     test "full cascading cleanup: stop bots then close room" do
