@@ -1,0 +1,39 @@
+{
+  "request_date": "2026-11-07T10:00:00Z",
+  "request_date_ms": 1793959200000,
+  "subscriber": {
+    "entitlements": {
+      "premium": {
+        "expires_date": "2026-10-01T09:00:00Z",
+        "grace_period_expires_date": null,
+        "product_identifier": "pidro.onemonthsubscription",
+        "purchase_date": "2026-09-01T09:00:00Z"
+      }
+    },
+    "first_seen": "2026-09-01T09:00:00Z",
+    "last_seen": "2026-11-07T10:00:00Z",
+    "management_url": "https://play.google.com/store/account/subscriptions",
+    "non_subscriptions": {},
+    "original_app_user_id": "$RCAnonymousID:1a2b3c4d5e6f40718293a4b5c6d7e8f9",
+    "original_application_version": null,
+    "original_purchase_date": "2026-09-01T09:00:00Z",
+    "other_purchases": {},
+    "subscriptions": {
+      "pidro.onemonthsubscription": {
+        "auto_resume_date": null,
+        "billing_issues_detected_at": null,
+        "expires_date": "2026-10-01T09:00:00Z",
+        "grace_period_expires_date": null,
+        "is_sandbox": false,
+        "original_purchase_date": "2026-09-01T09:00:00Z",
+        "ownership_type": "PURCHASED",
+        "period_type": "normal",
+        "purchase_date": "2026-09-01T09:00:00Z",
+        "refunded_at": null,
+        "store": "play_store",
+        "store_transaction_id": "GPA.3312-4417-0921-55128",
+        "unsubscribe_detected_at": "2026-09-20T12:00:00Z"
+      }
+    }
+  }
+}

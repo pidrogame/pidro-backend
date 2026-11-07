@@ -34,6 +34,7 @@ defmodule PidroServerWeb.ErrorContract do
     no_dealer not_dealer_turn invalid_card_count player_eliminated game_already_complete
     invalid_team cannot_friend_self cannot_block_self user_not_found query_too_short avatar_too_large
     avatar_dimensions avatar_unsupported_type avatar_result_too_large avatar_busy avatar_invalid
+    revenuecat_not_configured premium_unavailable
   )a
 
   @legacy_codes Map.new(@simple_codes, &{String.upcase(Atom.to_string(&1)), &1})

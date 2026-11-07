@@ -177,6 +177,30 @@ pushes until the app registers it again. iOS tokens work with the store build
 that carries `expo-notifications` (PID-390); Android tokens also need Marcel's
 Firebase (FCM) setup for that build.
 
+`REVENUECAT_SECRET_KEY` and `REVENUECAT_WEBHOOK_SECRET` are optional too and
+not in that check. Together they turn on Premium (PID-125):
+
+| Secret | Value |
+| --- | --- |
+| `REVENUECAT_SECRET_KEY` | RevenueCat project → API keys → a **secret** (v1) key, `sk_...` |
+| `REVENUECAT_WEBHOOK_SECRET` | Any long random string; the same value goes into the RevenueCat webhook's Authorization header |
+
+```bash
+gh secret set REVENUECAT_SECRET_KEY
+openssl rand -hex 32 | gh secret set REVENUECAT_WEBHOOK_SECRET
+```
+
+In the RevenueCat dashboard (Integrations → Webhooks), point the webhook at
+`https://app.pidro.online/webhooks/revenuecat` and set its Authorization header
+to `Bearer <REVENUECAT_WEBHOOK_SECRET>`.
+
+Until both are set, a deploy runs as usual and Premium is off: `/me` says
+`premium: false` for everyone, the webhook and
+`POST /api/v1/me/entitlements/refresh` answer 503 (the refresh with
+`REVENUECAT_NOT_CONFIGURED`), and the Premium grant on a player's admin page is
+disabled with a line saying why. For `just deploy`, set them in
+`.kamal/secrets-common`.
+
 The four store credentials are also **optional**, outside the required secret
 check. Missing credentials show “App Store Connect not connected” or “Google
 Play not connected” without affecting the app or deployment:

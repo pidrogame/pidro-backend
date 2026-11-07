@@ -1,7 +1,8 @@
 defmodule PidroServer.PremiumUnconfiguredTest do
   # Not async: it swaps the RevenueCat config for the whole node.
-  use PidroServer.DataCase, async: false
+  use PidroServerWeb.ConnCase, async: false
 
+  alias PidroServer.Accounts.Token
   alias PidroServer.AccountsFixtures
   alias PidroServer.Entitlements
   alias PidroServer.Entitlements.Entitlement
@@ -26,5 +27,36 @@ defmodule PidroServer.PremiumUnconfiguredTest do
 
     refute RevenueCat.configured?()
     refute Entitlements.premium?(user)
+  end
+
+  test "the webhook answers 503 and stores nothing" do
+    conn =
+      build_conn()
+      |> put_req_header("authorization", "Bearer revenuecat-test-webhook-secret")
+      |> put_req_header("content-type", "application/json")
+      |> post(
+        ~p"/webhooks/revenuecat",
+        Jason.encode!(%{"event" => %{"id" => "e1", "type" => "TEST"}})
+      )
+
+    assert response(conn, 503)
+    assert Repo.aggregate(PidroServer.Entitlements.RevenueCatEvent, :count) == 0
+  end
+
+  test "refresh answers 503 revenuecat_not_configured and /me says not Premium" do
+    user = AccountsFixtures.user_fixture()
+
+    authed = fn ->
+      put_req_header(build_conn(), "authorization", "Bearer #{Token.generate(user)}")
+    end
+
+    assert %{"error_code" => "revenuecat_not_configured"} =
+             authed.() |> post(~p"/api/v1/me/entitlements/refresh") |> json_response(503)
+
+    assert %{"premium" => false} =
+             authed.()
+             |> get(~p"/api/v1/auth/me")
+             |> json_response(200)
+             |> get_in(["data", "user"])
   end
 end

@@ -72,6 +72,11 @@ defmodule PidroServerWeb.Router do
     plug PidroServerWeb.Plugs.Authenticate
   end
 
+  # RevenueCat's webhook carries its own bearer secret, checked in the controller.
+  pipeline :webhook do
+    plug :accepts, ["json"]
+  end
+
   pipeline :public_asset do
     plug PidroServerWeb.Plugs.RateLimit
   end
@@ -98,6 +103,12 @@ defmodule PidroServerWeb.Router do
 
     post "/play/:slug/deferred", DeferredInviteCaptureController, :create,
       private: %{rate_limit: [:invite_capture, :friend_capture_slug]}
+  end
+
+  scope "/webhooks", PidroServerWeb do
+    pipe_through :webhook
+
+    post "/revenuecat", RevenueCatWebhookController, :create
   end
 
   # OpenAPI documentation routes
@@ -199,6 +210,10 @@ defmodule PidroServerWeb.Router do
 
     # User routes with authentication
     get "/users/me/stats", UserController, :stats
+
+    post "/me/entitlements/refresh", UserController, :refresh_entitlements,
+      private: %{rate_limit: [:entitlements_refresh]}
+
     # Rate limited in the controller: notes and answers in separate buckets.
     post "/feedback", FeedbackController, :create, log: false
     get "/feedback/ask", FeedbackController, :ask

@@ -1,0 +1,38 @@
+{
+  "request_date": "2026-11-07T10:00:00Z",
+  "request_date_ms": 1793959200000,
+  "subscriber": {
+    "entitlements": {
+      "premium": {
+        "expires_date": "2099-06-30T00:00:00Z",
+        "grace_period_expires_date": null,
+        "product_identifier": "rc_promo_premium_custom",
+        "purchase_date": "2026-11-07T10:00:00Z"
+      }
+    },
+    "first_seen": "2026-11-07T10:00:00Z",
+    "last_seen": "2026-11-07T10:00:00Z",
+    "management_url": null,
+    "non_subscriptions": {},
+    "original_app_user_id": "$RCAnonymousID:5566778899aabbccddeeff0011223344",
+    "original_application_version": null,
+    "original_purchase_date": null,
+    "other_purchases": {},
+    "subscriptions": {
+      "rc_promo_premium_custom": {
+        "auto_resume_date": null,
+        "billing_issues_detected_at": null,
+        "expires_date": "2099-06-30T00:00:00Z",
+        "grace_period_expires_date": null,
+        "is_sandbox": false,
+        "original_purchase_date": "2026-11-07T10:00:00Z",
+        "ownership_type": "PURCHASED",
+        "period_type": "normal",
+        "purchase_date": "2026-11-07T10:00:00Z",
+        "refunded_at": null,
+        "store": "promotional",
+        "unsubscribe_detected_at": null
+      }
+    }
+  }
+}

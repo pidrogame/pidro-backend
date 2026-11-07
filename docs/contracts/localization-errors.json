@@ -16,6 +16,7 @@
     "actions": ["game:<code>: bid", "game:<code>: pass", "game:<code>: declare_trump", "game:<code>: play_card", "game:<code>: select_hand", "game:<code>: select_dealer"],
     "readiness": ["game:<code>: ready", "game:<code>: rematch"],
     "seats": ["game:<code>: open_seat", "game:<code>: keep_bot", "game:<code>: close_seat", "game:<code>: get_seat_lifecycle"],
+    "premium": ["POST /api/v1/me/entitlements/refresh"],
     "http": ["JSON endpoint errors", "authenticated API routes", "rate-limited API routes"]
   },
   "inventory": [
@@ -47,6 +48,8 @@
     {"code":"rate_limited","params":{"retry_after":{"type":"integer"}},"sources":["http"],"meaning":"Too many requests; wait this many seconds before retrying."},
     {"code":"invalid_credentials","params":{},"sources":["auth","classic"],"meaning":"The sign-in credentials are invalid."},
     {"code":"mail_unavailable","params":{},"sources":["classic"],"meaning":"Your message could not be sent right now."},
+    {"code":"revenuecat_not_configured","params":{},"sources":["premium"],"meaning":"This server has no RevenueCat keys, so Premium cannot be checked."},
+    {"code":"premium_unavailable","params":{},"sources":["premium"],"meaning":"Premium could not be checked right now; try again shortly."},
     {"code":"provider_unavailable","params":{},"sources":["auth","classic"],"meaning":"The identity provider is temporarily unavailable."},
     {"code":"account_inactive","params":{},"sources":["auth","classic"],"meaning":"This Classic account is inactive; contact support."},
     {"code":"classic_account_not_found","params":{},"sources":["classic"],"meaning":"No visible Classic account matches the username or email."},

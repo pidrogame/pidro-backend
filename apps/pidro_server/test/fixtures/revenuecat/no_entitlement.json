@@ -1,0 +1,16 @@
+{
+  "request_date": "2026-11-07T10:00:00Z",
+  "request_date_ms": 1793959200000,
+  "subscriber": {
+    "entitlements": {},
+    "first_seen": "2026-11-07T10:00:00Z",
+    "last_seen": "2026-11-07T10:00:00Z",
+    "management_url": null,
+    "non_subscriptions": {},
+    "original_app_user_id": "$RCAnonymousID:aa11bb22cc33dd44ee55ff6600778899",
+    "original_application_version": null,
+    "original_purchase_date": null,
+    "other_purchases": {},
+    "subscriptions": {}
+  }
+}

@@ -58,6 +58,57 @@ defmodule PidroServerWeb.Schemas.UserSchemas do
   # User Object Schemas
   # ============================================================================
 
+  defmodule PremiumFields do
+    @moduledoc """
+    Whether the player is Premium, as the server decides from RevenueCat (PID-125).
+    """
+
+    OpenApiSpex.schema(%{
+      type: :object,
+      title: "Premium Fields",
+      description: "Whether the player is Premium, until when and why",
+      properties: %{
+        premium: %Schema{
+          type: :boolean,
+          description: "Whether the player is Premium right now; hide ads when true",
+          example: true
+        },
+        premium_until: %Schema{
+          type: :string,
+          format: "date-time",
+          nullable: true,
+          description: "When Premium ends; null when not Premium or when it never ends",
+          example: "2027-11-07T10:00:00Z"
+        },
+        premium_source: %Schema{
+          type: :string,
+          enum: ["store", "promotional", "classic_honored"],
+          nullable: true,
+          description:
+            "store: a subscription or purchase; promotional: granted by Pidro; classic_honored: Classic premium carried over. Null when not Premium",
+          example: "store"
+        }
+      },
+      required: [:premium, :premium_until, :premium_source],
+      example: %{
+        "premium" => true,
+        "premium_until" => "2027-11-07T10:00:00Z",
+        "premium_source" => "store"
+      }
+    })
+  end
+
+  defmodule PremiumResponse do
+    @moduledoc "The player's Premium fields after a refresh from RevenueCat."
+
+    OpenApiSpex.schema(%{
+      type: :object,
+      title: "Premium Response",
+      properties: %{data: PremiumFields},
+      required: [:data]
+    })
+  end
+
   defmodule User do
     @moduledoc """
     The User schema represents a user in the system.
@@ -130,7 +181,10 @@ defmodule PidroServerWeb.Schemas.UserSchemas do
           format: "date-time",
           description: "ISO 8601 timestamp when the user was last updated",
           example: "2024-11-02T15:45:30Z"
-        }
+        },
+        premium: PremiumFields.schema().properties.premium,
+        premium_until: PremiumFields.schema().properties.premium_until,
+        premium_source: PremiumFields.schema().properties.premium_source
       },
       required: [:id, :username, :guest, :age_band, :terms_version, :inserted_at, :updated_at],
       example: %{

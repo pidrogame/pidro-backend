@@ -107,6 +107,26 @@ defmodule PidroServerWeb.API.FallbackController do
     })
   end
 
+  def call(conn, {:error, :revenuecat_not_configured}) do
+    error(
+      conn,
+      :service_unavailable,
+      "REVENUECAT_NOT_CONFIGURED",
+      "Premium unavailable",
+      "This server has no RevenueCat keys, so it cannot check Premium"
+    )
+  end
+
+  def call(conn, {:error, :premium_unavailable}) do
+    error(
+      conn,
+      :service_unavailable,
+      "PREMIUM_UNAVAILABLE",
+      "Premium unavailable",
+      "Premium could not be checked right now. Try again shortly."
+    )
+  end
+
   def call(conn, {:error, :classic_account_not_found}) do
     error(
       conn,

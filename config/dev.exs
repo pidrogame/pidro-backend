@@ -104,6 +104,7 @@ config :pidro_server, dev_routes: true
 #   seat_password_room         30 per 600_000 ms         300 per 600_000 ms
 #   auth_upgrade               10 per 600_000 ms         100 per 600_000 ms
 #   auth_age                   10 per 600_000 ms         100 per 600_000 ms
+#   entitlements_refresh       6 per 60_000 ms           60 per 60_000 ms
 #   classic_help               5 per 3_600_000 ms        50 per 3_600_000 ms
 #   feedback_note              10 per 3_600_000 ms       100 per 3_600_000 ms
 #   feedback_note_user         20 per 86_400_000 ms      200 per 86_400_000 ms
@@ -137,6 +138,7 @@ config :pidro_server, PidroServerWeb.Plugs.RateLimit,
   seat_password_room: %{limit: 300, scale_ms: 600_000, key: {:param, "code"}},
   auth_upgrade: %{limit: 100, scale_ms: 600_000, key: :ip},
   auth_age: %{limit: 100, scale_ms: 600_000, key: :user},
+  entitlements_refresh: %{limit: 60, scale_ms: 60_000, key: :user},
   provider_auth: %{limit: 100, scale_ms: 60_000, key: :ip},
   classic_claim: %{limit: 100, scale_ms: 600_000, key: :ip},
   classic_help: %{limit: 50, scale_ms: 3_600_000, key: :ip},

@@ -189,6 +189,8 @@ rate_limit_overrides =
     {:auth_upgrade, :scale_ms, "RATE_LIMIT_AUTH_UPGRADE_SCALE_MS"},
     {:auth_age, :limit, "RATE_LIMIT_AUTH_AGE_LIMIT"},
     {:auth_age, :scale_ms, "RATE_LIMIT_AUTH_AGE_SCALE_MS"},
+    {:entitlements_refresh, :limit, "RATE_LIMIT_ENTITLEMENTS_REFRESH_LIMIT"},
+    {:entitlements_refresh, :scale_ms, "RATE_LIMIT_ENTITLEMENTS_REFRESH_SCALE_MS"},
     {:provider_auth, :limit, "RATE_LIMIT_PROVIDER_AUTH_LIMIT"},
     {:provider_auth, :scale_ms, "RATE_LIMIT_PROVIDER_AUTH_SCALE_MS"},
     {:classic_claim, :limit, "RATE_LIMIT_CLASSIC_CLAIM_LIMIT"},
@@ -633,4 +635,15 @@ if config_env() != :test do
 
   config :pidro_server, PidroServer.Push.Expo,
     access_token: if(expo_access_token in [nil, ""], do: nil, else: expo_access_token)
+end
+
+# Premium from RevenueCat (PID-125). Without both secrets nobody is Premium,
+# the webhook and the refresh call answer 503 and the admin grant is off; the
+# test suite configures its own stub in test.exs.
+if config_env() != :test do
+  blank_to_nil = fn value -> if value in [nil, ""], do: nil, else: value end
+
+  config :pidro_server, PidroServer.RevenueCat,
+    secret_key: blank_to_nil.(System.get_env("REVENUECAT_SECRET_KEY")),
+    webhook_secret: blank_to_nil.(System.get_env("REVENUECAT_WEBHOOK_SECRET"))
 end

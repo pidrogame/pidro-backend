@@ -1,0 +1,34 @@
+{
+  "request_date": "2026-11-07T10:00:00Z",
+  "request_date_ms": 1793959200000,
+  "subscriber": {
+    "entitlements": {
+      "premium": {
+        "expires_date": null,
+        "grace_period_expires_date": null,
+        "product_identifier": "pidro.lifetime",
+        "purchase_date": "2026-11-02T18:30:00Z"
+      }
+    },
+    "first_seen": "2026-11-02T18:00:00Z",
+    "last_seen": "2026-11-07T10:00:00Z",
+    "management_url": null,
+    "non_subscriptions": {
+      "pidro.lifetime": [
+        {
+          "id": "d1b2c3a4e5",
+          "is_sandbox": false,
+          "original_purchase_date": "2026-11-02T18:30:00Z",
+          "purchase_date": "2026-11-02T18:30:00Z",
+          "store": "app_store",
+          "store_transaction_id": "2000000812349999"
+        }
+      ]
+    },
+    "original_app_user_id": "$RCAnonymousID:0f9e8d7c6b5a43219876fedcba012345",
+    "original_application_version": "1.0",
+    "original_purchase_date": "2026-11-02T18:30:00Z",
+    "other_purchases": {},
+    "subscriptions": {}
+  }
+}

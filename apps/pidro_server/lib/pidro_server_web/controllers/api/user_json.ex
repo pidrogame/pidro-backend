@@ -69,7 +69,8 @@ defmodule PidroServerWeb.API.UserJSON do
   # Private function to transform a user struct into a JSON-serializable map.
   #
   # Includes user fields (id, username, email, display_name, share_slug, guest,
-  # inserted_at, updated_at) but explicitly excludes password_hash,
+  # inserted_at, updated_at) and the Premium fields from
+  # PidroServer.Entitlements.premium_fields/1, but explicitly excludes password_hash,
   # token_version, last_seen_at, install_id and guest_creation_token_hash.
   defp user(user) do
     %{
@@ -85,6 +86,7 @@ defmodule PidroServerWeb.API.UserJSON do
       inserted_at: DateTime.to_iso8601(user.inserted_at),
       updated_at: DateTime.to_iso8601(user.updated_at)
     }
+    |> Map.merge(PidroServer.Entitlements.premium_fields(user))
   end
 
   defp avatar_url(%{avatar_url: url}) when is_binary(url), do: url

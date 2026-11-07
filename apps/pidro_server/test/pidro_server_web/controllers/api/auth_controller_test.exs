@@ -1125,6 +1125,34 @@ defmodule PidroServerWeb.API.AuthControllerTest do
       assert share_slug == user.share_slug
       assert share_slug =~ ~r/\A[a-z0-9-]{3,30}\z/
     end
+
+    test "says whether the player is Premium, until when and why", %{conn: conn} do
+      user = AccountsFixtures.user_fixture()
+
+      me = fn ->
+        conn
+        |> recycle()
+        |> put_req_header("authorization", "Bearer #{Token.generate(user)}")
+        |> get(~p"/api/v1/auth/me")
+      end
+
+      assert %{"premium" => false, "premium_until" => nil, "premium_source" => nil} =
+               json_response(me.(), 200)["data"]["user"]
+
+      Repo.insert!(%PidroServer.Entitlements.Entitlement{
+        user_id: user.id,
+        entitlement: "premium",
+        active: true,
+        expires_at: ~U[2099-06-30 00:00:00Z],
+        source: "promotional"
+      })
+
+      assert %{
+               "premium" => true,
+               "premium_until" => "2099-06-30T00:00:00Z",
+               "premium_source" => "promotional"
+             } = json_response(me.(), 200)["data"]["user"]
+    end
   end
 
   describe "age" do

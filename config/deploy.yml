@@ -79,6 +79,9 @@ env:
     - ANTHROPIC_API_KEY
     # Optional: without it pushes go to Expo without an access token.
     - EXPO_ACCESS_TOKEN
+    # Optional: without both, nobody is Premium and the RevenueCat webhook answers 503.
+    - REVENUECAT_SECRET_KEY
+    - REVENUECAT_WEBHOOK_SECRET
     # Optional read-only store checks; multiline values travel base64-encoded.
     - ASC_KEY_ID
     - ASC_ISSUER_ID

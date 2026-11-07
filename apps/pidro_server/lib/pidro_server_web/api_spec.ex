@@ -71,6 +71,7 @@ defmodule PidroServerWeb.ApiSpec do
         | `guest_create_install` | `POST /api/v1/auth/guest` | 3 per hour | hashed `install_id` param (skipped when absent) |
         | `auth_upgrade` | `POST /api/v1/auth/upgrade` | 10 per 10 minutes | client IP |
         | `auth_age` | `POST /api/v1/auth/age` | 10 per 10 minutes | authenticated user |
+        | `entitlements_refresh` | `POST /api/v1/me/entitlements/refresh` | 6 per minute | authenticated user |
         | `provider_auth` | `POST /api/v1/auth/apple`, `POST /api/v1/auth/facebook` | 10 per minute | client IP |
         | `classic_claim` | `POST /api/v1/classic/claim` | 10 per 10 minutes | client IP |
 

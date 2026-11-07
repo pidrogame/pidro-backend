@@ -1,0 +1,39 @@
+{
+  "request_date": "2026-11-07T10:00:00Z",
+  "request_date_ms": 1793959200000,
+  "subscriber": {
+    "entitlements": {
+      "premium": {
+        "expires_date": "2099-11-07T10:00:00Z",
+        "grace_period_expires_date": null,
+        "product_identifier": "pidro.yearauto",
+        "purchase_date": "2026-11-07T10:00:00Z"
+      }
+    },
+    "first_seen": "2026-11-01T08:00:00Z",
+    "last_seen": "2026-11-07T10:00:00Z",
+    "management_url": "https://apps.apple.com/account/subscriptions",
+    "non_subscriptions": {},
+    "original_app_user_id": "$RCAnonymousID:8f3c1e0a2b4d4c6e9a1b3c5d7e9f0a1b",
+    "original_application_version": "1.0",
+    "original_purchase_date": "2026-11-07T10:00:00Z",
+    "other_purchases": {},
+    "subscriptions": {
+      "pidro.yearauto": {
+        "auto_resume_date": null,
+        "billing_issues_detected_at": null,
+        "expires_date": "2099-11-07T10:00:00Z",
+        "grace_period_expires_date": null,
+        "is_sandbox": false,
+        "original_purchase_date": "2026-11-07T10:00:00Z",
+        "ownership_type": "PURCHASED",
+        "period_type": "normal",
+        "purchase_date": "2026-11-07T10:00:00Z",
+        "refunded_at": null,
+        "store": "app_store",
+        "store_transaction_id": "2000000812345678",
+        "unsubscribe_detected_at": null
+      }
+    }
+  }
+}
