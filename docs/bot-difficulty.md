@@ -88,6 +88,31 @@ do not report them as unseen.
 Louisiana (seed 368, 1,000 pairs): 51.0% wins, 2,369 sets against 2,460.
 Rulebook against random stays at 99.0% (`--pairs 1000 --seed 71`).
 
+## PID-377: volunteer the minimum
+
+Four PID-365 bidders left 41% of Finnish hands as a forced dealer 6. A
+Finnish bot now opens or outbids an opponent at the minimum on an estimate
+up to `volunteer_margin` (one point) short of it. Measured against the frozen
+PID-365 bidder (`origin/main` at `e8da02f`, compiled under another module
+name, bidding only), 3,000 pairs per seed. Seed 3771 chose the candidate:
+margins of 0.5 (with a cheap-contract margin of 0.5 or 1.0) left 33% forced
+6s; a margin of 1.0 makes a wider cheap margin a no-op. Seeds 3772 and 3773
+were held out; 3774 checked Louisiana. Seeds 3770–3774 are used.
+
+| Finnish, four seats of each  | seed 3772       | seed 3773       |
+| ---------------------------- | --------------- | --------------- |
+| forced dealer 6, new / old   | 23.3% / 40.8%   | 22.9% / 40.5%   |
+| hands with two or more bids  | 29.3% / 16.4%   | 29.7% / 16.6%   |
+| volunteered 6s made          | 77.6% / 78.1%   | 78.0% / 78.2%   |
+| sets                         | 11,528 / 10,786 | 11,368 / 10,566 |
+| points lost to sets          | 73,798 / 67,412 | 72,852 / 66,020 |
+| average winning bid          | 6.36 / 6.22     | 6.36 / 6.22     |
+| head to head, new team wins  | 52.8%           | 53.5%           |
+
+Louisiana stays as it was: with the same margin its volunteered contracts
+were made 69.2% of the time, under the 70% bar. Rulebook against random:
+98.8% (`--pairs 1000 --seed 71`).
+
 ## Why one bot
 
 The [PR #49](https://github.com/marcelfahle/pidro-backend/pull/49) experiment gave

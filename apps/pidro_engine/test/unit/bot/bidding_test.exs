@@ -165,6 +165,27 @@ defmodule Pidro.Bot.BiddingTest do
   end
 
   describe "Finnish bidding competition" do
+    test "volunteers the minimum on an estimate up to a point short of it, and passes below" do
+      inside = hand(suit(:hearts, [10, 7, 5, 2]))
+      outside = hand(suit(:hearts, [11, 10, 7, 6, 5]))
+      assert Thresholds.get(:volunteer_margin) == 1.0
+      assert Bidding.estimate(inside, :hearts, false) == 5.0
+      assert Bidding.estimate(outside, :hearts, false) == 4.75
+
+      assert {{:bid, 6}, reason} = decide(Scenario.bidding(me: :north, hand: inside))
+      assert reason == "Hearts are worth about 5, close enough to take the 6."
+      assert {:pass, _} = decide(Scenario.bidding(me: :north, hand: outside))
+
+      over_opponent = Scenario.bidding(me: :east, bids: [north: 6], hand: inside)
+      assert {:pass, _} = decide(over_opponent)
+
+      dealer =
+        Scenario.bidding(me: :west, bids: [north: :pass, east: :pass, south: 6], hand: inside)
+
+      assert Bidding.estimate(inside, :hearts, true) == 6.0
+      assert {{:bid, 7}, "Hearts are worth about 6, close enough to take the 7."} = decide(dealer)
+    end
+
     test "length makes a protected Five worth contesting an opponent's 6" do
       cards = hand(suit(:hearts, [14, 8, 7, 5]))
       assert Bidding.estimate(cards, :hearts, false) == 6.5
@@ -191,16 +212,18 @@ defmodule Pidro.Bot.BiddingTest do
       assert {:pass, _} = decide(state)
     end
 
-    test "contests a 7 at the half-point boundary, but never subsidises an 8" do
+    test "contests a 7 at the half-point boundary; over an 8 only the volunteer margin applies" do
       cards = hand(suit(:hearts, [14, 13, 8, 5]))
       assert Bidding.estimate(cards, :hearts, false) == 7.5
       state = Scenario.bidding(me: :east, bids: [north: 7], hand: cards)
-      assert {{:bid, 8}, _} = decide(state)
+      assert {{:bid, 8}, reason} = decide(state)
+      assert reason =~ "cheap contract"
 
       cards = hand(suit(:hearts, [14, 13, 5, 2]))
       assert Bidding.estimate(cards, :hearts, false) == 8.5
       state = Scenario.bidding(me: :east, bids: [north: 8], hand: cards)
-      assert {:pass, _} = decide(state)
+      assert {{:bid, 9}, reason} = decide(state)
+      assert reason == "Hearts are worth about 8, close enough to take the 9."
     end
 
     test "Louisiana keeps its estimates and passes on the new contest and partner raise" do
@@ -307,9 +330,9 @@ defmodule Pidro.Bot.BiddingTest do
       cards = hand(suit(:hearts, [14, 13, 5]))
       own = trunc(Bidding.estimate(cards, :hearts, false))
 
-      state = Scenario.bidding(me: :south, bids: [east: own], dealer: :north, hand: cards)
+      state = Scenario.bidding(me: :south, bids: [east: own + 1], dealer: :north, hand: cards)
       assert {:pass, reason} = decide(state)
-      assert reason =~ "below the #{own + 1} needed"
+      assert reason =~ "below the #{own + 2} needed"
     end
 
     test "raises partner by one step, however strong the hand" do
@@ -331,13 +354,19 @@ defmodule Pidro.Bot.BiddingTest do
     end
 
     test "chooses a legal action when only one bid remains" do
-      strong = hand(suit(:hearts, [14, 13, 12, 11, 10, 5, 2]) ++ [{5, :diamonds}])
-      state = Scenario.bidding(me: :west, bids: [north: :pass, east: 12, south: 13], hand: strong)
+      state = Scenario.bidding(me: :west, bids: [north: :pass, east: 12, south: 13], hand: big())
 
       legal = Scenario.legal(state)
       assert legal == [{:bid, 14}, :pass]
-      assert Bidding.estimate(strong, :hearts, true) < 14
+      assert Bidding.estimate(big(), :hearts, true) < 14 - Thresholds.get(:volunteer_margin)
       assert {:pass, _} = decide(state)
+
+      strong = hand(suit(:hearts, [14, 13, 12, 11, 10, 5, 2]) ++ [{5, :diamonds}])
+      assert Bidding.estimate(strong, :hearts, true) == 13.75
+      state = Scenario.bidding(me: :west, bids: [north: :pass, east: 12, south: 13], hand: strong)
+
+      assert {{:bid, 14}, "Hearts are worth about 13, close enough to take the 14."} =
+               decide(state)
     end
 
     test "a dealer that is not forced bids one over the table, however strong" do

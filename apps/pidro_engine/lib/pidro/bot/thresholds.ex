@@ -22,6 +22,11 @@ defmodule Pidro.Bot.Thresholds do
   games, fewer sets, 75.4% of raises made against 73.6%), so both variants
   use two. On held-out seeds 366 and 367 the new bidder beat the PID-271
   bidder; see `docs/bot-difficulty.md`.
+
+  PID-377 lets a Finnish bot volunteer the minimum on an estimate up to a
+  point short of it. On seed 3771 a margin of half a point left a third of
+  hands as forced dealer 6s; a full point cut them from 41% to 23% on
+  held-out seeds 3772 and 3773, with 78% of volunteered 6s made.
   """
 
   @values %{
@@ -39,6 +44,7 @@ defmodule Pidro.Bot.Thresholds do
     trump_length: 0.25,
     trump_length_cap: 0.75,
     cheap_contract_margin: 0.5,
+    volunteer_margin: 1.0,
     overbid_partner_margin: 2,
     shut_out_margin: 3
   }
@@ -59,6 +65,7 @@ defmodule Pidro.Bot.Thresholds do
           | :trump_length
           | :trump_length_cap
           | :cheap_contract_margin
+          | :volunteer_margin
           | :overbid_partner_margin
           | :shut_out_margin
 
@@ -78,6 +85,8 @@ defmodule Pidro.Bot.Thresholds do
     capped to avoid double-counting the protection and control bonuses
   - `:cheap_contract_margin` - Finnish allowance below the next bid when
     contesting an opponent's 6 or 7; never applied over a partner
+  - `:volunteer_margin` - Finnish allowance below the minimum when opening
+    or outbidding an opponent, so fewer hands end in a forced dealer 6
   - `:overbid_partner_margin` - how far above partner's bid the estimate must
     reach before the bot raises partner by one
   - `:shut_out_margin` - how far above the minimum the estimate must reach

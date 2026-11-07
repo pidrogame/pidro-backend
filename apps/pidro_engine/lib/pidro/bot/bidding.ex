@@ -8,7 +8,7 @@ defmodule Pidro.Bot.Bidding do
   a failed one loses the bid, so a higher bid never earns a point: it only
   raises the penalty and tells the table what the hand holds. Bidding is one
   round with the dealer last, so the bot bids the lowest legal bid its
-  estimate covers and passes otherwise.
+  estimate covers, in Finnish nearly covers, and passes otherwise.
 
   The dealer has nothing left to shut out and takes the minimum; one forced
   to bid takes it whatever it holds. Any other seat has an opponent still to
@@ -18,11 +18,15 @@ defmodule Pidro.Bot.Bidding do
   otherwise. Declaring trump recomputes the best suit from the current hand,
   so a substitute that inherits an undeclared bid names its own best suit.
 
-  Finnish estimates include a small trump-length bonus, and the Finnish bot
-  takes a cheap contract from an opponent's 6 or 7 on an estimate half a
-  point short of the minimum. The allowance never raises a partner.
-  Louisiana keeps the original estimates and bids by the same rules. The
-  same view and legal actions always give the same bid.
+  Finnish estimates include a small trump-length bonus. The Finnish bot
+  opens or outbids an opponent at the minimum on an estimate up to the
+  volunteer margin short of it, so fewer hands end in a forced dealer 6, and
+  it takes a cheap contract from an opponent's 6 or 7 on an estimate half a
+  point short, inside the volunteer margin, so that allowance only changes
+  the reason. Neither raises a partner or bids above the minimum.
+  Louisiana keeps the original estimates and bids by the same rules,
+  without either allowance. The same view and legal actions always give the
+  same bid.
   """
 
   alias Pidro.Bot.Thresholds
@@ -111,7 +115,7 @@ defmodule Pidro.Bot.Bidding do
         {{:bid, lowest},
          "#{worth}; taking the cheap contract from the opponents is worth #{lowest}."}
 
-      est < lowest ->
+      est < lowest - volunteer_margin(view.variant) ->
         {:pass,
          "My best suit is not enough: #{worth} points, below the #{lowest} needed, so I pass."}
 
@@ -119,8 +123,11 @@ defmodule Pidro.Bot.Bidding do
         amount = min(lowest + 1, highest)
         {{:bid, amount}, "#{worth}, so I bid #{amount} to keep #{still_to_speak(view)} out."}
 
-      true ->
+      est >= lowest ->
         {{:bid, lowest}, "#{worth}, so I bid the #{lowest} that takes it."}
+
+      true ->
+        {{:bid, lowest}, "#{worth}, close enough to take the #{lowest}."}
     end
   end
 
@@ -169,6 +176,9 @@ defmodule Pidro.Bot.Bidding do
   end
 
   defp contest?(_view, _est, _minimum), do: false
+
+  defp volunteer_margin(:finnish), do: t(:volunteer_margin)
+  defp volunteer_margin(_variant), do: 0
 
   defp length_bonus(trumps, :finnish) do
     min(max(length(trumps) - 2, 0) * t(:trump_length), t(:trump_length_cap))
