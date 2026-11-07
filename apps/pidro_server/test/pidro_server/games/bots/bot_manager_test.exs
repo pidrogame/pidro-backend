@@ -24,7 +24,7 @@ defmodule PidroServer.Games.Bots.BotManagerTest do
       _pid -> :ok
     end
 
-    RoomManager.reset_for_test()
+    PidroServer.RoomManagerCase.cleanup()
     on_exit(&PidroServer.RoomManagerCase.cleanup/0)
 
     # Ensure BotSupervisor is running
