@@ -5,8 +5,7 @@ defmodule Pidro.Bot.Thresholds do
   A suit's bid estimate sums sure points, the held Fives weighted by how
   protected they are, half-credit for the Jack and Ten, a bonus for holding
   the top trumps, and a bonus for the dealer. Finnish adds trump length and
-  an allowance to contest cheap opposing bids. Louisiana keeps the original
-  estimate.
+  an allowance to contest cheap opposing bids.
 
   The original calibration valued a protected Five at 3 and gave one top
   trump control credit from three trumps. PID-271 tuned length, competition
@@ -27,6 +26,17 @@ defmodule Pidro.Bot.Thresholds do
   point short of it. On seed 3771 a margin of half a point left a third of
   hands as forced dealer 6s; a full point cut them from 41% to 23% on
   held-out seeds 3772 and 3773, with 78% of volunteered 6s made.
+
+  PID-136 turned the positions where `Pidro.Bot.Search` overruled the
+  rulebook most into the holding table and the Five's cover. On seed 1360
+  the holding table won 52.7% to 54.4% against the PID-377 bidder as its
+  bonuses rose; past A K Q 7, A K J 6.5, A Q J 5.5 and A K 5 a further
+  point won 50.4% to 51.0% head to head while sets climbed, so it stops
+  there. An unprotected Five worth 2, 1 or 0.5 played the same within 0.3
+  points; what paid was that a King no longer covers it (51.4% against
+  50.1%). At 0.5 no hand with an uncovered Five comes within the volunteer
+  margin. Held out on seeds 1361 and 1362 the new rulebook won 60.2% and
+  59.1%, Louisiana 59.7% on seed 1365; see `docs/bot-difficulty.md`.
   """
 
   @values %{
@@ -34,9 +44,9 @@ defmodule Pidro.Bot.Thresholds do
     two: 1,
     jack_or_ten: 0.5,
     five_protected: 3,
-    five_unprotected: 2,
+    five_unprotected: 0.5,
     five_protection_trumps: 4,
-    five_protection_trumps_with_honour: 3,
+    five_protection_trumps_with_ace: 3,
     control_ace_king: 3,
     control_one_honour: 2,
     control_one_honour_min_trumps: 3,
@@ -49,6 +59,13 @@ defmodule Pidro.Bot.Thresholds do
     shut_out_margin: 3
   }
 
+  @holdings [
+    {[14, 13, 12], 7},
+    {[14, 13, 11], 6.5},
+    {[14, 12, 11], 5.5},
+    {[14, 13], 5}
+  ]
+
   @typedoc "The name of a bidding constant."
   @type name ::
           :ace
@@ -57,7 +74,7 @@ defmodule Pidro.Bot.Thresholds do
           | :five_protected
           | :five_unprotected
           | :five_protection_trumps
-          | :five_protection_trumps_with_honour
+          | :five_protection_trumps_with_ace
           | :control_ace_king
           | :control_one_honour
           | :control_one_honour_min_trumps
@@ -76,10 +93,13 @@ defmodule Pidro.Bot.Thresholds do
   - `:jack_or_ten` - half-credit for each of the Jack and the Ten
   - `:five_protected` / `:five_unprotected` - value of each held Five
   - `:five_protection_trumps` - trumps held, the Five included, that protect it
-  - `:five_protection_trumps_with_honour` - the same with the Ace or King held
-  - `:control_ace_king` - bonus for the Ace and King together
+  - `:five_protection_trumps_with_ace` - the same with the Ace held; a King
+    does not cover a Five, since the Ace can take both
+  - `:control_ace_king` - bonus for the Ace and King together, when no
+    holding in `holdings/0` applies
   - `:control_one_honour` - bonus for one of them with enough length
-  - `:control_one_honour_min_trumps` - the length that bonus needs
+  - `:control_one_honour_min_trumps` - the length that bonus and the
+    holdings need
   - `:dealer_bonus` - added when the bidder is the dealer, who robs the pack
   - `:trump_length` / `:trump_length_cap` - Finnish bonus per trump beyond two,
     capped to avoid double-counting the protection and control bonuses
@@ -105,4 +125,19 @@ defmodule Pidro.Bot.Thresholds do
   """
   @spec all() :: %{name() => number()}
   def all, do: @values
+
+  @doc """
+  Returns the control bonus by holding, best first: the trump ranks held
+  and the bonus they earn with at least `:control_one_honour_min_trumps`
+  trumps: the Ace with the King, or with two of the King, Queen and Jack.
+  A hand that holds none of them takes the
+  `:control_ace_king` or `:control_one_honour` bonus.
+
+  ## Examples
+
+      iex> Pidro.Bot.Thresholds.holdings() |> hd()
+      {[14, 13, 12], 7}
+  """
+  @spec holdings() :: [{[Pidro.Core.Types.rank()], number()}]
+  def holdings, do: @holdings
 end

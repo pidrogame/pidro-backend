@@ -3,7 +3,10 @@ defmodule Pidro.Bot.Bidding do
   How the rulebook bot bids and names trump.
 
   Each suit gets a point estimate from the nine-card hand, counting the
-  same-colour Five as trump (see `Pidro.Bot.Thresholds`). The estimate is a
+  same-colour Five as trump (see `Pidro.Bot.Thresholds`). The Ace counts
+  more with the King, or with two of the King, Queen and Jack; a Five counts
+  for little without the cover of four trumps or of the Ace with three, and
+  a pass it costs says so. The estimate is a
   ceiling, not the bid. A made contract scores the points the team took and
   a failed one loses the bid, so a higher bid never earns a point: it only
   raises the penalty and tells the table what the hand holds. Bidding is one
@@ -24,7 +27,7 @@ defmodule Pidro.Bot.Bidding do
   it takes a cheap contract from an opponent's 6 or 7 on an estimate half a
   point short, inside the volunteer margin, so that allowance only changes
   the reason. Neither raises a partner or bids above the minimum.
-  Louisiana keeps the original estimates and bids by the same rules,
+  Louisiana estimates without the length bonus and bids by the same rules,
   without either allowance. The same view and legal actions always give the
   same bid.
   """
@@ -34,6 +37,8 @@ defmodule Pidro.Bot.Bidding do
 
   @type decision :: {Types.action(), String.t()}
 
+  @honours %{14 => "Ace", 13 => "King", 12 => "Queen", 11 => "Jack"}
+
   @doc """
   Returns the bid estimate of `hand` with `suit` as trump.
 
@@ -42,7 +47,7 @@ defmodule Pidro.Bot.Bidding do
   - `hand` - the cards held, trump or not
   - `suit` - the candidate trump suit
   - `dealer?` - whether the bidder is the dealer, who robs the pack
-  - `variant` - defaults to Finnish; Louisiana keeps the original estimate
+  - `variant` - defaults to Finnish; Louisiana has no length bonus
 
   ## Examples
 
@@ -52,11 +57,10 @@ defmodule Pidro.Bot.Bidding do
   """
   @spec estimate([Types.card()], Types.suit(), boolean(), atom()) :: float()
   def estimate(hand, suit, dealer?, variant \\ :finnish) do
-    trumps = Enum.filter(hand, &Card.is_trump?(&1, suit))
-    honours = {{14, suit} in trumps, {13, suit} in trumps}
+    trumps = trumps(hand, suit)
 
-    (sure_points(trumps, suit) + half_credit(trumps, suit) + fives(trumps, honours) +
-       control(trumps, honours) + length_bonus(trumps, variant) +
+    (sure_points(trumps, suit) + half_credit(trumps, suit) + fives(trumps, suit) +
+       control(trumps, suit) + length_bonus(trumps, variant) +
        if(dealer?, do: t(:dealer_bonus), else: 0)) * 1.0
   end
 
@@ -70,7 +74,7 @@ defmodule Pidro.Bot.Bidding do
   ## Examples
 
       iex> Pidro.Bot.Bidding.best_suit([{14, :spades}, {13, :spades}, {5, :spades}], false)
-      {:spades, 7.25}
+      {:spades, 9.25}
   """
   @spec best_suit([Types.card()], boolean(), atom()) :: {Types.suit(), float()}
   def best_suit(hand, dealer?, variant \\ :finnish) do
@@ -92,8 +96,10 @@ defmodule Pidro.Bot.Bidding do
   def decide_bid(%SeatView{} = view, legal) do
     dealer? = view.current_dealer == view.position
     {suit, est} = best_suit(own_hand(view), dealer?, view.variant)
+    trumps = trumps(own_hand(view), suit)
+    bare = bare_fives(trumps, suit)
     {lowest, highest} = Enum.min_max(for({:bid, n} <- legal, do: n), fn -> {nil, nil} end)
-    worth = "#{suit_name(suit)} are worth about #{trunc(est)}"
+    worth = "#{suit_name(suit)} are worth about #{trunc(est)}#{holding_phrase(trumps, suit)}"
     mine = "my #{String.downcase(suit_name(suit))} are worth about #{trunc(est)}"
 
     cond do
@@ -115,9 +121,17 @@ defmodule Pidro.Bot.Bidding do
         {{:bid, lowest},
          "#{worth}; taking the cheap contract from the opponents is worth #{lowest}."}
 
+      est < lowest - volunteer_margin(view.variant) and
+          est + bare * (t(:five_protected) - t(:five_unprotected)) >=
+            lowest - volunteer_margin(view.variant) ->
+        {:pass,
+         "#{if bare == 1, do: "My Five has", else: "My Fives have"} no cover, " <>
+           "so #{String.downcase(suit_name(suit))} are worth about #{trunc(est)}; I pass."}
+
       est < lowest - volunteer_margin(view.variant) ->
         {:pass,
-         "My best suit is not enough: #{worth} points, below the #{lowest} needed, so I pass."}
+         "My best suit is not enough: #{suit_name(suit)} are worth about #{trunc(est)} points, " <>
+           "below the #{lowest} needed, so I pass."}
 
       not dealer? and est >= lowest + t(:shut_out_margin) ->
         amount = min(lowest + 1, highest)
@@ -194,33 +208,65 @@ defmodule Pidro.Bot.Bidding do
     t(:jack_or_ten) * Enum.count([{11, suit}, {10, suit}], &(&1 in trumps))
   end
 
-  defp fives(trumps, {ace?, king?}) do
-    value = five_value(length(trumps), ace? or king?)
+  defp fives(trumps, suit) do
+    value = if covered?(trumps, suit), do: t(:five_protected), else: t(:five_unprotected)
     value * Enum.count(trumps, &match?({5, _}, &1))
   end
 
-  defp control(trumps, honours) do
-    case honours do
-      {true, true} ->
+  defp bare_fives(trumps, suit) do
+    if covered?(trumps, suit), do: 0, else: Enum.count(trumps, &match?({5, _}, &1))
+  end
+
+  # Four trumps cover a Five, and so does the Ace with three; a King can
+  # fall to the Ace with the Five under it.
+  defp covered?(trumps, suit) do
+    length(trumps) >= t(:five_protection_trumps) or
+      ({14, suit} in trumps and length(trumps) >= t(:five_protection_trumps_with_ace))
+  end
+
+  # The Ace with the King, or with two of the King, Queen and Jack, counts by
+  # the holding table; otherwise the Ace and King count alone.
+  defp control(trumps, suit) do
+    ace? = {14, suit} in trumps
+    king? = {13, suit} in trumps
+
+    cond do
+      held = holding(trumps, suit) ->
+        elem(held, 1)
+
+      ace? and king? ->
         t(:control_ace_king)
 
-      {false, false} ->
-        0
-
-      _one ->
+      ace? or king? ->
         if length(trumps) >= t(:control_one_honour_min_trumps),
           do: t(:control_one_honour),
           else: 0
+
+      true ->
+        0
     end
   end
 
-  defp five_value(trump_count, honour?) do
-    protected? =
-      trump_count >= t(:five_protection_trumps) or
-        (honour? and trump_count >= t(:five_protection_trumps_with_honour))
-
-    if protected?, do: t(:five_protected), else: t(:five_unprotected)
+  defp holding(trumps, suit) do
+    if length(trumps) >= t(:control_one_honour_min_trumps) do
+      Enum.find(Thresholds.holdings(), fn {ranks, _bonus} ->
+        Enum.all?(ranks, &({&1, suit} in trumps))
+      end)
+    end
   end
+
+  defp holding_phrase(trumps, suit) do
+    case holding(trumps, suit) do
+      {ranks, _bonus} ->
+        {last, rest} = ranks |> Enum.map(&@honours[&1]) |> List.pop_at(-1)
+        " with the " <> Enum.join(rest, ", ") <> " and " <> last
+
+      nil ->
+        ""
+    end
+  end
+
+  defp trumps(hand, suit), do: Enum.filter(hand, &Card.is_trump?(&1, suit))
 
   defp own_hand(%SeatView{hand: hand}), do: hand
 

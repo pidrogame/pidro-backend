@@ -16,8 +16,8 @@ defmodule Pidro.Bot.Rulebook do
   `:second_deal` the `{:select_hand, :choose_6_cards}` marker is returned
   unchanged for the caller to resolve.
 
-  Finnish and Louisiana share trump tactics, but Louisiana retains the
-  original bidding estimates. Louisiana uses the Finnish playing policy when
+  Finnish and Louisiana share trump tactics, but Louisiana estimates
+  without the Finnish length bonus. Louisiana uses the Finnish playing policy when
   a legal trump exists; otherwise it throws the lowest legal non-point card,
   then the lowest legal card. The engine owns legality, trump membership and
   scoring; the bot owns only preferences.
