@@ -27,10 +27,13 @@ defmodule Pidro.Bot.Play do
   ## Leading
 
   1. Only Fives in hand: lead the off-Five before the Five.
-  2. On the bidding side, with a top trump nothing can beat: lead it, except
+  2. On the bidding side, opening with the Ace and four or more trumps but
+     not both the King and Queen: lead the 2, otherwise the lowest non-point
+     trump, and keep the Ace to take a Five later.
+  3. On the bidding side, with a top trump nothing can beat: lead it, except
      the Ace on the opening lead from fewer than four trumps without the King,
      and never a Five while another card is held.
-  3. Otherwise lead the lowest non-point trump, then the 2, then the lowest
+  4. Otherwise lead the lowest non-point trump, then the 2, then the lowest
      point card that is not a Five.
   """
 
@@ -50,7 +53,7 @@ defmodule Pidro.Bot.Play do
     :play_low
   ]
 
-  @lead_rules [:only_fives, :lead_top, :lead_low]
+  @lead_rules [:only_fives, :keep_ace, :lead_top, :lead_low]
 
   @doc """
   Chooses a card from `legal` for the seat in `view`.
@@ -190,6 +193,21 @@ defmodule Pidro.Bot.Play do
     if Enum.all?(cards, &Knowledge.five?(&1, trump)) do
       [five | _] = discard_order(cards, trump)
       {five, "I hold only Fives, so I lead the #{name(five)}."}
+    end
+  end
+
+  defp apply_rule(:keep_ace, view, cards) do
+    trump = view.trump_suit
+
+    low =
+      if {2, trump} in cards,
+        do: {2, trump},
+        else: Enum.find(cards, &(not Card.is_point_card?(&1, trump)))
+
+    if Knowledge.bidding_side?(view) and Knowledge.opening_trick?(view) and
+         {14, trump} in cards and length(cards) >= 4 and low != nil and
+         not ({13, trump} in cards and {12, trump} in cards) do
+      {low, "I lead my #{name(low)} to draw trumps and keep the Ace for a Five."}
     end
   end
 
