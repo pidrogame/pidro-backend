@@ -30,6 +30,7 @@ defmodule Pidro.Core.Events do
   - `:card_played` - Player plays a trump card
   - `:trick_won` - Trick complete, winner determined
   - `:player_went_cold` - Player eliminated (out of trumps)
+  - `:hand_settled` - The lone trump holder lays their trumps down
 
   ### Scoring Phase
   - `:hand_scored` - Hand complete, scores calculated
@@ -147,6 +148,7 @@ defmodule Pidro.Core.Events do
   - `{:card_played, position, card}` - Adds card to current trick
   - `{:trick_won, position, points}` - Completes trick, awards points
   - `{:player_went_cold, position, revealed}` - Eliminates player
+  - `{:hand_settled, position, cards}` - Announces the plays that follow
 
   ### Scoring
   - `{:hand_scored, team, points}` - Updates cumulative scores
@@ -318,6 +320,9 @@ defmodule Pidro.Core.Events do
 
     %{state | players: updated_players}
   end
+
+  # The holder's card plays follow as their own events.
+  def apply_event(state, {:hand_settled, _position, _cards}), do: state
 
   # Scoring Phase
   def apply_event(state, {:hand_scored, team, points}) do

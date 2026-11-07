@@ -1157,6 +1157,12 @@ defmodule Pidro.IEx do
     )
   end
 
+  defp print_event({:hand_settled, position, cards}, idx) do
+    IO.puts(
+      "#{faint()}#{idx}.#{reset()} #{red()}[SETTLED]#{reset()} #{format_position(position)} lays down #{Enum.map_join(cards, " ", &format_event_card/1)}"
+    )
+  end
+
   defp print_event({:hand_scored, team, points}, idx) do
     sign = if points >= 0, do: "+", else: ""
 

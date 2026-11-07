@@ -58,7 +58,7 @@ defmodule Pidro.Game.Engine do
 
   alias Pidro.Core.Types
   alias Pidro.Core.Types.Player
-  alias Pidro.Core.{Chance, Deck, GameState}
+  alias Pidro.Core.{Card, Chance, Deck, GameState}
   alias Pidro.Game.{Errors, StateMachine}
 
   # Phase-specific modules
@@ -287,6 +287,26 @@ defmodule Pidro.Game.Engine do
   def continue_hand(%Types.GameState{phase: :hand_complete} = state), do: start_next_hand(state)
   def continue_hand(%Types.GameState{} = state), do: {:ok, state}
 
+  @doc """
+  Ends a settled hand (`Play.settled_play/1`) in one step: the lone trump
+  holder lays their trumps down, highest first. Records
+  `{:hand_settled, holder, cards}`, then plays each card exactly as if tapped,
+  as a one-card trick, which completes the hand; `last_hand.settled` names the
+  holder and the cards.
+
+  Any other state, Louisiana's included, is `{:error, :not_settled}`, so the
+  caller has nothing to commit.
+
+      {:ok, scored} = Engine.settle_hand(settled_state)
+  """
+  @spec settle_hand(Types.GameState.t()) :: {:ok, Types.GameState.t()} | {:error, :not_settled}
+  def settle_hand(%Types.GameState{} = state) do
+    case Play.settled_play(state) do
+      {holder, _card} -> apply_action(state, holder, :claim_remaining)
+      nil -> {:error, :not_settled}
+    end
+  end
+
   # =============================================================================
   # Action Dispatching
   # =============================================================================
@@ -383,10 +403,26 @@ defmodule Pidro.Game.Engine do
     {:error, :not_implemented}
   end
 
-  defp dispatch_action(%Types.GameState{phase: :playing} = _state, _position, :claim_remaining) do
-    # TODO: Implement claim logic
-    # Verify player can win all remaining tricks
-    {:error, :not_implemented}
+  # Only a settled hand's holder can claim, and they win every remaining trick.
+  defp dispatch_action(%Types.GameState{phase: :playing} = state, position, :claim_remaining) do
+    with {^position, _card} <- Play.settled_play(state) do
+      trump = state.trump_suit
+
+      cards =
+        state
+        |> Play.legal_plays(position)
+        |> Enum.sort(&(Card.compare(&1, &2, trump) != :lt))
+
+      state =
+        Enum.reduce(cards, record_event(state, {:hand_settled, position, cards}), fn card, acc ->
+          {:ok, acc} = apply_action(acc, position, {:play_card, card})
+          acc
+        end)
+
+      {:ok, put_in(state.last_hand[:settled], %{position: position, cards: cards})}
+    else
+      _ -> {:error, :not_settled}
+    end
   end
 
   # Invalid action for current phase

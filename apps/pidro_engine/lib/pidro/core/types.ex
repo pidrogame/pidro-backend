@@ -178,7 +178,7 @@ defmodule Pidro.Core.Types do
   - Setup: `dealer_selected`, `cards_dealt`
   - Bidding: `bid_made`, `player_passed`, `bidding_complete`
   - Trump: `trump_declared`, `cards_discarded`, `second_deal_complete`
-  - Play: `card_played`, `trick_won`, `player_went_cold`
+  - Play: `card_played`, `trick_won`, `player_went_cold`, `hand_settled`
   - Scoring: `hand_scored`, `game_won`
   """
   @type event ::
@@ -195,6 +195,7 @@ defmodule Pidro.Core.Types do
           | {:card_played, position(), card()}
           | {:trick_won, position(), points :: non_neg_integer()}
           | {:player_went_cold, position(), revealed_cards :: [card()]}
+          | {:hand_settled, position(), laid :: [card()]}
           | {:hand_scored, team(), points :: integer()}
           | {:game_won, team(), score :: non_neg_integer()}
 
