@@ -239,7 +239,7 @@ defmodule PidroServerWeb.Dev.BotCatalogueLive do
             <.input
               field={@form[:lines]}
               type="textarea"
-              label="Lines while thinking (one per line, up to 8 of 40 characters)"
+              label="Lines while thinking (one per line, up to 8 of 18 characters)"
               value={Enum.join(@form[:lines].value || [], "\n")}
             />
             <.input

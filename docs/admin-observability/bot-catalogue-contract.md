@@ -33,7 +33,7 @@ or unknown value as an honest rulebook game. `tempo` is `quick`, `steady` or
 `slow`: how fast the character acts at the table (PID-378); older servers omit
 it, so treat a missing value as `steady`. `home` is `anywhere`, `finland` or `louisiana`: where the character
 is from (PID-404). `lines` is a list of zero to eight trimmed, nonblank strings
-of at most 40 characters: what the character says while thinking, written as
+of at most 18 characters (what the app's seat bubble fits): what the character says while thinking, written as
 language-neutral table noises, so one list serves every app language. Older
 servers omit both; treat a missing `home` as `anywhere` and missing `lines` as
 none. IDs are opaque,
@@ -186,7 +186,7 @@ Fields:
 - `bot[home]`: `anywhere` (default), `finland` or `louisiana`; a check
   constraint holds the same set.
 - `bot[lines]`: a textarea, one line per line; each is trimmed and blank ones
-  are dropped, then at most eight of at most 40 characters each.
+  are dropped, then at most eight of at most 18 characters each.
 - `bot[portrait]`: `marcel`, `antti`, `jocke`, or `upload` when one exists.
 - LiveView upload `avatar`: one PNG/JPEG, at most 5 MiB. Signature-checked;
   maximum 8192px side and 16 megapixels; reused bounded ImageMagick normalizer

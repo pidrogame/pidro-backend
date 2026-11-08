@@ -35,8 +35,8 @@ defmodule PidroServer.BotCatalogue.Profile do
     |> validate_length(:description, max: 500)
     |> validate_length(:lines, max: 8)
     |> validate_change(:lines, fn :lines, lines ->
-      if Enum.any?(lines, &(String.length(&1) > 40)),
-        do: [lines: "each line should be at most 40 characters"],
+      if Enum.any?(lines, &(String.length(&1) > 18)),
+        do: [lines: "each line should be at most 18 characters"],
         else: []
     end)
     |> validate_inclusion(:strategy, ["rulebook", "random", "search"])

@@ -262,7 +262,7 @@ defmodule PidroServer.BotCatalogueTest do
       end
     end
 
-    test "lines are trimmed, blank ones dropped, at most eight of at most 40 characters" do
+    test "lines are trimmed, blank ones dropped, at most eight of at most 18 characters" do
       lines = fn lines -> BotCatalogue.change(BotCatalogue.new(), %{name: "X", lines: lines}) end
 
       changeset = lines.(["  Hmm, jaha…  ", "", "   ", "Let's see…"])
@@ -270,9 +270,10 @@ defmodule PidroServer.BotCatalogueTest do
       assert Ecto.Changeset.get_field(changeset, :lines) == ["Hmm, jaha…", "Let's see…"]
       assert BotCatalogue.new().lines == []
 
-      # Characters, not bytes, and counted after trimming.
-      assert lines.(["  " <> String.duplicate("ä", 40) <> "  "]).valid?
-      refute lines.([String.duplicate("a", 41)]).valid?
+      # Characters, not bytes, and counted after trimming: what the seat bubble fits.
+      assert lines.(["  " <> String.duplicate("ä", 18) <> "  "]).valid?
+      refute lines.([String.duplicate("a", 19)]).valid?
+      assert lines.(["Väntä lite…", "Let me think…", "One moment…"]).valid?
 
       assert lines.(List.duplicate("Väntä lite…", 8) ++ [" "]).valid?
       refute lines.(List.duplicate("Väntä lite…", 9)).valid?
