@@ -54,7 +54,18 @@ defmodule PidroServer.BotCatalogueTest do
     assert lifecycle_seat.bot_profile == public.bot_profile
 
     assert Enum.sort(Map.keys(lifecycle_seat.bot_profile)) ==
-             [:avatar_url, :description, :home, :id, :lines, :name, :strategy, :tempo]
+             [
+               :appetite,
+               :avatar_url,
+               :description,
+               :home,
+               :id,
+               :lines,
+               :name,
+               :strategy,
+               :tempo,
+               :voice
+             ]
 
     assert lifecycle_seat.username == "Fourth"
     assert lifecycle_seat.display_name == "Fourth"

@@ -70,7 +70,7 @@ defmodule PidroServerWeb.Dev.BotCatalogueLiveTest do
     assert public["strategy"] == "random"
 
     assert Enum.sort(Map.keys(public)) ==
-             ~w(avatar_url description home id lines name strategy tempo)
+             ~w(appetite avatar_url description home id lines name strategy tempo voice)
   end
 
   test "a new bot is steady, and the tempo only takes quick, steady or slow", %{conn: conn} do
@@ -247,7 +247,14 @@ defmodule PidroServerWeb.Dev.BotCatalogueLiveTest do
 
   defp crew! do
     for attrs <- [
-          %{name: "Aino", home: "finland", strategy: "search", tempo: "slow"},
+          %{
+            name: "Aino",
+            home: "finland",
+            strategy: "search",
+            tempo: "slow",
+            voice: "teasing",
+            appetite: "chatty"
+          },
           %{
             name: "Eero",
             home: "finland",
@@ -283,6 +290,41 @@ defmodule PidroServerWeb.Dev.BotCatalogueLiveTest do
     Enum.zip(texts(html, "dt"), texts(html, "dd"))
   end
 
+  test "a new bot is dry and normal; voice and appetite take only their values, and filter",
+       %{conn: conn} do
+    crew = crew!()
+    %{conn: admin_conn} = register_and_log_in_admin(%{conn: conn})
+    {:ok, view, _} = live(admin_conn, ~p"/admin/bots")
+    view |> element("#add-bot") |> render_click()
+    assert has_element?(view, "#bot-form select[name='bot[voice]'] option[selected]", "Dry")
+    assert has_element?(view, "#bot-form select[name='bot[appetite]'] option[selected]", "Normal")
+
+    view |> element("#bot-jocke button") |> render_click()
+
+    for bad <- [%{"voice" => "shouty"}, %{"appetite" => "never"}, %{"voice" => ""}] do
+      html = render_submit(view, "save", %{"bot" => Map.put(bad, "id", "jocke")})
+      assert html =~ "is invalid" or html =~ "can&#39;t be blank"
+    end
+
+    assert %{voice: "dry", appetite: "normal"} = BotCatalogue.get!("jocke")
+
+    view |> form("#bot-form", bot: %{voice: "warm", appetite: "chatty"}) |> render_submit()
+    assert %{voice: "warm", appetite: "chatty"} = BotCatalogue.get!("jocke")
+    assert %{voice: "warm", appetite: "chatty"} = BotCatalogue.profile("jocke")
+    assert has_element?(view, "#bot-jocke .bot-meta", "warm, chatty")
+
+    data = conn |> get(~p"/api/v1/bots") |> json_response(200) |> Map.fetch!("data")
+    assert %{"voice" => "warm", "appetite" => "chatty"} = Enum.find(data, &(&1["id"] == "jocke"))
+
+    {:ok, view, _} = live(admin_conn, ~p"/admin/bots?voice=teasing")
+    assert rows(view) |> Enum.sort() == Enum.sort(["Aino", "Antti"])
+    assert crew["Aino"].voice == "teasing"
+
+    assert_raise Postgrex.Error, ~r/supported_voice/, fn ->
+      Repo.update_all(Profile, set: [voice: "shouty"])
+    end
+  end
+
   test "the roster shows every character with its meta line and lines, and counts them",
        %{conn: conn} do
     crew = crew!()
@@ -292,10 +334,10 @@ defmodule PidroServerWeb.Dev.BotCatalogueLiveTest do
     assert Enum.sort(rows(view)) == Enum.sort(Enum.map(BotCatalogue.list(), & &1.name))
 
     for {name, meta} <- [
-          {"Aino", "Finland · slow · plays the odds"},
-          {"Eero", "Finland · steady · plays the honest game"},
-          {"Boudreaux", "Louisiana · quick · random"},
-          {"Clotile", "Louisiana · steady · plays the odds"}
+          {"Aino", "Finland · slow · plays the odds · teasing, chatty"},
+          {"Eero", "Finland · steady · plays the honest game · dry, normal"},
+          {"Boudreaux", "Louisiana · quick · random · dry, normal"},
+          {"Clotile", "Louisiana · steady · plays the odds · dry, normal"}
         ] do
       assert [^meta] = view |> element("#bot-#{crew[name].id}") |> render() |> texts(".bot-meta")
     end

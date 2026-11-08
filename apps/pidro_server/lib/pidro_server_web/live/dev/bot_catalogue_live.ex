@@ -12,7 +12,12 @@ defmodule PidroServerWeb.Dev.BotCatalogueLive do
     {"random", "Random"}
   ]
   # The profile fields the roster filters on, each one pill group.
-  @filters [{"Home", :home, @homes}, {"Strategy", :strategy, @strategies}]
+  @filters [
+    {"Home", :home, @homes},
+    {"Strategy", :strategy, @strategies},
+    {"Voice", :voice,
+     [{"cheerful", "Cheerful"}, {"warm", "Warm"}, {"dry", "Dry"}, {"teasing", "Teasing"}]}
+  ]
 
   @impl true
   def mount(_params, _session, %{assigns: %{current_admin: nil}} = socket) do
@@ -175,7 +180,15 @@ defmodule PidroServerWeb.Dev.BotCatalogueLive do
   end
 
   defp meta(profile) do
-    Enum.join([home_words(profile.home), profile.tempo, strategy_words(profile.strategy)], " · ")
+    Enum.join(
+      [
+        home_words(profile.home),
+        profile.tempo,
+        strategy_words(profile.strategy),
+        "#{profile.voice}, #{profile.appetite}"
+      ],
+      " · "
+    )
   end
 
   defp home_words("anywhere"), do: "anywhere"
@@ -471,6 +484,27 @@ defmodule PidroServerWeb.Dev.BotCatalogueLive do
             {"Anywhere", "anywhere"},
             {"Finland (Ostrobothnia)", "finland"},
             {"Louisiana (the bayou)", "louisiana"}
+          ]}
+        />
+        <.input
+          field={@form[:voice]}
+          type="select"
+          label="Voice at the table"
+          options={[
+            {"Cheerful (the upbeat regular)", "cheerful"},
+            {"Warm (the host)", "warm"},
+            {"Dry (the laconic one)", "dry"},
+            {"Teasing (the trash talker)", "teasing"}
+          ]}
+        />
+        <.input
+          field={@form[:appetite]}
+          type="select"
+          label="Talks"
+          options={[
+            {"Sparse (rarely)", "sparse"},
+            {"Normal", "normal"},
+            {"Chatty (often)", "chatty"}
           ]}
         />
         <.input

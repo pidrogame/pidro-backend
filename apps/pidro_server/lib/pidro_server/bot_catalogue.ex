@@ -52,6 +52,8 @@ defmodule PidroServer.BotCatalogue do
             :portrait,
             :home,
             :lines,
+            :voice,
+            :appetite,
             :image_version,
             :inserted_at,
             :updated_at
@@ -106,7 +108,17 @@ defmodule PidroServer.BotCatalogue do
   def profile(id), do: Enum.find(profiles() ++ defaults(), &(&1.id == id))
 
   def public(profile) do
-    Map.take(profile, [:id, :name, :description, :strategy, :tempo, :home, :lines])
+    Map.take(profile, [
+      :id,
+      :name,
+      :description,
+      :strategy,
+      :tempo,
+      :home,
+      :lines,
+      :voice,
+      :appetite
+    ])
     |> Map.put(:avatar_url, avatar_url(profile))
   end
 
