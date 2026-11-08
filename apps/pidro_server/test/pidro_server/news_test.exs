@@ -67,6 +67,70 @@ defmodule PidroServer.NewsTest do
       assert News.popup(user, "en", "ios", "3.2.9").id == post.id
     end
 
+    test "a build beside the version nudges that version's older builds; no build compares versions" do
+      user = AccountsFixtures.user_fixture()
+
+      {:ok, post} =
+        News.create(%{
+          title_en: "Update to 3.3.0 (15)",
+          body_en: "x",
+          show_as_popup: true,
+          app_update: true,
+          show_below_ios: "3.3.0",
+          show_below_ios_build: "15",
+          show_below_android: "3.3.0",
+          show_below_android_build: "12"
+        })
+
+      {:ok, post} = News.publish(post)
+
+      for {platform, version, build, eligible} <- [
+            {"ios", "3.3.0", "14", true},
+            {"ios", "3.3.0", "15", false},
+            {"ios", "3.3.0", "16", false},
+            {"ios", "3.2.4", nil, true},
+            {"ios", "3.2.4", "99", true},
+            {"ios", "3.3.0", nil, false},
+            {"ios", "3.3.0", "", false},
+            {"ios", "3.3.0", "14x", false},
+            {"ios", "3.3.1", "1", false},
+            {"android", "3.3.0", "11", true},
+            {"android", "3.3.0", "12", false},
+            {"android", "3.3.0", "9", true}
+          ] do
+        assert News.popup(user, "en", platform, version, build) != nil == eligible,
+               "#{inspect({platform, version, build})}"
+      end
+
+      # Without a build on the post, the same version is not below it.
+      {:ok, _} = News.update(post, %{show_below_ios_build: ""})
+      assert News.popup(user, "en", "ios", "3.3.0", "14") == nil
+      assert News.popup(user, "en", "ios", "3.2.4", "14").id == post.id
+
+      policy = News.native_update_policy()
+      assert policy.minimum_native_versions == %{"android" => "3.3.0", "ios" => "3.3.0"}
+      assert policy.minimum_native_builds == %{"android" => "12"}
+    end
+
+    test "a minimum build is digits and needs its version" do
+      base = %{title_en: "Update", body_en: "x", app_update: true}
+
+      assert {:error, changeset} =
+               News.create(
+                 Map.merge(base, %{show_below_ios: "3.3.0", show_below_ios_build: "15a"})
+               )
+
+      assert %{show_below_ios_build: ["must be a build number like 15"]} = errors_on(changeset)
+
+      assert {:error, changeset} = News.create(Map.put(base, :show_below_android_build, "12"))
+      assert %{show_below_android_build: ["needs a version beside it"]} = errors_on(changeset)
+
+      assert {:ok, %{show_below_ios_build: "15"}} =
+               News.create(
+                 Map.merge(base, %{show_below_ios: "3.3.0", show_below_ios_build: "15"})
+               )
+    end
+
     test "stores Markdown verbatim and localizes optional fields with English fallback" do
       body = "Cards are **bigger**.\n[Read more](https://pidro.com)"
 
@@ -132,7 +196,9 @@ defmodule PidroServer.NewsTest do
                  show_as_popup: false,
                  app_update: false,
                  show_below_android: nil,
-                 show_below_ios: nil
+                 show_below_ios: nil,
+                 show_below_android_build: nil,
+                 show_below_ios_build: nil
                },
                %{
                  id: old.id,
@@ -146,7 +212,9 @@ defmodule PidroServer.NewsTest do
                  show_as_popup: false,
                  app_update: false,
                  show_below_android: nil,
-                 show_below_ios: nil
+                 show_below_ios: nil,
+                 show_below_android_build: nil,
+                 show_below_ios_build: nil
                }
              ]
 

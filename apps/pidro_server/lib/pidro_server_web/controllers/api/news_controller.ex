@@ -17,7 +17,14 @@ defmodule PidroServerWeb.API.NewsController do
       data: %{
         posts: News.list_published(locale, 30),
         unread: News.unread_count(user),
-        popup: News.popup(user, locale, params["platform"], params["app_version"])
+        popup:
+          News.popup(
+            user,
+            locale,
+            params["platform"],
+            params["app_version"],
+            params["app_build"]
+          )
       }
     })
   end

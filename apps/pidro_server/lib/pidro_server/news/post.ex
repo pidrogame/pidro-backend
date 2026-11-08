@@ -24,6 +24,8 @@ defmodule PidroServer.News.Post do
     field :app_update, :boolean, default: false
     field :show_below_android, :string
     field :show_below_ios, :string
+    field :show_below_android_build, :string
+    field :show_below_ios_build, :string
     field :image, :binary, load_in_query: false
     field :image_version, :string
     field :published_at, :utc_datetime
@@ -48,7 +50,9 @@ defmodule PidroServer.News.Post do
       :show_as_popup,
       :app_update,
       :show_below_android,
-      :show_below_ios
+      :show_below_ios,
+      :show_below_android_build,
+      :show_below_ios_build
     ])
     |> validate_required([:title_en, :body_en])
     |> validate_length(:title_en, max: 200)
@@ -65,6 +69,8 @@ defmodule PidroServer.News.Post do
     end)
     |> validate_change(:show_below_android, &validate_version/2)
     |> validate_change(:show_below_ios, &validate_version/2)
+    |> validate_build(:show_below_android_build, :show_below_android)
+    |> validate_build(:show_below_ios_build, :show_below_ios)
   end
 
   @doc "Only web and app links may be opened from News."
@@ -76,6 +82,17 @@ defmodule PidroServer.News.Post do
   end
 
   def safe_link?(_), do: false
+
+  # A build only narrows its own version: 3.3.0 build 15 also nudges 3.3.0 (14).
+  defp validate_build(changeset, field, version) do
+    changeset
+    |> validate_format(field, ~r/\A\d{1,10}\z/, message: "must be a build number like 15")
+    |> then(fn changeset ->
+      if get_field(changeset, field) && is_nil(get_field(changeset, version)),
+        do: add_error(changeset, field, "needs a version beside it"),
+        else: changeset
+    end)
+  end
 
   defp validate_version(field, value) do
     if String.match?(value, ~r/\A\d+\.\d+\.\d+\z/) and match?({:ok, _}, Version.parse(value)),

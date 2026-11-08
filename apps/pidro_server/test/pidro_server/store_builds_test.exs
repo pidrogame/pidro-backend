@@ -380,6 +380,7 @@ defmodule PidroServer.StoreBuildsTest do
     policy = News.native_update_policy_with_source()
     assert policy.source =~ "New in 3.2.4"
     assert policy.minimum_native_versions == %{"android" => "3.2.4"}
+    assert policy.minimum_native_builds == %{}
     assert Map.delete(policy, :source) == News.native_update_policy()
   end
 end

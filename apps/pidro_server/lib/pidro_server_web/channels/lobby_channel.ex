@@ -98,6 +98,7 @@ defmodule PidroServerWeb.LobbyChannel do
        rooms: serialize_rooms(rooms),
        lobby: serialize_lobby(lobby),
        minimum_native_versions: update_policy.minimum_native_versions,
+       minimum_native_builds: update_policy.minimum_native_builds,
        native_update_popup: update_policy.native_update_popup,
        native_store_urls: Application.get_env(:pidro_server, :native_store_urls, %{}),
        online_count: PresenceAggregator.get_count()

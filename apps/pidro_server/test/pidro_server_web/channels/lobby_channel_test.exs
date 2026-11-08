@@ -153,12 +153,29 @@ defmodule PidroServerWeb.LobbyChannelTest do
 
     refute Map.has_key?(minimums, "ios")
 
-    {:ok, _} = News.update(latest, %{show_as_popup: false, show_below_android: ""})
+    {:ok, latest} = News.update(latest, %{show_below_android_build: "12"})
 
-    assert {:ok, %{minimum_native_versions: empty, native_update_popup: false}, _} =
+    assert {:ok, %{minimum_native_builds: %{"android" => "12"} = builds}, _} =
              subscribe_and_join(socket, LobbyChannel, "lobby", %{})
 
-    assert empty == %{}
+    refute Map.has_key?(builds, "ios")
+
+    {:ok, _} =
+      News.update(latest, %{
+        show_as_popup: false,
+        show_below_android: "",
+        show_below_android_build: ""
+      })
+
+    assert {:ok,
+            %{
+              minimum_native_versions: empty,
+              minimum_native_builds: none,
+              native_update_popup: false
+            }, _} =
+             subscribe_and_join(socket, LobbyChannel, "lobby", %{})
+
+    assert empty == %{} and none == %{}
   end
 
   test "a request reaches only its receiver's lobby, and its acceptance only the sender's",

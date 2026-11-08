@@ -41,7 +41,9 @@ defmodule PidroServerWeb.API.NewsControllerTest do
                      "show_as_popup" => false,
                      "app_update" => false,
                      "show_below_android" => nil,
-                     "show_below_ios" => nil
+                     "show_below_ios" => nil,
+                     "show_below_android_build" => nil,
+                     "show_below_ios_build" => nil
                    }
                  ],
                  "unread" => 1,
@@ -155,6 +157,32 @@ defmodule PidroServerWeb.API.NewsControllerTest do
     {:ok, _} = News.unpublish(welcome)
     assert build_conn() |> auth(user) |> post(~p"/api/v1/news/#{id}/seen") |> response(404) == ""
     assert build_conn() |> post(~p"/api/v1/news/#{id}/seen") |> response(401)
+  end
+
+  test "app_build picks the pop-up for a same-version older build; an app without it reads versions",
+       %{welcome: welcome} do
+    {:ok, _} =
+      PidroServer.News.update(welcome, %{
+        show_as_popup: true,
+        app_update: true,
+        show_below_android: "3.3.0",
+        show_below_android_build: "12"
+      })
+
+    popup = fn query ->
+      build_conn()
+      |> auth(AccountsFixtures.guest_fixture())
+      |> get("/api/v1/news?locale=en&platform=android&" <> query)
+      |> json_response(200)
+      |> get_in(["data", "popup"])
+    end
+
+    assert %{"show_below_android" => "3.3.0", "show_below_android_build" => "12"} =
+             popup.("app_version=3.3.0&app_build=11")
+
+    assert popup.("app_version=3.3.0&app_build=12") == nil
+    assert popup.("app_version=3.3.0") == nil
+    assert popup.("app_version=3.2.4") != nil
   end
 
   defp auth(conn, user),

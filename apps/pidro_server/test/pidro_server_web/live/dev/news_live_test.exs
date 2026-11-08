@@ -142,6 +142,24 @@ defmodule PidroServerWeb.Dev.NewsLiveTest do
     view |> form("#news-form") |> render_submit()
     assert Repo.get_by!(Post, title_en: "A steadier table").show_below_ios == nil
 
+    view
+    |> form("#news-form", post: %{show_below_ios: "3.3.0", show_below_ios_build: "15"})
+    |> render_change()
+
+    assert has_element?(view, "#news-form", "3.3.0 installs below build 15, see the nudge")
+    view |> form("#news-form") |> render_submit()
+
+    assert {"3.3.0", "15"} =
+             Repo.get_by!(Post, title_en: "A steadier table")
+             |> then(&{&1.show_below_ios, &1.show_below_ios_build})
+
+    view
+    |> form("#news-form", post: %{show_below_ios: "", show_below_ios_build: "x"})
+    |> render_change()
+
+    assert has_element?(view, "#news-form", "must be a build number like 15")
+    view |> form("#news-form", post: %{show_below_ios_build: ""}) |> render_change()
+
     view |> form("#news-form", post: %{show_below_ios: "3.2"}) |> render_change()
     view |> form("#news-form", post: %{app_update: false}) |> render_change()
     view |> form("#news-form") |> render_submit()

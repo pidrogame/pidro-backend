@@ -429,22 +429,41 @@ defmodule PidroServerWeb.Dev.NewsLive do
             label="App update"
           />
           <div :if={Ecto.Changeset.get_field(@form.source, :app_update)} class="space-y-3">
-            <.input
-              field={@form[:show_below_android]}
-              label="Android: show below version"
-              placeholder="3.2.4"
-            />
+            <div class="grid grid-cols-[2fr_1fr] gap-3">
+              <.input
+                field={@form[:show_below_android]}
+                label="Android: show below version"
+                placeholder="3.3.0"
+              />
+              <.input
+                field={@form[:show_below_android_build]}
+                label="and below version code"
+                placeholder="12"
+                inputmode="numeric"
+              />
+            </div>
             <.store_hint
               store={@stores["android"]}
               version={@form[:show_below_android].value}
               platform="android"
             />
-            <.input
-              field={@form[:show_below_ios]}
-              label="iPhone: show below version"
-              placeholder="3.2.4"
-            />
+            <div class="grid grid-cols-[2fr_1fr] gap-3">
+              <.input
+                field={@form[:show_below_ios]}
+                label="iPhone: show below version"
+                placeholder="3.3.0"
+              />
+              <.input
+                field={@form[:show_below_ios_build]}
+                label="and below build"
+                placeholder="15"
+                inputmode="numeric"
+              />
+            </div>
             <.store_hint store={@stores["ios"]} version={@form[:show_below_ios].value} platform="ios" />
+            <p class="text-xs text-stone-600">
+              3.3.0 build 15: installs below 3.3.0, and 3.3.0 installs below build 15, see the nudge. Without a build, only installs below the version do; apps too old to send a build are compared by version only.
+            </p>
             <p class="text-xs text-stone-600">
               Empty = nobody on that platform. Set a version only when it is live in the store. The app supplies the Update button and the store link from server settings.
             </p>
@@ -708,7 +727,12 @@ defmodule PidroServerWeb.Dev.NewsLive do
     fields =
       if Ecto.Changeset.get_field(changeset, :app_update),
         do: [:button_label_en, :button_label_sv, :button_url],
-        else: [:show_below_android, :show_below_ios]
+        else: [
+          :show_below_android,
+          :show_below_ios,
+          :show_below_android_build,
+          :show_below_ios_build
+        ]
 
     Enum.any?(fields, &Keyword.has_key?(changeset.errors, &1))
   end

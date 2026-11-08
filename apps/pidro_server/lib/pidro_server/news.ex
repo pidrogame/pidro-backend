@@ -50,11 +50,17 @@ defmodule PidroServer.News do
       show_as_popup: post.show_as_popup,
       app_update: post.app_update,
       show_below_android: post.show_below_android,
-      show_below_ios: post.show_below_ios
+      show_below_ios: post.show_below_ios,
+      show_below_android_build: post.show_below_android_build,
+      show_below_ios_build: post.show_below_ios_build
     }
 
-  @doc "Newest published, unseen pop-up eligible for this phone; independent of feed reads."
-  def popup(%User{id: user_id}, locale, platform, version) do
+  @doc """
+  Newest published, unseen pop-up eligible for this phone; independent of
+  feed reads. `build` is the native build; an app that sends none is
+  compared by version only.
+  """
+  def popup(%User{id: user_id}, locale, platform, version, build \\ nil) do
     user_id = Ecto.UUID.dump!(user_id)
 
     from(p in published(),
@@ -64,7 +70,7 @@ defmodule PidroServer.News do
       order_by: [desc: p.published_at, desc: p.id]
     )
     |> Repo.all()
-    |> Enum.find(&eligible?(&1, platform, version))
+    |> Enum.find(&eligible?(&1, platform, version, build))
     |> case do
       nil -> nil
       post -> localize(post, locale)
@@ -88,7 +94,10 @@ defmodule PidroServer.News do
     end
   end
 
-  @doc "The newest published app update owns both platform minimums, including empty ones."
+  @doc """
+  The newest published app update owns both platform minimums, including
+  empty ones: a version per platform and, where set, a build of that version.
+  """
   def native_update_policy do
     Map.delete(native_update_policy_with_source(), :source)
   end
@@ -108,6 +117,7 @@ defmodule PidroServer.News do
         %{
           minimum_native_versions:
             Application.get_env(:pidro_server, :minimum_native_versions, %{}),
+          minimum_native_builds: %{},
           native_update_popup: false,
           source: "from deploy config"
         }
@@ -115,32 +125,50 @@ defmodule PidroServer.News do
       post ->
         %{
           minimum_native_versions:
-            Map.reject(
-              %{"android" => post.show_below_android, "ios" => post.show_below_ios},
-              fn {_platform, version} -> is_nil(version) end
-            ),
+            set(%{"android" => post.show_below_android, "ios" => post.show_below_ios}),
+          minimum_native_builds:
+            set(%{"android" => post.show_below_android_build, "ios" => post.show_below_ios_build}),
           native_update_popup: post.show_as_popup,
           source: "from the app-update post ‘#{post.title_en}’"
         }
     end
   end
 
-  defp eligible?(%Post{app_update: false}, _platform, _version), do: true
+  defp set(minimums), do: Map.reject(minimums, fn {_platform, value} -> is_nil(value) end)
 
-  defp eligible?(post, platform, version)
+  defp eligible?(%Post{app_update: false}, _platform, _version, _build), do: true
+
+  defp eligible?(post, platform, version, build)
        when platform in ~w(android ios) and is_binary(version) do
-    threshold = if platform == "android", do: post.show_below_android, else: post.show_below_ios
+    {threshold, threshold_build} =
+      if platform == "android",
+        do: {post.show_below_android, post.show_below_android_build},
+        else: {post.show_below_ios, post.show_below_ios_build}
 
     with true <- is_binary(threshold),
          {:ok, version} <- Version.parse(version),
          {:ok, threshold} <- Version.parse(threshold) do
-      Version.compare(version, threshold) == :lt
+      case Version.compare(version, threshold) do
+        :lt -> true
+        :eq -> below_build?(build, threshold_build)
+        :gt -> false
+      end
     else
       _ -> false
     end
   end
 
-  defp eligible?(_post, _platform, _version), do: false
+  defp eligible?(_post, _platform, _version, _build), do: false
+
+  # Same version: only a build on both sides tells them apart.
+  defp below_build?(build, threshold) when is_binary(build) and is_binary(threshold) do
+    case Integer.parse(build) do
+      {build, ""} -> build < String.to_integer(threshold)
+      _ -> false
+    end
+  end
+
+  defp below_build?(_build, _threshold), do: false
 
   @doc "Public URL for the post's current uploaded image."
   def image_url(%Post{image_version: nil}), do: nil
