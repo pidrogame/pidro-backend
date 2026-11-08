@@ -3,16 +3,18 @@ defmodule PidroServer.BotCatalogueTest do
   alias PidroServer.BotCatalogue
   alias PidroServer.BotCatalogue.Profile
   alias PidroServer.Games.Room.Seat
-  alias PidroServer.Games.{Lifecycle, RoomManager, Bots.BotManager}
-  alias PidroServer.Games.Bots.Strategies.{RandomStrategy, RulebookStrategy}
+  alias PidroServer.Games.{Lifecycle, RoomManager, Bots.BotBrain, Bots.BotManager}
+  alias PidroServer.Games.Bots.Strategies.{RandomStrategy, RulebookStrategy, SearchStrategy}
 
   setup do
+    # The node-wide snapshot other tests seat characters from.
+    original = BotCatalogue.profiles()
     RoomManager.reset_for_test()
     BotCatalogue.refresh()
 
     on_exit(fn ->
       PidroServer.RoomManagerCase.cleanup()
-      :persistent_term.put(BotCatalogue, BotCatalogue.defaults())
+      :persistent_term.put(BotCatalogue, original)
     end)
 
     :ok
@@ -52,7 +54,7 @@ defmodule PidroServer.BotCatalogueTest do
     assert lifecycle_seat.bot_profile == public.bot_profile
 
     assert Enum.sort(Map.keys(lifecycle_seat.bot_profile)) ==
-             [:avatar_url, :description, :home, :id, :lines, :name, :tempo]
+             [:avatar_url, :description, :home, :id, :lines, :name, :strategy, :tempo]
 
     assert lifecycle_seat.username == "Fourth"
     assert lifecycle_seat.display_name == "Fourth"
@@ -289,6 +291,66 @@ defmodule PidroServer.BotCatalogueTest do
     end
   end
 
+  describe "search" do
+    test "the catalogue maps search to the search strategy, anything else as before" do
+      assert BotCatalogue.strategy("search") == SearchStrategy
+      assert BotCatalogue.strategy("random") == RandomStrategy
+
+      for other <- ["rulebook", "Search", "minimax", nil],
+          do: assert(BotCatalogue.strategy(other) == RulebookStrategy)
+    end
+
+    test "a profile accepts search and still rejects an unknown strategy" do
+      assert {:ok, shark} =
+               BotCatalogue.save(BotCatalogue.new(), %{name: "Shark", strategy: "search"})
+
+      assert BotCatalogue.get!(shark.id).strategy == "search"
+      assert BotCatalogue.public(shark).strategy == "search"
+
+      assert {:error, changeset} =
+               BotCatalogue.save(BotCatalogue.new(), %{name: "Odd", strategy: "minimax"})
+
+      assert changeset.errors[:strategy]
+    end
+
+    test "Antti, Jocke and Marcel play search; public profiles say which strategy" do
+      assert Map.new(BotCatalogue.list(), &{&1.id, &1.strategy}) ==
+               %{"marcel" => "search", "antti" => "search", "jocke" => "search"}
+
+      data = Enum.map(BotCatalogue.profiles(), &BotCatalogue.public/1)
+      assert Enum.map(data, & &1.strategy) == ~w(search search search)
+    end
+
+    test "a seat decides through search for a search character, the rulebook otherwise" do
+      {:ok, _} = BotCatalogue.save(BotCatalogue.get!("jocke"), %{strategy: "rulebook"})
+      assert Seat.new_bot(:east, nil, "antti").bot_strategy == SearchStrategy
+      assert Seat.new_bot(:east, nil, "jocke").bot_strategy == RulebookStrategy
+      assert Seat.new_bot(:east, nil, "future-persona").bot_strategy == RulebookStrategy
+      {:ok, _} = BotCatalogue.save(BotCatalogue.get!("antti"), %{enabled: false})
+      assert Seat.new_bot(:east, nil, "antti").bot_strategy == RulebookStrategy
+    end
+
+    test "a seated search character's first bid comes from Pidro.Bot.Search" do
+      {:ok, room} = RoomManager.create_room("host", %{})
+      {:ok, _} = RoomManager.dev_set_position(room.code, :north, nil)
+      Phoenix.PubSub.subscribe(PidroServer.PubSub, BotBrain.reasoning_topic(room.code))
+
+      for pos <- [:north, :east, :south, :west],
+          do: assert({:ok, _} = BotManager.start_bot(room.code, pos, :basic, 10))
+
+      {:ok, seated} = RoomManager.get_room(room.code)
+      assert Enum.all?(seated.seats, fn {_pos, seat} -> seat.bot_strategy == SearchStrategy end)
+
+      # The hand's first bid always faces the search; its reason is search's.
+      assert_receive {:bot_reasoning, _, %{action: action, reason: reason}}
+                     when action == :pass or elem(action, 0) == :bid,
+                     5_000
+
+      assert reason =~ ~r/^Rulebook says .*; search .*\.$/,
+             "expected a search reason for #{inspect(action)}, got #{inspect(reason)}"
+    end
+  end
+
   describe "tempo" do
     # Each bot's move lands on a room without that turn, and says so.
     @describetag :capture_log
@@ -312,9 +374,11 @@ defmodule PidroServer.BotCatalogueTest do
       on_exit(fn -> Application.put_env(:pidro_server, Lifecycle, original) end)
     end
 
-    test "the legacy crew is steady, and public profiles carry the tempo" do
-      assert Enum.map(BotCatalogue.list(), & &1.tempo) == ~w(steady steady steady)
-      assert BotCatalogue.public(BotCatalogue.profile("marcel")).tempo == "steady"
+    test "the legacy crew has its own tempos, and public profiles carry the tempo" do
+      assert Map.new(BotCatalogue.list(), &{&1.id, &1.tempo}) ==
+               %{"marcel" => "quick", "antti" => "slow", "jocke" => "steady"}
+
+      assert BotCatalogue.public(BotCatalogue.profile("marcel")).tempo == "quick"
     end
 
     test "each character acts on its tempo's beat, at quick and at own pace" do

@@ -5,10 +5,11 @@ defmodule PidroServerWeb.Dev.BotCatalogueLiveTest do
   alias PidroServer.BotCatalogue.Profile
 
   setup do
+    original = BotCatalogue.profiles()
     BotCatalogue.refresh()
 
     on_exit(fn ->
-      :persistent_term.put(BotCatalogue, BotCatalogue.defaults())
+      :persistent_term.put(BotCatalogue, original)
     end)
 
     :ok
@@ -62,7 +63,10 @@ defmodule PidroServerWeb.Dev.BotCatalogueLiveTest do
     assert public["name"] == "Fourth edited"
     assert public["avatar_url"] =~ "/images/bots/jocke.svg"
     assert public["tempo"] == "slow"
-    assert Enum.sort(Map.keys(public)) == ~w(avatar_url description home id lines name tempo)
+    assert public["strategy"] == "random"
+
+    assert Enum.sort(Map.keys(public)) ==
+             ~w(avatar_url description home id lines name strategy tempo)
   end
 
   test "a new bot is steady, and the tempo only takes quick, steady or slow", %{conn: conn} do
@@ -75,7 +79,7 @@ defmodule PidroServerWeb.Dev.BotCatalogueLiveTest do
     assert html =~ "is invalid"
     html = render_submit(view, "save", %{"bot" => %{"id" => "antti", "tempo" => "frantic"}})
     assert html =~ "is invalid"
-    assert BotCatalogue.get!("antti").tempo == "steady"
+    assert BotCatalogue.get!("antti").tempo == "slow"
 
     view |> form("#bot-form", bot: %{tempo: "quick"}) |> render_submit()
     assert BotCatalogue.get!("antti").tempo == "quick"
@@ -118,6 +122,27 @@ defmodule PidroServerWeb.Dev.BotCatalogueLiveTest do
 
     assert %{"home" => "louisiana", "lines" => ["Hmm, jaha…", "Let's see…", "Väntä lite…"]} =
              Enum.find(data, &(&1["id"] == "antti"))
+  end
+
+  test "the strategy select offers search, and the form saves it", %{conn: conn} do
+    %{conn: conn} = register_and_log_in_admin(%{conn: conn})
+    {:ok, view, _} = live(conn, ~p"/admin/bots")
+    view |> element("#bot-jocke button") |> render_click()
+
+    assert has_element?(
+             view,
+             "#bot-form select[name='bot[strategy]'] option[value='search']",
+             "Search (plays the odds)"
+           )
+
+    view |> form("#bot-form", bot: %{strategy: "rulebook"}) |> render_submit()
+    assert BotCatalogue.get!("jocke").strategy == "rulebook"
+    assert render(view) =~ "rulebook · steady"
+
+    view |> form("#bot-form", bot: %{strategy: "search"}) |> render_submit()
+    assert BotCatalogue.get!("jocke").strategy == "search"
+    assert BotCatalogue.profile("jocke").strategy == "search"
+    assert render(view) =~ "search · steady"
   end
 
   test "a delayed form from the previous selection cannot overwrite another bot", %{conn: conn} do

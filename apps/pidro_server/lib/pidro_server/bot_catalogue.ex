@@ -3,7 +3,7 @@ defmodule PidroServer.BotCatalogue do
   use GenServer
   import Ecto.Query
   alias PidroServer.BotCatalogue.Profile
-  alias PidroServer.Games.Bots.Strategies.{RandomStrategy, RulebookStrategy}
+  alias PidroServer.Games.Bots.Strategies.{RandomStrategy, RulebookStrategy, SearchStrategy}
   alias PidroServer.Repo
 
   @topic "bot_catalogue"
@@ -106,7 +106,7 @@ defmodule PidroServer.BotCatalogue do
   def profile(id), do: Enum.find(profiles() ++ defaults(), &(&1.id == id))
 
   def public(profile) do
-    Map.take(profile, [:id, :name, :description, :tempo, :home, :lines])
+    Map.take(profile, [:id, :name, :description, :strategy, :tempo, :home, :lines])
     |> Map.put(:avatar_url, avatar_url(profile))
   end
 
@@ -117,6 +117,7 @@ defmodule PidroServer.BotCatalogue do
     do: PidroServerWeb.Endpoint.url() <> "/images/bots/#{portrait}.svg"
 
   def strategy("random"), do: RandomStrategy
+  def strategy("search"), do: SearchStrategy
   def strategy(_), do: RulebookStrategy
 
   @doc "The factor on the room's bot beat for a persona's tempo; without one a bot is steady."

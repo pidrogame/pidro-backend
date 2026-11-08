@@ -9,7 +9,7 @@ defmodule PidroServer.Games.Bots.RulebookStrategyTest do
 
   alias Pidro.Core.SeatView
   alias PidroServer.Games.Bots.{BotBrain, BotManager}
-  alias PidroServer.Games.Bots.Strategies.RulebookStrategy
+  alias PidroServer.Games.Bots.Strategies.{RulebookStrategy, SearchStrategy}
   alias PidroServer.Games.{GameAdapter, Lifecycle, RoomManager}
 
   defmodule RecordingStrategy do
@@ -144,13 +144,15 @@ defmodule PidroServer.Games.Bots.RulebookStrategyTest do
     end
   end
 
+  # A legacy strategy name selects nothing: the seat's character decides, and
+  # the seeded crew plays search (PID-403).
   describe "strategy names" do
     for {name, strategy} <- [
-          random: RulebookStrategy,
-          basic: RulebookStrategy,
-          smart: RulebookStrategy
+          random: SearchStrategy,
+          basic: SearchStrategy,
+          smart: SearchStrategy
         ] do
-      test "#{name} starts a bot that plays the rulebook" do
+      test "#{name} starts a bot that plays its character's strategy" do
         {:ok, room} = RoomManager.create_room("host_user", %{})
         {:ok, pid} = BotManager.start_bot(room.code, :east, unquote(name), 0)
 

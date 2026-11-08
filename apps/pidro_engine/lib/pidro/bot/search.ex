@@ -4,14 +4,16 @@ defmodule Pidro.Bot.Search do
   plays each candidate out in every dealt world, and keeps the move that
   scores best on average (determinized search, as in GIB's PIMC).
 
-  Research only: no table plays it. `Pidro.Bot.SelfPlay.search_policy/1`
-  runs it in the harness, and `mix pidro.selfplay --a search` measures it.
+  Characters whose bot profile says `search` play it at the table, through
+  the server's `SearchStrategy`. `Pidro.Bot.SelfPlay.search_policy/1` runs it
+  in the harness, and `mix pidro.selfplay --a search` measures it.
 
   It decides from a `SeatView` only. Worlds come from
   `Pidro.Bot.Search.Determinizer`, seeded from the `:seed` option and the
-  position, so a seed reproduces every decision. Each world is played out by
-  `Pidro.Bot.Search.Rollout` with the rulebook in every seat, and all
-  candidates are played in the same worlds.
+  position, never from the game's chance stream, so a position decides the
+  same way every time and a seed reproduces every decision. Each world is
+  played out by `Pidro.Bot.Search.Rollout` with the rulebook in every seat,
+  and all candidates are played in the same worlds.
 
   - **Play.** With more than one legal card, each card is worth the average
     hand value of its rollouts. The rulebook's card stands unless another

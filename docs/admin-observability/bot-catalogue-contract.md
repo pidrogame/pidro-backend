@@ -16,7 +16,8 @@ GameDetailLive and card_components belong to the separate Watch branch.
       "name": "Marcel",
       "description": "",
       "avatar_url": "https://BACKEND_ORIGIN/images/bots/marcel.svg",
-      "tempo": "steady",
+      "strategy": "search",
+      "tempo": "quick",
       "home": "anywhere",
       "lines": []
     }
@@ -25,10 +26,12 @@ GameDetailLive and card_components belong to the separate Watch branch.
 ```
 
 Each entry contains **only** `id`, `name`, `description`, `avatar_url`,
-`tempo`, `home`, `lines`. All but `lines` are strings; description can be
-empty. `tempo` is `quick`, `steady` or `slow`: how fast the character acts at
-the table (PID-378); older servers omit it, so treat a missing value as
-`steady`. `home` is `anywhere`, `finland` or `louisiana`: where the character
+`strategy`, `tempo`, `home`, `lines`. All but `lines` are strings; description
+can be empty. `strategy` is `rulebook`, `random` or `search` (PID-403: the
+character plays the odds); older servers omit it, and a client treats a missing
+or unknown value as an honest rulebook game. `tempo` is `quick`, `steady` or
+`slow`: how fast the character acts at the table (PID-378); older servers omit
+it, so treat a missing value as `steady`. `home` is `anywhere`, `finland` or `louisiana`: where the character
 is from (PID-404). `lines` is a list of zero to eight trimmed, nonblank strings
 of at most 40 characters: what the character says while thinking, written as
 language-neutral table noises, so one list serves every app language. Older
@@ -37,7 +40,7 @@ none. IDs are opaque,
 immutable strings: legacy IDs remain exactly `marcel`, `antti`, `jocke`; new profiles receive a
 server-generated UUID string. Do not enumerate persona IDs in client code.
 Catalogue reads include disabled profiles so seated identities still resolve.
-There is no public enabled flag, strategy key, module name, process identifier,
+There is no public enabled flag, module name, process identifier,
 image bytes, admin identity, user account, or rating in a profile.
 
 Use backend-origin absolute `avatar_url` as returned. Do not derive a URL from
@@ -77,7 +80,8 @@ Room HTTP seat projections additionally populate existing `username`,
 `player` summaries carry `bot_persona`, the same optional `bot_profile`, and
 existing `username`, `display_name`, `avatar_url` with authoritative profile
 values. Existing `player.id` and room `positions` identifiers are unchanged.
-No strategy field is added to public seats or lobby summaries.
+A seat's `bot_profile` carries the profile's current `strategy`; no other
+strategy field is added to public seats or lobby summaries.
 
 Watch's separate lifecycle path, `RoomManager.get_seat_lifecycle/1` through
 `Games.SeatLifecycle.with_names/1`, also supplies `bot_profile` plus authoritative
@@ -152,7 +156,8 @@ Do not invent an SVG path from the unknown ID or show an internal seat ID.
 - Disabling/renaming a profile does not remove or change a seated persona ID.
   Profile presentation is current catalogue metadata on subsequent snapshots;
   strategy is captured separately when seated and never read from a public
-  payload. Process reattachment and rematch keep that seat's persona/strategy.
+  payload, so after an admin edit a seated character can play the strategy it
+  was seated with while its profile already shows the new one. Process reattachment and rematch keep that seat's persona/strategy.
 - Catalogue changes notify connected catalogue admin views. They do not emit
   a new game/lobby roster event by themselves; clients can re-fetch catalogue
   metadata, and subsequent normal room snapshots use current profile data.
@@ -172,8 +177,10 @@ Fields:
 - `bot[name]`: required, max 60 characters.
 - `bot[description]`: public text, max 500 characters, empty allowed.
 - `bot[enabled]`: boolean, controls only new assignments.
-- `bot[strategy]`: allowlisted `rulebook` (production default) or `random`
-  (existing RandomStrategy), affects newly seated bots only. No dynamic atoms
+- `bot[strategy]`: allowlisted `rulebook` (production default), `random`
+  (existing RandomStrategy) or `search` (`Pidro.Bot.Search`, PID-403; the
+  seeded Antti, Jocke and Marcel play it), affects newly seated bots and their
+  substitutes only. No dynamic atoms
   or module names accepted. Legacy difficulty values still resolve to the
   production rulebook, as before; persona identity is not difficulty.
 - `bot[home]`: `anywhere` (default), `finland` or `louisiana`; a check

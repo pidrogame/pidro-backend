@@ -212,7 +212,8 @@ defmodule PidroServerWeb.Dev.BotCatalogueLive do
               label="Strategy for new seats"
               options={[
                 {"Rulebook (production default)", "rulebook"},
-                {"Random (existing strategy)", "random"}
+                {"Random (existing strategy)", "random"},
+                {"Search (plays the odds)", "search"}
               ]}
             />
             <.input

@@ -1360,7 +1360,8 @@ defmodule PidroServerWeb.API.RoomControllerTest do
           {"basic", :basic, %{"bot_difficulty" => "basic"}},
           {"smart", :smart, %{"bot_difficulty" => "smart"}}
         ] do
-      test "an all-AI create with difficulty #{label} uses the one rulebook", %{conn: conn} do
+      test "an all-AI create with difficulty #{label} seats characters on their own strategy",
+           %{conn: conn} do
         user = AccountsFixtures.user_fixture()
 
         params =
@@ -1387,10 +1388,11 @@ defmodule PidroServerWeb.API.RoomControllerTest do
         bots = for {_, %{occupant_type: :bot, bot_pid: pid}} <- room.seats, do: pid
         assert length(bots) == 3
 
+        # The seeded crew plays search (PID-403), whatever the legacy difficulty says.
         for pid <- bots,
             do:
               assert(
-                :sys.get_state(pid).strategy == PidroServer.Games.Bots.Strategies.RulebookStrategy
+                :sys.get_state(pid).strategy == PidroServer.Games.Bots.Strategies.SearchStrategy
               )
       end
     end

@@ -39,7 +39,7 @@ defmodule PidroServer.BotCatalogue.Profile do
         do: [lines: "each line should be at most 40 characters"],
         else: []
     end)
-    |> validate_inclusion(:strategy, ["rulebook", "random"])
+    |> validate_inclusion(:strategy, ["rulebook", "random", "search"])
     |> validate_inclusion(:tempo, ~w(quick steady slow))
     |> validate_inclusion(:portrait, ~w(marcel antti jocke upload))
     |> validate_inclusion(:home, ~w(anywhere finland louisiana))
