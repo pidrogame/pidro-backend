@@ -442,9 +442,9 @@ defmodule PidroServer.Profiles do
       xp: xp_periods(user_id),
       username: user.username,
       display_name: user.display_name,
-      bio: user.bio,
-      avatar_url: PidroServer.Accounts.Avatars.url_for(user)
+      bio: user.bio
     })
+    |> Map.merge(PidroServer.Accounts.Avatars.current_user_fields(user))
   end
 
   def public_profile(%{} = screen) do

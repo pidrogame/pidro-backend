@@ -58,6 +58,18 @@ defmodule PidroServerWeb.Schemas.ProfileSchemas do
               description: "The profile owner's user id",
               example: "b1f0c2e4-1111-2222-3333-444455556666"
             },
+            avatar_url: %Schema{
+              type: :string,
+              nullable: true,
+              description: "The photo, else the picked face, else null (PID-395)"
+            },
+            avatar_face: %Schema{
+              type: :string,
+              enum: ["a", "b"],
+              nullable: true,
+              description: "The face picked for when there is no photo; null if never picked"
+            },
+            has_photo: %Schema{type: :boolean, description: "Whether a photo is uploaded"},
             games_played: %Schema{
               type: :integer,
               description: "Total number of games the user has participated in",

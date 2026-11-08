@@ -30,6 +30,17 @@ defmodule PidroServer.Accounts.Avatars do
   @doc "`resolve/3` for one user, looking up their photo."
   def url_for(%User{} = user), do: resolve(metadata_for(user.id), user.avatar_face, user.id)
 
+  @doc "What the player's own payloads say about their picture: /auth/me and GET /profile."
+  def current_user_fields(user) do
+    version = metadata_for(user.id)
+
+    %{
+      avatar_url: resolve(version, user.avatar_face, user.id),
+      avatar_face: user.avatar_face,
+      has_photo: version != nil
+    }
+  end
+
   def put_face(%User{} = user, face) do
     with {:ok, user} <- user |> User.face_changeset(%{avatar_face: face}) |> Repo.update() do
       RoomManager.identity_changed(user.id)

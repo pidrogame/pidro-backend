@@ -240,6 +240,36 @@ defmodule PidroServerWeb.API.ProfileControllerTest do
       assert earned > 0
       assert data["data"]["xp"] == %{"this_week" => earned, "this_month" => earned}
     end
+
+    test "carries the picked face and has_photo as /auth/me does; others' sheets do not (PID-395)",
+         %{conn: conn} do
+      user = AccountsFixtures.user_fixture()
+      viewer = AccountsFixtures.user_fixture()
+      face = PidroServerWeb.Endpoint.url() <> "/images/faces/b.png"
+
+      data = conn |> auth(user) |> get(~p"/api/v1/profile") |> json_response(200)
+
+      assert Map.take(data["data"], ~w(avatar_url avatar_face has_photo)) ==
+               %{"avatar_url" => nil, "avatar_face" => nil, "has_photo" => false}
+
+      {:ok, _} = PidroServer.Accounts.Avatars.put_face(user, "b")
+      data = build_conn() |> auth(user) |> get(~p"/api/v1/profile") |> json_response(200)
+
+      assert Map.take(data["data"], ~w(avatar_url avatar_face has_photo)) ==
+               %{"avatar_url" => face, "avatar_face" => "b", "has_photo" => false}
+
+      me = build_conn() |> auth(user) |> get(~p"/api/v1/auth/me") |> json_response(200)
+
+      assert Map.take(data["data"], ~w(avatar_url avatar_face has_photo)) ==
+               Map.take(me["data"]["user"], ~w(avatar_url avatar_face has_photo))
+
+      sheet =
+        build_conn() |> auth(viewer) |> get(~p"/api/v1/profiles/#{user.id}") |> json_response(200)
+
+      assert sheet["data"]["avatar_url"] == face
+      refute Map.has_key?(sheet["data"], "avatar_face")
+      refute Map.has_key?(sheet["data"], "has_photo")
+    end
   end
 
   describe "PATCH /api/v1/profile" do
