@@ -305,6 +305,8 @@ deployment.
   the rooms the newer one saved and drops them. PID-399 (`app_build`) is one;
   PID-403 is another kind: seats hold the new `SearchStrategy` module, which an
   older image does not know, so it drops every room with a search character;
+- the release adds a field to a room (`Room`) for the same reason: PID-408
+  (`bot_talk`) is one, and an older image drops every live room after it;
 - the release changes the token payload or anything else
   [docs/deployment/kamal_hetzner.md](deployment/kamal_hetzner.md#token-payload-rollback)
   marks as roll-forward only;

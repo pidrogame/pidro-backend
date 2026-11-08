@@ -49,7 +49,7 @@ defmodule PidroServer.Games.RoomManager do
   alias Pidro.Core.{Chance, SeatView}
   alias Pidro.Game.{Engine, Play}
   alias PidroServer.Accounts.User
-  alias PidroServer.Games.Bots.{BotBrain, BotManager, SubstituteBot, TimeoutStrategy}
+  alias PidroServer.Games.Bots.{BotBrain, BotManager, SubstituteBot, Talk, TimeoutStrategy}
   alias PidroServer.GameArchive
 
   alias PidroServer.Games.{
@@ -102,6 +102,7 @@ defmodule PidroServer.Games.RoomManager do
     - `:phase_timers` - Map of position to timer reference for the disconnect cascade (%{position => reference()})
     - `:post_game_summaries` - The last game's `%{user_id => summary}`, kept while `:finished` so a rejoin sees it
     - `:talk` - The last 20 faces, words and typed lines at the table, newest first, so a report quotes what the server saw. Gone with the room
+    - `:bot_talk` - What the bots said, `%{seen: {game_instance_id, events}, said: [{persona, item}], hand: [item], shown_until: ms, phase, turn}`: the game events already answered, each character's recent items, the table's this hand, and the last state as clients see it (`Bots.Talk`). Only `said` and `hand` are stored
 
     ## Derived Data
 
@@ -142,7 +143,15 @@ defmodule PidroServer.Games.RoomManager do
             game_number: non_neg_integer(),
             game_started_at: DateTime.t() | nil,
             post_game_summaries: %{optional(String.t()) => map()},
-            talk: [map()]
+            talk: [map()],
+            bot_talk: %{
+              seen: {String.t() | nil, non_neg_integer()} | nil,
+              said: list(),
+              hand: list(),
+              shown_until: integer(),
+              phase: atom(),
+              turn: atom()
+            }
           }
 
     defstruct [
@@ -181,7 +190,8 @@ defmodule PidroServer.Games.RoomManager do
       game_number: 0,
       game_started_at: nil,
       post_game_summaries: %{},
-      talk: []
+      talk: [],
+      bot_talk: %{seen: nil, said: [], hand: [], shown_until: 0, phase: nil, turn: nil}
     ]
 
     @doc "Public game progress, omitted outside a playing room."
@@ -2739,7 +2749,8 @@ defmodule PidroServer.Games.RoomManager do
   def handle_cast({:note_talk, code, line}, %State{} = state) do
     case fetch_room(state, code) do
       {:ok, room} ->
-        {:noreply, put_room(state, %{room | talk: Enum.take([line | room.talk], 20)})}
+        room = bot_reply(%{room | talk: Enum.take([line | room.talk], 20)}, line)
+        {:noreply, put_room(state, room)}
 
       {:error, _} ->
         {:noreply, state}
@@ -3030,6 +3041,7 @@ defmodule PidroServer.Games.RoomManager do
           room =
             room
             |> maybe_reset_timeout_counters_for_new_hand(game_state)
+            |> bot_talk(game_state, game_instance_id, transition_delay_ms)
             |> Map.put(:last_hand_number, Map.get(game_state, :hand_number))
             |> Map.put(:game, game)
 
@@ -3214,6 +3226,23 @@ defmodule PidroServer.Games.RoomManager do
       end
 
     {:noreply, state}
+  end
+
+  # A bot's remark, after its beat. It is dropped when the bot has left the
+  # seat, when the table has moved into the auction or a person's trump or
+  # throw-down, or when the word it answers is more than six seconds old.
+  @impl true
+  def handle_info({:bot_talk, code, position, persona, item, heard_at}, %State{} = state) do
+    with %Room{} = room <- Map.get(state.rooms, code),
+         %{occupant_type: :bot, bot_persona: ^persona} <- room.seats[position],
+         true <- is_nil(heard_at) or System.monotonic_time(:millisecond) - heard_at <= 6_000,
+         false <- quiet?(room) do
+      line = %{seat: position, user_id: "bot:" <> persona, item: item}
+      PidroServerWeb.Endpoint.broadcast!("game:#{code}", "talk", line)
+      {:noreply, put_room(state, %{room | talk: Enum.take([line | room.talk], 20)})}
+    else
+      _ -> {:noreply, state}
+    end
   end
 
   @impl true
@@ -5999,6 +6028,96 @@ defmodule PidroServer.Games.RoomManager do
     # Saved at once: a room that comes back waiting would lose its game.
     save_rooms(new_state)
   end
+
+  # Bots answer what the game's new events show (PID-408), one remark at most.
+  # Bots answer what the game's new events show (PID-408), one remark at
+  # most. Clients show a state's moves for its transition delay (a hand's
+  # result while the engine already deals the next), so the auction they see
+  # starts after `shown_until`. A room restored mid-game, or saved before
+  # bots talked, has no cursor: it starts from now, saying nothing old.
+  defp bot_talk(%Room{} = room, game_state, game_instance_id, transition_delay_ms) do
+    if bots?(room),
+      do: bot_moments(room, game_state, game_instance_id, transition_delay_ms),
+      else: room
+  end
+
+  defp bot_moments(%Room{bot_talk: talk} = room, game_state, game_instance_id, delay_ms) do
+    events = Map.get(game_state, :events, [])
+
+    {talk, seen} =
+      case talk.seen do
+        {^game_instance_id, seen} -> {talk, seen}
+        nil when room.last_hand_number != nil -> {talk, length(events)}
+        _ -> {Talk.new_game(talk), 0}
+      end
+
+    talk =
+      if room.last_hand_number == Map.get(game_state, :hand_number),
+        do: talk,
+        else: %{talk | hand: []}
+
+    room = %{
+      room
+      | bot_talk:
+          Map.merge(talk, %{
+            seen: {game_instance_id, length(events)},
+            shown_until: System.system_time(:millisecond) + delay_ms,
+            phase: Map.get(game_state, :phase),
+            turn: Map.get(game_state, :current_turn)
+          })
+    }
+
+    say(room, Talk.remark(Talk.moments(events, seen, game_state), room), nil)
+  end
+
+  # One bot may answer a person's word or coin, never a typed line or a bot.
+  # Only a thanks needs the game: who took the last trick, who bid.
+  defp bot_reply(%Room{} = room, %{item: item, seat: seat, user_id: user_id}) do
+    if bots?(room) and not String.starts_with?(user_id, "bot:") do
+      game_state =
+        with true <- item in ~w(word_nice word_well word_bid),
+             :playing <- room.status,
+             {:ok, game_state} <- GameAdapter.get_state(room.code),
+             do: game_state,
+             else: (_ -> nil)
+
+      remark = Talk.remark(Talk.replies(item, seat, game_state), room)
+      say(room, remark, System.monotonic_time(:millisecond))
+    else
+      room
+    end
+  end
+
+  defp bot_reply(%Room{} = room, _line), do: room
+
+  defp say(room, nil, _heard_at), do: room
+
+  defp say(room, {position, persona, item, delay_ms}, heard_at) do
+    Process.send_after(
+      self(),
+      {:bot_talk, room.code, position, persona, item, heard_at},
+      delay_ms
+    )
+
+    %{room | bot_talk: Talk.remember(room.bot_talk, persona, item)}
+  end
+
+  defp bots?(room), do: Enum.any?(room.seats, fn {_, seat} -> seat.occupant_type == :bot end)
+
+  # The auction, or a person choosing trump or throwing down to six, as the
+  # clients see it: from the last state the room was told of.
+  defp quiet?(%Room{status: :playing, bot_talk: talk} = room) do
+    System.system_time(:millisecond) >= Map.get(talk, :shown_until, 0) and
+      case Map.get(talk, :phase) do
+        :bidding -> true
+        phase when phase in [:declaring, :discarding, :second_deal] -> human?(room, talk[:turn])
+        _ -> false
+      end
+  end
+
+  defp quiet?(_room), do: false
+
+  defp human?(room, position), do: match?(%{occupant_type: :human}, room.seats[position])
 
   defp game_summary(state) do
     %{hand: Map.get(state, :hand_number), scores: Map.get(state, :cumulative_scores, %{})}

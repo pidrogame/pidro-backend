@@ -21,13 +21,13 @@ defmodule PidroServerWeb.GameChannel do
   * `"rematch"` - Ask for another game in a finished room, same payload and replies as
     `"ready"`. Game over clears readiness and bumps `ready_epoch`; when every human has
     asked, a new game starts in the same room with the same seats.
-  * `"talk"` - A seated player at a table with another human sends a face or a
+  * `"talk"` - A seated player at a table with anyone else, bots included, sends a face or a
     word: `%{"item" => "coin_heart"}`, one of `@talk_items`. Five per ten
     seconds; errors reply `%{error: "not_seated" | "no_table" | "rate_limited" | "invalid_item"}`
   * `"say"` - A seated player who reads typed talk (an adult account, see
     `PidroServer.Accounts.User.reads_typed?/1`) types to the table: `%{"text" => "Hyvä peli"}`,
-    trimmed, 1 to 80 characters, through `PidroServer.Moderation`. Shares the
-    talk limit; errors reply `%{error: "not_allowed" | "invalid_text" | "filtered"}`
+    trimmed, 1 to 80 characters, through `PidroServer.Moderation`, at a table with
+    another human. Shares the talk limit; errors reply `%{error: "not_allowed" | "invalid_text" | "filtered"}`
     or a talk error. Nothing typed is stored outside a report
   * `"report"` - Report a player at the table: `%{"user_id" => id, "reason" =>
     "rude" | "bothering" | "other"}`. The server quotes what they said at this
@@ -59,7 +59,9 @@ defmodule PidroServerWeb.GameChannel do
   * `"kicked"` - Pushed to the kicked player only, then the channel closes with
     reason `{:shutdown, :kicked}`
   * `"talk"` - `%{seat: :north, user_id: id, item: "coin_heart"}`, to everyone on
-    the channel except a player either side has blocked; a typed line,
+    the channel except a player either side has blocked. A bot sends
+    `%{seat: :east, user_id: "bot:antti", item: "line_teasing_five_caught_1"}` or a coin
+    (`PidroServer.Games.Bots.Talk`); a typed line,
     `%{seat: :north, user_id: id, text: "Hyvä peli"}`, only to seated players
     who read typed talk
   * `"moment"` - `%{id: "start" | "partner_trick" | "game_end"}`, pushed with the
@@ -865,7 +867,7 @@ defmodule PidroServerWeb.GameChannel do
 
   # The seat and sender come from the socket, never the payload.
   def handle_in("talk", %{"item" => item}, socket) when item in @talk_items do
-    case may_talk(socket) do
+    case may_talk(socket, :item) do
       :ok ->
         line = %{seat: socket.assigns.position, user_id: socket.assigns.user_id, item: item}
         broadcast!(socket, "talk", line)
@@ -882,7 +884,7 @@ defmodule PidroServerWeb.GameChannel do
 
   def handle_in("say", %{"text" => text}, socket) when is_binary(text) do
     with {:ok, text} <- typed(String.trim(text), socket.assigns.reads_typed),
-         :ok <- may_talk(socket) do
+         :ok <- may_talk(socket, :text) do
       line = %{seat: socket.assigns.position, user_id: socket.assigns.user_id, text: text}
       broadcast!(socket, "talk", line)
       RoomManager.note_talk(socket.assigns.room_code, line)
@@ -1318,14 +1320,14 @@ defmodule PidroServerWeb.GameChannel do
 
   ## Private Helpers
 
-  # A talk table has at least two seated humans, and the sender is one of them.
-  defp may_talk(%{assigns: %{role: :player, position: position} = assigns})
+  # The sender is seated with someone else; typed text needs another human.
+  defp may_talk(%{assigns: %{role: :player, position: position} = assigns}, kind)
        when not is_nil(position) do
     user_id = assigns.user_id
 
     with {:ok, %{seats: %{^position => %{occupant_type: :human, user_id: ^user_id}}} = room} <-
            RoomManager.get_room(assigns.room_code),
-         true <- talk_table?(room),
+         true <- talk_table?(room, kind),
          {:allow, _} <- RateLimit.hit({:talk, user_id}, 10_000, 5) do
       :ok
     else
@@ -1335,7 +1337,7 @@ defmodule PidroServerWeb.GameChannel do
     end
   end
 
-  defp may_talk(_socket), do: {:error, "not_seated"}
+  defp may_talk(_socket, _kind), do: {:error, "not_seated"}
 
   # Followed before the load, so a block made meanwhile is not missed.
   defp blocked_ids(user_id) do
@@ -1374,7 +1376,10 @@ defmodule PidroServerWeb.GameChannel do
   defp said(room, user_id),
     do: room.talk |> Enum.filter(&(&1.user_id == user_id)) |> Enum.reverse()
 
-  defp talk_table?(room),
+  defp talk_table?(room, :item),
+    do: Enum.count(room.seats, fn {_position, seat} -> seat.occupant_type != :vacant end) >= 2
+
+  defp talk_table?(room, :text),
     do: Enum.count(room.seats, fn {_position, seat} -> seat.occupant_type == :human end) >= 2
 
   @spec apply_game_action(Phoenix.Socket.t(), term()) ::

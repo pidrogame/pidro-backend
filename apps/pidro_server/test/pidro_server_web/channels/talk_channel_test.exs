@@ -333,15 +333,114 @@ defmodule PidroServerWeb.TalkChannelTest do
     assert received(ctx, "moment") == %{east: [%{id: "partner_trick"}]}
   end
 
-  test "a table with one human and bots cannot talk" do
-    player = adult()
-    {:ok, room} = RoomManager.create_room(player.id, %{solo: true})
-    for pos <- [:east, :south, :west], do: BotManager.start_bot(room.code, pos, :basic, 5_000)
-    PidroServer.RoomFixtures.ready_room(room.code)
-    ctx = %{clients: %{solo: client(:solo, player, room.code)}}
+  describe "bots" do
+    # PID-408 reverses PID-328's rule: a person at a bot table may send words
+    # and coins, so the bots can be answered. Typed text still needs a human.
+    test "a person at a bot table may send words and coins, never typed text" do
+      player = adult()
+      {:ok, room} = RoomManager.create_room(player.id, %{solo: true})
+      ctx = %{clients: %{solo: client(:solo, player, room.code)}}
 
-    assert send_talk(ctx, :solo, %{"item" => "word_hello"}) == {:error, %{error: "no_table"}}
-    assert received(ctx) == %{}
+      assert send_talk(ctx, :solo, %{"item" => "word_hello"}) == {:error, %{error: "no_table"}}
+
+      for pos <- [:east, :south, :west], do: BotManager.start_bot(room.code, pos, :basic, 5_000)
+
+      assert send_talk(ctx, :solo, %{"item" => "coin_heart"}) == :ok
+      assert %{solo: [%{item: "coin_heart"} | _]} = received(ctx)
+      assert say(ctx, :solo, "hello bots") == {:error, %{error: "no_table"}}
+      assert send_talk(ctx, :solo, %{"item" => "word_rude"}) == {:error, %{error: "invalid_item"}}
+    end
+
+    test "a word gets one bot's reply at most, a typed line none" do
+      [north, south] = [adult(), adult()]
+      {:ok, room} = RoomManager.create_room(north.id, %{name: "Two and two"})
+      {:ok, _, _} = RoomManager.join_room(room.code, south.id, :south)
+      for pos <- [:east, :west], do: BotManager.start_bot(room.code, pos, :basic, 5_000)
+
+      ctx = %{
+        clients: %{
+          north: client(:north, north, room.code),
+          south: client(:south, south, room.code)
+        }
+      }
+
+      assert say(ctx, :north, "hello all") == :ok
+      assert bot_lines(ctx, 3_500) == []
+
+      # Both bots qualify for hello; seeded so that one of them does reply.
+      seed_room_manager(3)
+      assert send_talk(ctx, :north, %{"item" => "word_hello"}) == :ok
+
+      assert [%{seat: seat, user_id: "bot:" <> _, item: "line_" <> _ = item}] =
+               bot_lines(ctx, 3_500)
+
+      assert seat in [:east, :west] and item =~ "_reply_hello_"
+
+      # A bot's own line is not a word to answer.
+      {:ok, %{talk: [%{user_id: "bot:" <> _} | _]}} = RoomManager.get_room(room.code)
+    end
+
+    test "sorry is answered by the bot partner, and only by it" do
+      player = adult()
+      {:ok, room} = RoomManager.create_room(player.id, %{solo: true})
+      for pos <- [:east, :south, :west], do: BotManager.start_bot(room.code, pos, :basic, 5_000)
+      ctx = %{clients: %{solo: client(:solo, player, room.code)}}
+
+      seed_room_manager(1)
+      assert send_talk(ctx, :solo, %{"item" => "word_sorry"}) == :ok
+      assert [%{seat: :south, item: "line_" <> item}] = bot_lines(ctx, 3_500)
+      assert item =~ "_reply_sorry_"
+    end
+
+    test "a remark due in the auction, or for a word over six seconds old, is dropped" do
+      player = adult()
+      {:ok, room} = RoomManager.create_room(player.id, %{solo: true})
+      for pos <- [:east, :south, :west], do: BotManager.start_bot(room.code, pos, :basic, 5_000)
+      ctx = %{clients: %{solo: client(:solo, player, room.code)}}
+      {:ok, %{seats: %{east: %{bot_persona: east}}}} = RoomManager.get_room(room.code)
+      now = System.monotonic_time(:millisecond)
+
+      # Control: the table is waiting, the remark lands.
+      fire(room.code, east, "line_dry_hello_1", nil)
+      fire(room.code, east, "line_dry_reply_hello_1", now - 2_000)
+      fire(room.code, east, "line_dry_reply_hello_2", now - 7_000)
+
+      assert Enum.map(bot_lines(ctx, 300), & &1.item) ==
+               ["line_dry_hello_1", "line_dry_reply_hello_1"]
+
+      PidroServer.RoomFixtures.ready_room(room.code)
+      wait_for_phase(room.code, :bidding)
+      _ = bot_lines(ctx, 3_500)
+      {:ok, %{phase: :bidding}} = GameAdapter.get_state(room.code)
+
+      fire(room.code, east, "line_dry_hello_2", nil)
+      assert bot_lines(ctx, 300) == []
+    end
+  end
+
+  defp fire(code, persona, item, heard_at),
+    do: send(RoomManager, {:bot_talk, code, :east, persona, item, heard_at})
+
+  # The room manager's own random state, so its bots' choices repeat.
+  defp seed_room_manager(seed),
+    do:
+      :sys.replace_state(RoomManager, fn state -> :rand.seed(:exsss, {seed, 408, 1}) && state end)
+
+  # Every bot line the clients received within `ms`, once each.
+  defp bot_lines(_ctx, ms) do
+    deadline = System.monotonic_time(:millisecond) + ms
+
+    Stream.repeatedly(fn ->
+      receive do
+        {:got, _name, "talk", %{user_id: "bot:" <> _} = line} -> line
+        {:got, _name, "talk", _line} -> :skip
+      after
+        max(deadline - System.monotonic_time(:millisecond), 0) -> :done
+      end
+    end)
+    |> Enum.take_while(&(&1 != :done))
+    |> Enum.reject(&(&1 == :skip))
+    |> Enum.uniq()
   end
 
   # A client process owns its socket: pushes and replies go to it, and it

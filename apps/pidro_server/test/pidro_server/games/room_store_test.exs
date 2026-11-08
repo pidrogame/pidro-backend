@@ -92,7 +92,15 @@ defmodule PidroServer.Games.RoomStoreTest do
       game_number: 2,
       game_started_at: now,
       post_game_summaries: %{},
-      talk: [%{user_id: host, seat: :north, text: "gg"}]
+      talk: [%{user_id: host, seat: :north, text: "gg"}],
+      bot_talk: %{
+        seen: {"instance-1", 42},
+        said: [{"antti", "line_teasing_hello_1"}, {"gun", "coin_heart"}],
+        hand: ["coin_heart"],
+        shown_until: 0,
+        phase: nil,
+        turn: nil
+      }
     }
 
     json = room |> RoomStore.encode() |> Jason.encode!() |> Jason.decode!()
@@ -106,6 +114,7 @@ defmodule PidroServer.Games.RoomStoreTest do
                phase_timers: %{},
                turn_timer: nil,
                talk: [],
+               bot_talk: %{room.bot_talk | seen: nil},
                game: nil
            }
   end

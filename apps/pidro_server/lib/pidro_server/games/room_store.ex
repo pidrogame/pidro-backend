@@ -31,7 +31,7 @@ defmodule PidroServer.Games.RoomStore do
 
   @strings ~w(id code host_id kicked_ids positions spectator_ids user_id reserved_for decision_id
     decision_player_id vacated_by bot_persona bot_personas name seat_holds seat_password
-    ready_player_ids app_version app_build platform reason network peers left)
+    ready_player_ids app_version app_build platform reason network peers left bot_talk)
   @times ~w(created_at last_activity invite_live_until)
   @structs %{
     "Elixir.PidroServer.Games.RoomManager.Room" => Room,
@@ -218,7 +218,7 @@ defmodule PidroServer.Games.RoomStore do
     end) != false
   end
 
-  @doc "The room as stored: no timers, processes, talk or game summary."
+  @doc "The room as stored: no timers, processes, talk, bot talk cursor or game summary."
   @spec encode(Room.t()) :: map()
   def encode(%Room{} = room) do
     budget =
@@ -253,6 +253,8 @@ defmodule PidroServer.Games.RoomStore do
         paused_turn: nil,
         turn_pause_budget: budget,
         talk: [],
+        # What changes with every move stays out, so a move saves nothing.
+        bot_talk: %{room.bot_talk | seen: nil, shown_until: 0, phase: nil, turn: nil},
         game: nil
     })
   end
