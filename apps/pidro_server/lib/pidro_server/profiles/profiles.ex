@@ -443,11 +443,7 @@ defmodule PidroServer.Profiles do
       username: user.username,
       display_name: user.display_name,
       bio: user.bio,
-      avatar_url:
-        PidroServer.Accounts.Avatars.url(
-          PidroServer.Accounts.Avatars.metadata_for(user_id),
-          user_id
-        )
+      avatar_url: PidroServer.Accounts.Avatars.url_for(user)
     })
   end
 

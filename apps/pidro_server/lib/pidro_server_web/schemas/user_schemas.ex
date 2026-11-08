@@ -163,6 +163,19 @@ defmodule PidroServerWeb.Schemas.UserSchemas do
             "Whether this is a guest account (upgradable in place with email and password)",
           example: false
         },
+        avatar_url: %Schema{
+          type: :string,
+          nullable: true,
+          description:
+            "The photo, else the picked face at /images/faces/<face>.png, else null (PID-395)"
+        },
+        avatar_face: %Schema{
+          type: :string,
+          enum: ["a", "b"],
+          nullable: true,
+          description: "The face picked for when there is no photo; null if never picked"
+        },
+        has_photo: %Schema{type: :boolean, description: "Whether the player has uploaded a photo"},
         age_band: StoredAgeBand,
         terms_version: %Schema{
           type: :string,
@@ -511,6 +524,19 @@ defmodule PidroServerWeb.Schemas.UserSchemas do
           description: "Always true for this response",
           example: true
         },
+        avatar_url: %Schema{
+          type: :string,
+          nullable: true,
+          description:
+            "The photo, else the picked face at /images/faces/<face>.png, else null (PID-395)"
+        },
+        avatar_face: %Schema{
+          type: :string,
+          enum: ["a", "b"],
+          nullable: true,
+          description: "The face picked for when there is no photo; null if never picked"
+        },
+        has_photo: %Schema{type: :boolean, description: "Whether the player has uploaded a photo"},
         age_band: StoredAgeBand,
         terms_version: %Schema{type: :string, nullable: true, maxLength: 32},
         inserted_at: %Schema{

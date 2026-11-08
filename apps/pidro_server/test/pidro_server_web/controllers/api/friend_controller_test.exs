@@ -92,6 +92,21 @@ defmodule PidroServerWeb.API.FriendControllerTest do
     assert conn |> auth(a) |> get(~p"/api/v1/friends") |> json_response(200) == empty
   end
 
+  test "a friend row carries a photo-less friend's face (PID-395)", %{conn: conn} do
+    a = user_fixture()
+    b = user_fixture()
+    {:ok, _} = PidroServer.Accounts.Avatars.put_face(b, "b")
+    {:ok, _} = Friends.add(a.id, b.id)
+    {:ok, _} = Friends.add(b.id, a.id)
+
+    response = conn |> auth(a) |> get(~p"/api/v1/friends") |> json_response(200)
+    assert_schema(response, "FriendsResponse")
+
+    assert [%{"user_id" => id, "avatar_url" => url}] = response["data"]["friends"]
+    assert id == b.id
+    assert url == PidroServerWeb.Endpoint.url() <> "/images/faces/b.png"
+  end
+
   test "old clients decode the serialized list while ignoring additive row facts",
        %{conn: conn} do
     a = user_fixture()

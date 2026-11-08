@@ -17,7 +17,7 @@ defmodule PidroServerWeb.PlayPageController do
       %User{} = user ->
         player = %{
           display_name: User.public_name(user),
-          avatar_url: Avatars.url(Avatars.metadata_for(user.id), user.id)
+          avatar_url: Avatars.url_for(user)
         }
 
         render(conn, :show, page: InvitePage.player(player, slug, device), crawler?: false)

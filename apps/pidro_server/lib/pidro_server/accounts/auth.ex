@@ -323,7 +323,7 @@ defmodule PidroServer.Accounts.Auth do
       user_id: user.id,
       username: user.username,
       display_name: user.display_name,
-      avatar_url: PidroServer.Accounts.Avatars.url(Avatars.metadata_for(user.id), user.id),
+      avatar_url: Avatars.url_for(user),
       bio: user.bio
     }
   end
@@ -617,18 +617,12 @@ defmodule PidroServer.Accounts.Auth do
         left_join: a in PidroServer.Accounts.UserAvatar,
         on: a.user_id == u.id,
         where: u.id in ^valid_uuids,
-        select_merge: %{
-          avatar_url:
-            fragment(
-              "CASE WHEN ? IS NULL THEN NULL ELSE ?::text || '/api/v1/users/' || ?::text || '/avatar/' || ? END",
-              a.version,
-              ^PidroServerWeb.Endpoint.url(),
-              u.id,
-              a.version
-            )
-        }
+        select: {u, a.version}
       )
       |> Repo.all()
+      |> Enum.map(fn {user, version} ->
+        %{user | avatar_url: Avatars.resolve(version, user.avatar_face, user.id)}
+      end)
       |> with_badges()
       |> Map.new(&{&1.id, &1})
     end

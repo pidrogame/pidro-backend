@@ -103,6 +103,7 @@ defmodule PidroServer.Accounts.User do
     field(:terms_version, :string)
     field(:terms_accepted_at, :utc_datetime_usec)
     field(:news_seen_at, :utc_datetime)
+    field(:avatar_face, :string)
     field(:avatar_url, :string, virtual: true)
     field(:linked_friend, :map, virtual: true)
     field(:level, :integer, virtual: true)
@@ -216,6 +217,14 @@ defmodule PidroServer.Accounts.User do
     |> unique_constraint(:email)
     |> unique_constraint(:email, name: :users_lower_email_index)
     |> put_share_slug()
+  end
+
+  @doc "Sets the face a player without a photo shows, `\"a\"` or `\"b\"` (PID-395)."
+  def face_changeset(user, attrs) do
+    user
+    |> cast(attrs, [:avatar_face])
+    |> validate_required(:avatar_face)
+    |> validate_inclusion(:avatar_face, ~w(a b))
   end
 
   @doc "Builds a changeset that can change only the public profile biography."

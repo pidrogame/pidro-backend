@@ -225,6 +225,104 @@ defmodule PidroServerWeb.API.AvatarControllerTest do
     end
   end
 
+  describe "PUT /api/v1/profile/avatar/face (PID-395)" do
+    test "a registered player picks a face and gets the current user back", %{conn: conn} do
+      user = AccountsFixtures.user_fixture()
+      face_b = face_url("b")
+
+      response =
+        conn
+        |> auth(user)
+        |> put(~p"/api/v1/profile/avatar/face", %{"face" => "b"})
+        |> json_response(200)
+
+      assert %{"avatar_face" => "b", "has_photo" => false, "avatar_url" => ^face_b} =
+               response["data"]["user"]
+
+      assert response["data"]["user"]["id"] == user.id
+      assert_schema(response, "User Response")
+
+      me = build_conn() |> auth(user) |> get(~p"/api/v1/auth/me") |> json_response(200)
+
+      assert %{"avatar_face" => "b", "has_photo" => false, "avatar_url" => ^face_b} =
+               me["data"]["user"]
+    end
+
+    test "a guest may pick a face", %{conn: conn} do
+      guest = AccountsFixtures.guest_fixture()
+
+      assert %{"data" => %{"user" => %{"guest" => true, "avatar_face" => "a"} = user}} =
+               conn
+               |> auth(guest)
+               |> put(~p"/api/v1/profile/avatar/face", %{"face" => "a"})
+               |> json_response(200)
+
+      assert user["avatar_url"] == face_url("a")
+    end
+
+    test "any other face is a 422 and changes nothing", %{conn: conn} do
+      user = AccountsFixtures.user_fixture()
+
+      for body <- [%{"face" => "c"}, %{"face" => nil}, %{}] do
+        assert build_conn()
+               |> auth(user)
+               |> put(~p"/api/v1/profile/avatar/face", body)
+               |> json_response(422)
+      end
+
+      assert conn
+             |> auth(user)
+             |> get(~p"/api/v1/auth/me")
+             |> json_response(200)
+             |> get_in(["data", "user", "avatar_face"]) == nil
+    end
+
+    test "needs a token", %{conn: conn} do
+      assert conn |> put(~p"/api/v1/profile/avatar/face", %{"face" => "b"}) |> json_response(401)
+    end
+
+    test "a face survives a photo delete and loses to a photo upload", %{conn: conn, dir: dir} do
+      user = AccountsFixtures.user_fixture()
+      face_b = face_url("b")
+      conn |> auth(user) |> put(~p"/api/v1/profile/avatar/face", %{"face" => "b"})
+
+      assert %{"data" => %{"avatar_url" => photo}} =
+               build_conn()
+               |> auth(user)
+               |> post(~p"/api/v1/profile/avatar", %{"avatar" => upload(png!(dir, "face.png"))})
+               |> json_response(200)
+
+      me = build_conn() |> auth(user) |> get(~p"/api/v1/auth/me") |> json_response(200)
+
+      assert %{"avatar_face" => "b", "has_photo" => true, "avatar_url" => ^photo} =
+               me["data"]["user"]
+
+      assert build_conn()
+             |> auth(user)
+             |> delete(~p"/api/v1/profile/avatar")
+             |> json_response(200) ==
+               %{"data" => %{"avatar_url" => face_b}}
+
+      me = build_conn() |> auth(user) |> get(~p"/api/v1/auth/me") |> json_response(200)
+
+      assert %{"avatar_face" => "b", "has_photo" => false, "avatar_url" => ^face_b} =
+               me["data"]["user"]
+    end
+
+    test "the face images are served as PNG" do
+      for face <- ["a", "b"] do
+        conn = get(build_conn(), "/images/faces/#{face}.png")
+        assert response(conn, 200)
+        assert ["image/png" <> _] = get_resp_header(conn, "content-type")
+      end
+    end
+  end
+
+  defp face_url(face), do: PidroServerWeb.Endpoint.url() <> "/images/faces/#{face}.png"
+
+  defp assert_schema(response, name),
+    do: OpenApiSpex.TestAssertions.assert_schema(response, name, PidroServerWeb.ApiSpec.spec())
+
   defp auth(conn, user),
     do: put_req_header(conn, "authorization", "Bearer #{Token.generate(user)}")
 

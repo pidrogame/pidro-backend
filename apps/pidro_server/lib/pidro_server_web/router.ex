@@ -244,6 +244,8 @@ defmodule PidroServerWeb.Router do
     get "/players/by-slug/:slug", ProfileController, :by_slug
     post "/profile/avatar", AvatarController, :create, private: %{rate_limit: [:avatar_upload]}
     delete "/profile/avatar", AvatarController, :delete
+    # Guests too, PID-395: the value is one of two fixed faces, not free text.
+    put "/profile/avatar/face", AvatarController, :face, private: %{rate_limit: [:avatar_upload]}
 
     get "/league", LeagueController, :show
     put "/league/hidden", LeagueController, :hidden

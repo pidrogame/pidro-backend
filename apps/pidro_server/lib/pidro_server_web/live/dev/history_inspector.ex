@@ -333,14 +333,20 @@ defmodule PidroServerWeb.Dev.HistoryInspector do
         where: u.id in ^ids,
         select:
           {u.id,
-           %{username: u.username, display_name: u.display_name, avatar_version: avatar.version}}
+           %{
+             username: u.username,
+             display_name: u.display_name,
+             avatar_version: avatar.version,
+             avatar_face: u.avatar_face
+           }}
     )
     |> Map.new(fn {id, profile} ->
       {id,
        %{
          username: profile.username,
          display_name: profile.display_name,
-         avatar_url: PidroServer.Accounts.Avatars.url(profile.avatar_version, id)
+         avatar_url:
+           PidroServer.Accounts.Avatars.resolve(profile.avatar_version, profile.avatar_face, id)
        }}
     end)
   end

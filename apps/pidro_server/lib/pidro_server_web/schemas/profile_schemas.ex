@@ -16,6 +16,24 @@ defmodule PidroServerWeb.Schemas.ProfileSchemas do
   require OpenApiSpex
   alias OpenApiSpex.Schema
 
+  defmodule AvatarFaceRequest do
+    @moduledoc "Body of `PUT /api/v1/profile/avatar/face` (PID-395)."
+
+    OpenApiSpex.schema(%{
+      type: :object,
+      title: "Avatar Face Request",
+      required: [:face],
+      properties: %{
+        face: %Schema{
+          type: :string,
+          enum: ["a", "b"],
+          description: "Face 1 (`a`) or Face 2 (`b`), the app's avatar1.png and avatar2.png"
+        }
+      },
+      example: %{"face" => "b"}
+    })
+  end
+
   defmodule PlayerProfileResponse do
     @moduledoc """
     Response containing the authenticated user's full profile screen.

@@ -19,6 +19,31 @@ defmodule PidroServerWeb.API.RoomControllerTest do
     :ok
   end
 
+  test "a seat in the room snapshot carries a photo-less player's face (PID-395)", %{conn: conn} do
+    host = AccountsFixtures.user_fixture()
+    {:ok, host} = PidroServer.Accounts.Avatars.put_face(host, "b")
+    plain = AccountsFixtures.user_fixture()
+    {:ok, room} = RoomManager.create_room(host.id, %{name: "Faces"})
+    {:ok, _, _} = RoomManager.join_room(room.code, plain.id)
+
+    seats =
+      conn
+      |> put_req_header("authorization", "Bearer #{Token.generate(host)}")
+      |> get(~p"/api/v1/rooms/#{room.code}")
+      |> json_response(200)
+      |> get_in(["data", "room", "seats"])
+      |> Map.values()
+      |> Map.new(&{&1["user_id"], &1["avatar_url"]})
+
+    assert seats[host.id] == PidroServerWeb.Endpoint.url() <> "/images/faces/b.png"
+    assert Map.fetch!(seats, plain.id) == nil
+
+    assert {:ok, %{seats: snapshot}} = RoomManager.get_seat_lifecycle(room.code)
+
+    assert Enum.find(Map.values(snapshot), &(&1.player_id == host.id)).avatar_url ==
+             PidroServerWeb.Endpoint.url() <> "/images/faces/b.png"
+  end
+
   test "game state exposes trick signals and the retained hand result over HTTP", %{conn: conn} do
     host = AccountsFixtures.user_fixture()
     {:ok, room} = RoomManager.create_room(host.id, %{name: "Trick signals"})

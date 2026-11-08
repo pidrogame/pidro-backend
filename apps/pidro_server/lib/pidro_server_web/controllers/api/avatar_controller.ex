@@ -1,7 +1,39 @@
 defmodule PidroServerWeb.API.AvatarController do
   use PidroServerWeb, :controller
+  use OpenApiSpex.ControllerSpecs
+
   alias PidroServer.Accounts.Avatars
+  alias PidroServerWeb.API.UserJSON
   alias PidroServerWeb.ErrorContract
+  alias PidroServerWeb.Schemas.{ErrorSchemas, ProfileSchemas, UserSchemas}
+
+  action_fallback PidroServerWeb.API.FallbackController
+
+  tags(["Profiles"])
+
+  operation(:create, false)
+  operation(:delete, false)
+  operation(:show, false)
+
+  operation(:face,
+    summary: "Pick the face shown while the player has no photo",
+    description: """
+    Sets the current user's `avatar_face` to `"a"` or `"b"` (PID-395). Guests
+    may call it too. A photo still wins: `avatar_url` is the photo, else the
+    face at `/images/faces/<face>.png`, else null. Picking a face keeps the
+    photo, and removing the photo keeps the face.
+    """,
+    security: [%{"bearer_auth" => []}],
+    request_body: {"Face", "application/json", ProfileSchemas.AvatarFaceRequest, required: true},
+    responses: [
+      ok: {"The current user", "application/json", UserSchemas.UserResponse},
+      unauthorized:
+        {"Authentication required or invalid", "application/json",
+         ErrorSchemas.unauthorized_error()},
+      unprocessable_entity:
+        {"Face is not a or b", "application/json", ErrorSchemas.validation_error()}
+    ]
+  )
 
   def create(conn, %{"avatar" => upload}) do
     case Avatars.put(conn.assigns.current_user.id, upload) do
@@ -14,7 +46,13 @@ defmodule PidroServerWeb.API.AvatarController do
 
   def delete(conn, _params) do
     Avatars.delete(conn.assigns.current_user.id)
-    json(conn, %{data: %{avatar_url: nil}})
+    json(conn, %{data: %{avatar_url: Avatars.url_for(conn.assigns.current_user)}})
+  end
+
+  def face(conn, params) do
+    with {:ok, user} <- Avatars.put_face(conn.assigns.current_user, params["face"]) do
+      conn |> put_view(UserJSON) |> render(:show, %{user: user})
+    end
   end
 
   def show(conn, %{"user_id" => user_id, "version" => version}) do

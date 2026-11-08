@@ -69,17 +69,22 @@ defmodule PidroServerWeb.API.UserJSON do
   # Private function to transform a user struct into a JSON-serializable map.
   #
   # Includes user fields (id, username, email, display_name, share_slug, guest,
-  # inserted_at, updated_at) and the Premium fields from
+  # inserted_at, updated_at), the avatar (`avatar_url`, and the `avatar_face`
+  # and `has_photo` the face picker reads, PID-395) and the Premium fields from
   # PidroServer.Entitlements.premium_fields/1, but explicitly excludes password_hash,
   # token_version, last_seen_at, install_id and guest_creation_token_hash.
   defp user(user) do
+    version = PidroServer.Accounts.Avatars.metadata_for(user.id)
+
     %{
       id: user.id,
       username: user.username,
       email: user.email,
       display_name: user.display_name,
       share_slug: user.share_slug,
-      avatar_url: avatar_url(user),
+      avatar_url: PidroServer.Accounts.Avatars.resolve(version, user.avatar_face, user.id),
+      avatar_face: user.avatar_face,
+      has_photo: version != nil,
       guest: user.guest,
       age_band: user.age_band,
       terms_version: user.terms_version,
@@ -88,13 +93,4 @@ defmodule PidroServerWeb.API.UserJSON do
     }
     |> Map.merge(PidroServer.Entitlements.premium_fields(user))
   end
-
-  defp avatar_url(%{avatar_url: url}) when is_binary(url), do: url
-
-  defp avatar_url(user),
-    do:
-      PidroServer.Accounts.Avatars.url(
-        PidroServer.Accounts.Avatars.metadata_for(user.id),
-        user.id
-      )
 end

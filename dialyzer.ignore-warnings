@@ -40,8 +40,8 @@ lib/pidro_server/profiles/profiles.ex:47:30:
 lib/pidro_server/profiles/profiles.ex:94:55:
 lib/pidro_server/profiles/profiles.ex:95:30:
 lib/pidro_server/profiles/profiles.ex:438:5:
-lib/pidro_server/profiles/profiles.ex:560:8:
-lib/pidro_server/profiles/profiles.ex:888:30:
+lib/pidro_server/profiles/profiles.ex:556:8:
+lib/pidro_server/profiles/profiles.ex:884:30:
 lib/pidro_server/stats/stats.ex:439:62:
 lib/pidro_server/stats/stats.ex:768:88:
 lib/pidro_server/stats/stats.ex:846:8:

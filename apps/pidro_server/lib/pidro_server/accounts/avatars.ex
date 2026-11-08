@@ -1,7 +1,7 @@
 defmodule PidroServer.Accounts.Avatars do
   @moduledoc "Database-backed, normalized profile avatars."
   import Ecto.Query
-  alias PidroServer.Accounts.UserAvatar
+  alias PidroServer.Accounts.{User, UserAvatar}
   alias PidroServer.Games.RoomManager
   alias PidroServer.Repo
 
@@ -14,6 +14,27 @@ defmodule PidroServer.Accounts.Avatars do
 
   def url(version, user_id) do
     PidroServerWeb.Endpoint.url() <> "/api/v1/users/#{user_id}/avatar/#{version}"
+  end
+
+  @doc """
+  The one avatar rule (PID-395): a photo wins; with no photo, the face the
+  player picked; if they picked nothing, nil, so the apps draw their own.
+  """
+  def resolve(nil, nil, _user_id), do: nil
+
+  def resolve(nil, face, _user_id),
+    do: PidroServerWeb.Endpoint.url() <> "/images/faces/#{face}.png"
+
+  def resolve(version, _face, user_id), do: url(version, user_id)
+
+  @doc "`resolve/3` for one user, looking up their photo."
+  def url_for(%User{} = user), do: resolve(metadata_for(user.id), user.avatar_face, user.id)
+
+  def put_face(%User{} = user, face) do
+    with {:ok, user} <- user |> User.face_changeset(%{avatar_face: face}) |> Repo.update() do
+      RoomManager.identity_changed(user.id)
+      {:ok, user}
+    end
   end
 
   def metadata_for(user_id) do
