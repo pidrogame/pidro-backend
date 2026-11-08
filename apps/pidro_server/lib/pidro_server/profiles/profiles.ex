@@ -307,7 +307,8 @@ defmodule PidroServer.Profiles do
   @doc """
   What another player's sheet shows about `user_id` to `viewer_id`: level,
   Legend stars, title and pin, the Classic years, the combined record, the
-  medal count, and the games the two have played `together`. Reads only; a
+  medals earned (oldest first, plus their count for older apps) out of every
+  active medal, and the games the two have played `together`. Reads only; a
   user without a profile row reads as a new player.
   """
   @spec player_sheet(Ecto.UUID.t(), Ecto.UUID.t()) :: map()
@@ -315,6 +316,7 @@ defmodule PidroServer.Profiles do
     profile = Repo.get_by(PlayerProfile, user_id: user_id) || %PlayerProfile{}
     level = Progression.level_for_xp(profile.veteran_xp)
     classic = classic_profile(profile.heritage_flags, nil)
+    medals = user_id |> list_achievements() |> screen_achievements()
 
     %{
       level: level,
@@ -329,7 +331,9 @@ defmodule PidroServer.Profiles do
             games_played: classic[:games_played]
           },
       record: profile |> record(classic || %{}) |> Map.take([:games, :win_rate]),
-      medals: user_id |> list_achievements() |> screen_achievements() |> length(),
+      medals: length(medals),
+      medal_list: medals,
+      medal_total: length(Catalog.active()),
       together: together(viewer_id, user_id)
     }
   end

@@ -361,7 +361,7 @@ defmodule PidroServerWeb.API.ProfileControllerTest do
           |> Map.fetch!("data")
 
         assert Map.keys(data) |> Enum.sort() ==
-                 ~w(avatar_url bio classic display_name level medals pin prestige record title together user_id username)a
+                 ~w(avatar_url bio classic display_name level medal_list medal_total medals pin prestige record title together user_id username)a
                  |> Enum.map(&Atom.to_string/1)
                  |> Enum.sort()
 
@@ -385,6 +385,18 @@ defmodule PidroServerWeb.API.ProfileControllerTest do
       put_profile(regular, veteran_xp: 11_520, games_played: 8, wins: 6, losses: 2)
       :awarded = Profiles.award_achievement(legend.id, :player)
       :awarded = Profiles.award_achievement(legend.id, :winner)
+
+      # Earned the later-inserted medal first, so neither insertion nor key
+      # order gives the award order.
+      for {key, at} <- [
+            player: ~U[2026-03-04 10:00:00.000000Z],
+            winner: ~U[2026-01-02 10:00:00.000000Z]
+          ] do
+        from(a in PidroServer.Profiles.Achievement,
+          where: a.user_id == ^legend.id and a.achievement_key == ^to_string(key)
+        )
+        |> Repo.update_all(set: [awarded_at: at])
+      end
 
       {:ok, _} =
         Profiles.import_legacy_progression(classic, %{
@@ -419,6 +431,7 @@ defmodule PidroServerWeb.API.ProfileControllerTest do
       end
 
       no_games = %{"games" => 0, "won_as_partners" => 0, "against_games" => 0, "against_won" => 0}
+      medal_total = length(PidroServer.Achievements.Catalog.active())
 
       assert sheet.(legend) == %{
                "level" => 100,
@@ -428,6 +441,23 @@ defmodule PidroServerWeb.API.ProfileControllerTest do
                "classic" => nil,
                "record" => %{"games" => 0, "win_rate" => 0.0},
                "medals" => 2,
+               "medal_list" => [
+                 %{
+                   "key" => "winner",
+                   "name" => "The Winner",
+                   "description" => "Win 5 games.",
+                   "tier" => 1,
+                   "awarded_at" => "2026-01-02T10:00:00.000000Z"
+                 },
+                 %{
+                   "key" => "player",
+                   "name" => "Player",
+                   "description" => "Finish 10 games.",
+                   "tier" => 1,
+                   "awarded_at" => "2026-03-04T10:00:00.000000Z"
+                 }
+               ],
+               "medal_total" => medal_total,
                "together" => no_games
              }
 
@@ -439,6 +469,8 @@ defmodule PidroServerWeb.API.ProfileControllerTest do
                "classic" => nil,
                "record" => %{"games" => 8, "win_rate" => 0.75},
                "medals" => 0,
+               "medal_list" => [],
+               "medal_total" => medal_total,
                "together" => no_games
              }
 
@@ -458,6 +490,8 @@ defmodule PidroServerWeb.API.ProfileControllerTest do
                },
                "record" => %{"games" => 125, "win_rate" => 0.6},
                "medals" => 0,
+               "medal_list" => [],
+               "medal_total" => medal_total,
                "together" => no_games
              }
 
@@ -469,6 +503,8 @@ defmodule PidroServerWeb.API.ProfileControllerTest do
                "classic" => nil,
                "record" => %{"games" => 0, "win_rate" => 0.0},
                "medals" => 0,
+               "medal_list" => [],
+               "medal_total" => medal_total,
                "together" => no_games
              }
 

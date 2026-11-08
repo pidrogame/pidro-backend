@@ -456,6 +456,8 @@ defmodule PidroServerWeb.Schemas.ProfileSchemas do
             :classic,
             :record,
             :medals,
+            :medal_list,
+            :medal_total,
             :together
           ],
           properties: %{
@@ -509,6 +511,27 @@ defmodule PidroServerWeb.Schemas.ProfileSchemas do
               }
             },
             medals: %Schema{type: :integer, minimum: 0, description: "Achievements earned"},
+            medal_list: %Schema{
+              type: :array,
+              description: "The achievements earned, oldest first, with catalog display copy",
+              items: %Schema{
+                type: :object,
+                required: [:key, :name, :description, :tier, :awarded_at],
+                properties: %{
+                  key: %Schema{type: :string, example: "winner"},
+                  name: %Schema{type: :string, example: "Winner"},
+                  description: %Schema{type: :string},
+                  tier: %Schema{type: :integer, example: 1},
+                  awarded_at: %Schema{type: :string, format: "date-time"}
+                }
+              }
+            },
+            medal_total: %Schema{
+              type: :integer,
+              minimum: 0,
+              description: "Every medal there is to earn (the active catalog)",
+              example: 6
+            },
             together: %Schema{
               type: :object,
               description:
