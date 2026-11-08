@@ -401,6 +401,53 @@ defmodule PidroServer.GameArchive do
     Repo.delete_all(from a in Archive, where: a.game_instance_id in subquery(ids))
   end
 
+  @doc """
+  What the archive knows of each bot persona from its seats: games since
+  `week_start`, all games, games with a winner, wins, and its first game.
+  A game where the persona sat on both teams has no side, so it is neither
+  decided nor won for it.
+  """
+  @spec persona_tallies(DateTime.t()) :: %{String.t() => map()}
+  def persona_tallies(week_start) do
+    games =
+      from a in Archive,
+        join: s in fragment("jsonb_each(?)", a.participants),
+        on: true,
+        where:
+          fragment(
+            "?->>'occupant_type' = 'bot' AND ?->>'bot_persona' IS NOT NULL",
+            s.value,
+            s.value
+          ),
+        group_by: [a.game_instance_id, fragment("?->>'bot_persona'", s.value)],
+        select: %{
+          persona: fragment("?->>'bot_persona'", s.value),
+          started_at: a.started_at,
+          winner: fragment("?->'state'->>'winner'", a.last_snapshot),
+          team:
+            fragment(
+              "CASE WHEN bool_and(? IN ('north', 'south')) THEN 'north_south' WHEN bool_and(? IN ('east', 'west')) THEN 'east_west' END",
+              s.key,
+              s.key
+            )
+        }
+
+    Repo.all(
+      from g in subquery(games),
+        group_by: g.persona,
+        select:
+          {g.persona,
+           %{
+             week: filter(count(), g.started_at >= ^week_start),
+             all: count(),
+             decided: filter(count(), not is_nil(g.winner) and not is_nil(g.team)),
+             wins: filter(count(), g.winner == g.team),
+             since: min(g.started_at)
+           }}
+    )
+    |> Map.new()
+  end
+
   defp insert_initial(room_code, participants, snapshot, data, now) do
     seats = Serialization.encode(participants)
     users = seats |> Map.values() |> Enum.map(& &1["user_id"]) |> Enum.reject(&is_nil/1)
