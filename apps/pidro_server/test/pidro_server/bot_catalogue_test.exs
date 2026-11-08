@@ -330,6 +330,30 @@ defmodule PidroServer.BotCatalogueTest do
       assert Seat.new_bot(:east, nil, "antti").bot_strategy == RulebookStrategy
     end
 
+    @tag :capture_log
+    test "a human in a search character's opened seat gets a rulebook substitute" do
+      [host, south, west, newcomer] = Enum.map(1..4, fn _ -> Ecto.UUID.generate() end)
+      {:ok, room} = RoomManager.create_room(host, %{})
+      character = spawn(fn -> receive do: (:never -> :ok) end)
+      bot_id = "bot_#{room.code}_east"
+      {:ok, _, :east} = RoomManager.join_bot(room.code, bot_id, character, :east)
+      {:ok, _, :south} = RoomManager.join_room(room.code, south, :south)
+      {:ok, _, :west} = RoomManager.join_room(room.code, west, :west)
+      PidroServer.RoomFixtures.ready_room(room.code)
+      Process.exit(character, :kill)
+      :ok = RoomManager.leave_room(bot_id)
+      {:ok, left} = RoomManager.get_room(room.code)
+      assert :sys.get_state(left.seats.east.bot_pid).strategy == SearchStrategy
+
+      {:ok, opened} = RoomManager.open_seat(room.code, :east, host)
+      assert opened.seats.east.bot_persona == nil
+      {:ok, _, :east} = RoomManager.join_room(room.code, newcomer, :east)
+      :ok = RoomManager.handle_player_disconnect(room.code, newcomer)
+      {:ok, away} = PidroServer.RoomManagerCase.expire_phase(room.code, :east, :phase2_start)
+      assert %{status: :bot_substitute, bot_persona: nil} = away.seats.east
+      assert :sys.get_state(away.seats.east.bot_pid).strategy == RulebookStrategy
+    end
+
     test "a seated search character's first bid comes from Pidro.Bot.Search" do
       {:ok, room} = RoomManager.create_room("host", %{})
       {:ok, _} = RoomManager.dev_set_position(room.code, :north, nil)
@@ -426,7 +450,7 @@ defmodule PidroServer.BotCatalogueTest do
       assert_beat(beats(room.code, [{:east, pid, :east}], :own)[:east], 800)
     end
 
-    test "a substitute keeps its seat's character's tempo; one for a human is steady" do
+    test "a substitute keeps its seat's character's tempo and strategy; one for a human is steady and plays the rulebook" do
       Repo.update_all(Profile, set: [tempo: "slow"])
       BotCatalogue.refresh()
       [host, south, west] = Enum.map(1..3, fn _ -> Ecto.UUID.generate() end)
@@ -449,6 +473,8 @@ defmodule PidroServer.BotCatalogueTest do
       assert %{status: :bot_substitute, bot_persona: persona} = room.seats.east
       assert is_binary(persona)
       assert %{status: :bot_substitute, bot_persona: nil} = room.seats.south
+      assert :sys.get_state(room.seats.east.bot_pid).strategy == SearchStrategy
+      assert :sys.get_state(room.seats.south.bot_pid).strategy == RulebookStrategy
 
       subs = for pos <- [:east, :south], do: {pos, room.seats[pos].bot_pid, pos}
       beats = beats(room.code, subs, :quick)

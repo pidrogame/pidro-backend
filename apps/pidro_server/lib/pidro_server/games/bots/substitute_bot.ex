@@ -5,7 +5,7 @@ defmodule PidroServer.Games.Bots.SubstituteBot do
   Unlike `BotPlayer`, a SubstituteBot does NOT join the room — it takes over
   an existing seat that was vacated by a disconnected human. It subscribes to
   game PubSub updates, detects when it's the bot's turn, and plays moves
-  with the room's configured rulebook profile.
+  with the seat's character's strategy, or the rulebook for a human's seat.
 
   RoomManager starts and monitors these temporary children under BotSupervisor.
   The seat's bot_pid is the sole action authority; only RoomManager replaces it
@@ -31,7 +31,9 @@ defmodule PidroServer.Games.Bots.SubstituteBot do
   Starts a substitute bot for the given room and position.
 
   Returns `{:ok, pid}` on success. The bot is started under `BotSupervisor`.
-  `tempo_factor` is the seat's character's tempo (`BotCatalogue.tempo_factor/1`).
+  `difficulty` is the seat's character's strategy module, or a legacy room
+  difficulty (`Strategy.resolve/1`). `tempo_factor` is the seat's character's
+  tempo (`BotCatalogue.tempo_factor/1`).
   """
   @spec start(String.t(), atom(), atom(), float()) :: {:ok, pid()} | {:error, term()}
   def start(room_code, position, difficulty \\ :basic, tempo_factor \\ 1.0) do

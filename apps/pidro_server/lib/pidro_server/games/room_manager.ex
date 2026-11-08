@@ -5681,13 +5681,17 @@ defmodule PidroServer.Games.RoomManager do
 
   # RoomManager is the sole restart authority for replacement controllers.
   # A delayed DOWN after reclaim/open or another recovery cannot resurrect a seat.
-  # A substitute keeps the tempo of the character its seat shows; one for a human has none.
+  # A substitute keeps the tempo and strategy of the character its seat shows;
+  # one for a human has neither.
   defp start_substitute_bot(room, position) do
     persona = get_in(room.seats, [position, Access.key(:bot_persona)])
     tempo = PidroServer.BotCatalogue.tempo_factor(persona)
 
-    with {:ok, pid} <-
-           SubstituteBot.start(room.code, position, room.config.bot_difficulty, tempo) do
+    # An opened seat drops its character but keeps the strategy it was seated with.
+    strategy =
+      (persona && room.seats[position].bot_strategy) || room.config.bot_difficulty
+
+    with {:ok, pid} <- SubstituteBot.start(room.code, position, strategy, tempo) do
       Process.monitor(pid)
       {:ok, pid}
     end
