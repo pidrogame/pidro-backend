@@ -1627,7 +1627,12 @@ defmodule PidroServer.Games.RoomManager do
              room_code_generator()
            ) do
       now = DateTime.utc_now()
-      {bot_personas, _chance} = Chance.shuffle(Seat.bot_personas(), Chance.from_seed(seed))
+      # Each crowd shuffles on its own, the table's own first, so a room
+      # reaches the other crowd only when its own is exhausted.
+      {bot_personas, _chance} =
+        config.rule_set
+        |> Seat.bot_personas()
+        |> Enum.flat_map_reduce(Chance.from_seed(seed), &Chance.shuffle/2)
 
       room = %Room{
         id: Ecto.UUID.generate(),

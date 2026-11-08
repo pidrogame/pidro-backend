@@ -254,6 +254,20 @@ defmodule PidroServer.Games.Room.Seat do
   def bot_personas, do: Enum.map(PidroServer.BotCatalogue.available(), & &1.id)
 
   @doc """
+  The bot crew for a table of `rule_set`, in two groups the room shuffles apart:
+  the characters at home there or anywhere, then the rest. Missing is Finnish.
+  """
+  @spec bot_personas(:finnish | :louisiana | nil) :: [[bot_persona()]]
+  def bot_personas(rule_set) do
+    home = if rule_set == :louisiana, do: "louisiana", else: "finland"
+
+    {own, rest} =
+      Enum.split_with(PidroServer.BotCatalogue.available(), &(&1.home in [home, "anywhere"]))
+
+    for group <- [own, rest], do: Enum.map(group, & &1.id)
+  end
+
+  @doc """
   The first persona in the room's crew order no other seat holds.
   Only enabled profiles enter new seats; when exhausted, reuse the first.
   """

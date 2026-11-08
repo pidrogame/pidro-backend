@@ -62,7 +62,7 @@ defmodule PidroServerWeb.Dev.BotCatalogueLiveTest do
     assert public["name"] == "Fourth edited"
     assert public["avatar_url"] =~ "/images/bots/jocke.svg"
     assert public["tempo"] == "slow"
-    assert Enum.sort(Map.keys(public)) == ~w(avatar_url description id name tempo)
+    assert Enum.sort(Map.keys(public)) == ~w(avatar_url description home id lines name tempo)
   end
 
   test "a new bot is steady, and the tempo only takes quick, steady or slow", %{conn: conn} do
@@ -84,6 +84,40 @@ defmodule PidroServerWeb.Dev.BotCatalogueLiveTest do
     assert_raise Postgrex.Error, ~r/supported_tempo/, fn ->
       Repo.update_all(Profile, set: [tempo: "frantic"])
     end
+  end
+
+  test "the form saves a home and lines, one per line, and the list counts them", %{conn: conn} do
+    %{conn: admin_conn} = register_and_log_in_admin(%{conn: conn})
+    {:ok, view, _} = live(admin_conn, ~p"/admin/bots")
+    assert has_element?(view, "#bot-form select[name='bot[home]'] option[selected]", "Anywhere")
+    assert render(view) =~ "anywhere · 0/8 lines"
+
+    view |> element("#bot-antti button") |> render_click()
+
+    view
+    |> form("#bot-form",
+      bot: %{home: "louisiana", lines: "Hmm, jaha…\n\n  Let's see…  \r\nVäntä lite…\n"}
+    )
+    |> render_submit()
+
+    assert %{home: "louisiana", lines: ["Hmm, jaha…", "Let's see…", "Väntä lite…"]} =
+             BotCatalogue.get!("antti")
+
+    assert has_element?(view, "#bot-antti", "louisiana · 3/8 lines")
+
+    assert view |> element("#bot-form textarea[name='bot[lines]']") |> render() =~
+             "Hmm, jaha…\nLet&#39;s see…\nVäntä lite…"
+
+    nine = Enum.map_join(1..9, "\n", &"Line #{&1}")
+    html = view |> form("#bot-form", bot: %{lines: nine}) |> render_submit()
+    assert html =~ "should have at most 8 item(s)"
+    assert view |> element("#bot-form textarea[name='bot[lines]']") |> render() =~ "Line 9"
+    assert BotCatalogue.get!("antti").lines == ["Hmm, jaha…", "Let's see…", "Väntä lite…"]
+
+    data = conn |> get(~p"/api/v1/bots") |> json_response(200) |> Map.fetch!("data")
+
+    assert %{"home" => "louisiana", "lines" => ["Hmm, jaha…", "Let's see…", "Väntä lite…"]} =
+             Enum.find(data, &(&1["id"] == "antti"))
   end
 
   test "a delayed form from the previous selection cannot overwrite another bot", %{conn: conn} do

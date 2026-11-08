@@ -52,7 +52,7 @@ defmodule PidroServer.BotCatalogueTest do
     assert lifecycle_seat.bot_profile == public.bot_profile
 
     assert Enum.sort(Map.keys(lifecycle_seat.bot_profile)) ==
-             [:avatar_url, :description, :id, :name, :tempo]
+             [:avatar_url, :description, :home, :id, :lines, :name, :tempo]
 
     assert lifecycle_seat.username == "Fourth"
     assert lifecycle_seat.display_name == "Fourth"
@@ -135,6 +135,158 @@ defmodule PidroServer.BotCatalogueTest do
     assert Seat.serialize(rematch.seats.east).bot_profile.name == "Renamed"
     refute Repo.get_by(PidroServer.Profiles.PlayerProfile, user_id: profile.id)
     assert Repo.aggregate(PidroServer.Accounts.User, :count) == 1
+  end
+
+  describe "home" do
+    test "with only the legacy crew, a seeded room keeps the crew it always had" do
+      # Pinned against the crews rooms got before characters had a home.
+      pinned = %{
+        1 => ~w(marcel jocke antti),
+        2 => ~w(marcel antti jocke),
+        3 => ~w(antti marcel jocke),
+        4 => ~w(jocke antti marcel),
+        5 => ~w(antti jocke marcel),
+        6 => ~w(antti jocke marcel)
+      }
+
+      for params <- [%{}, %{rule_set: "finnish"}, %{rule_set: "louisiana"}],
+          {seed, crew} <- pinned do
+        {:ok, room} =
+          RoomManager.create_room("host_#{inspect(params)}_#{seed}", params, seed: seed)
+
+        assert room.bot_personas == crew
+      end
+    end
+
+    test "a table puts its own crowd and the anywhere characters before the other crowd" do
+      bayou = [character("Boudreaux", "louisiana"), character("Clotile", "louisiana")]
+      ostrobothnia = [character("Pekka", "finland"), character("Maja", "finland")]
+      anywhere = ~w(marcel antti jocke)
+
+      orders =
+        for seed <- 1..20 do
+          {:ok, cajun} =
+            RoomManager.create_room("cajun_#{seed}", %{rule_set: "louisiana"}, seed: seed)
+
+          {:ok, finn} =
+            RoomManager.create_room("finn_#{seed}", %{rule_set: "finnish"}, seed: seed)
+
+          {:ok, plain} = RoomManager.create_room("plain_#{seed}", %{}, seed: seed)
+
+          {own, rest} = Enum.split(cajun.bot_personas, 5)
+          assert Enum.sort(own) == Enum.sort(bayou ++ anywhere)
+          assert Enum.sort(rest) == Enum.sort(ostrobothnia)
+
+          {own, rest} = Enum.split(finn.bot_personas, 5)
+          assert Enum.sort(own) == Enum.sort(ostrobothnia ++ anywhere)
+          assert Enum.sort(rest) == Enum.sort(bayou)
+
+          # Missing rule set is Finnish.
+          assert plain.bot_personas == finn.bot_personas
+          cajun.bot_personas
+        end
+
+      # Each crowd is shuffled with the seed, not seated in catalogue order.
+      assert orders |> Enum.map(&hd/1) |> Enum.uniq() |> length() > 1
+      assert orders |> Enum.map(&Enum.drop(&1, 5)) |> Enum.uniq() |> length() == 2
+    end
+
+    test "a room reaches the other crowd only when its own is exhausted, and later bots follow its order" do
+      Repo.update_all(Profile, set: [enabled: false])
+      bayou = [character("Boudreaux", "louisiana"), character("Clotile", "louisiana")]
+      ostrobothnia = [character("Pekka", "finland"), character("Maja", "finland")]
+
+      for seed <- 1..10 do
+        {:ok, room} =
+          RoomManager.create_room("host_#{seed}", %{rule_set: "louisiana"}, seed: seed)
+
+        assert Enum.sort(Enum.take(room.bot_personas, 2)) == Enum.sort(bayou)
+      end
+
+      {:ok, room} = RoomManager.create_room("host", %{rule_set: "louisiana"}, seed: 7)
+
+      # One from the host's seat picker, two through the bot manager's join.
+      assert {:ok, _} = RoomManager.set_seat(room.code, "host", :east, :bot)
+
+      for pos <- [:south, :west],
+          do:
+            assert(
+              {:ok, _, ^pos} = RoomManager.join_bot(room.code, bot_id(room, pos), self(), pos)
+            )
+
+      {:ok, seated} = RoomManager.get_room(room.code)
+
+      assert Enum.sort([seated.seats.east.bot_persona, seated.seats.south.bot_persona]) ==
+               Enum.sort(bayou)
+
+      assert seated.seats.west.bot_persona == Enum.at(room.bot_personas, 2)
+      assert seated.seats.west.bot_persona in ostrobothnia
+
+      # The bayou character leaves; the bot taking the seat is from the bayou again.
+      freed = seated.seats.south.bot_persona
+      assert :ok = RoomManager.leave_room(bot_id(room, :south))
+
+      assert {:ok, _, :south} =
+               RoomManager.join_bot(room.code, bot_id(room, :south), self(), :south)
+
+      {:ok, refilled} = RoomManager.get_room(room.code)
+      assert refilled.seats.south.bot_persona == freed
+    end
+
+    test "a room with none of its own crowd still fills" do
+      Repo.update_all(Profile, set: [enabled: false])
+      ostrobothnia = for name <- ~w(Pekka Maja Lasse), do: character(name, "finland")
+      {:ok, room} = RoomManager.create_room("host", %{rule_set: "louisiana"}, seed: 3)
+
+      for pos <- [:east, :south, :west],
+          do:
+            assert(
+              {:ok, _, ^pos} = RoomManager.join_bot(room.code, bot_id(room, pos), self(), pos)
+            )
+
+      {:ok, seated} = RoomManager.get_room(room.code)
+      crew = Enum.map([:east, :south, :west], &seated.seats[&1].bot_persona)
+      assert Enum.sort(crew) == Enum.sort(ostrobothnia)
+    end
+
+    test "a character's home is anywhere, finland or louisiana" do
+      assert BotCatalogue.new().home == "anywhere"
+      assert Enum.map(BotCatalogue.list(), & &1.home) == ~w(anywhere anywhere anywhere)
+      refute BotCatalogue.change(BotCatalogue.new(), %{name: "X", home: "texas"}).valid?
+      assert BotCatalogue.change(BotCatalogue.new(), %{name: "X", home: "louisiana"}).valid?
+
+      assert_raise Postgrex.Error, ~r/supported_home/, fn ->
+        Repo.update_all(Profile, set: [home: "texas"])
+      end
+    end
+
+    test "lines are trimmed, blank ones dropped, at most eight of at most 40 characters" do
+      lines = fn lines -> BotCatalogue.change(BotCatalogue.new(), %{name: "X", lines: lines}) end
+
+      changeset = lines.(["  Hmm, jaha…  ", "", "   ", "Let's see…"])
+      assert changeset.valid?
+      assert Ecto.Changeset.get_field(changeset, :lines) == ["Hmm, jaha…", "Let's see…"]
+      assert BotCatalogue.new().lines == []
+
+      # Characters, not bytes, and counted after trimming.
+      assert lines.(["  " <> String.duplicate("ä", 40) <> "  "]).valid?
+      refute lines.([String.duplicate("a", 41)]).valid?
+
+      assert lines.(List.duplicate("Väntä lite…", 8) ++ [" "]).valid?
+      refute lines.(List.duplicate("Väntä lite…", 9)).valid?
+    end
+
+    test "public profiles and seated bots carry the home and lines" do
+      {:ok, profile} =
+        BotCatalogue.save(BotCatalogue.get!("antti"), %{home: "finland", lines: ["Hmm, jaha…"]})
+
+      assert %{home: "finland", lines: ["Hmm, jaha…"]} = BotCatalogue.public(profile)
+      assert %{home: "anywhere", lines: []} = BotCatalogue.public(BotCatalogue.profile("marcel"))
+      assert %{home: "anywhere", lines: []} = BotCatalogue.public(hd(BotCatalogue.defaults()))
+
+      bot_profile = Seat.serialize(Seat.new_bot(:east, nil, "antti")).bot_profile
+      assert %{home: "finland", lines: ["Hmm, jaha…"]} = bot_profile
+    end
   end
 
   describe "tempo" do
@@ -277,4 +429,11 @@ defmodule PidroServer.BotCatalogueTest do
     assert ms in (expected - 1)..(expected + 100),
            "expected a #{expected} ms beat, got #{inspect(ms)} ms"
   end
+
+  defp character(name, home) do
+    {:ok, profile} = BotCatalogue.save(BotCatalogue.new(), %{name: name, home: home})
+    profile.id
+  end
+
+  defp bot_id(room, position), do: "bot_#{room.code}_#{position}"
 end

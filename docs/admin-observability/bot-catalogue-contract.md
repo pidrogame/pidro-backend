@@ -16,16 +16,24 @@ GameDetailLive and card_components belong to the separate Watch branch.
       "name": "Marcel",
       "description": "",
       "avatar_url": "https://BACKEND_ORIGIN/images/bots/marcel.svg",
-      "tempo": "steady"
+      "tempo": "steady",
+      "home": "anywhere",
+      "lines": []
     }
   ]
 }
 ```
 
 Each entry contains **only** `id`, `name`, `description`, `avatar_url`,
-`tempo`. All are strings; description can be empty. `tempo` is `quick`,
-`steady` or `slow`: how fast the character acts at the table (PID-378);
-older servers omit it, so treat a missing value as `steady`. IDs are opaque,
+`tempo`, `home`, `lines`. All but `lines` are strings; description can be
+empty. `tempo` is `quick`, `steady` or `slow`: how fast the character acts at
+the table (PID-378); older servers omit it, so treat a missing value as
+`steady`. `home` is `anywhere`, `finland` or `louisiana`: where the character
+is from (PID-404). `lines` is a list of zero to eight trimmed, nonblank strings
+of at most 40 characters: what the character says while thinking, written as
+language-neutral table noises, so one list serves every app language. Older
+servers omit both; treat a missing `home` as `anywhere` and missing `lines` as
+none. IDs are opaque,
 immutable strings: legacy IDs remain exactly `marcel`, `antti`, `jocke`; new profiles receive a
 server-generated UUID string. Do not enumerate persona IDs in client code.
 Catalogue reads include disabled profiles so seated identities still resolve.
@@ -53,7 +61,9 @@ HTTP projections) gain optional `bot_profile`:
     "name": "Marcel",
     "description": "",
     "avatar_url": "https://BACKEND_ORIGIN/images/bots/marcel.svg",
-    "tempo": "steady"
+    "tempo": "steady",
+    "home": "anywhere",
+    "lines": []
   }
 }
 ```
@@ -127,6 +137,12 @@ Do not invent an SVG path from the unknown ID or show an internal seat ID.
 
 - Room crew order remains seeded/shuffled; allocation filters disabled IDs,
   incorporates newly added enabled IDs, and chooses an unused identity first.
+- A table seats its own crowd first (PID-404): at room creation the enabled
+  profiles whose `home` is the room's rule set (`finland` for Finnish, the
+  default; `louisiana` for Louisiana) or `anywhere` are shuffled with the
+  room's seed, then the rest, shuffled after them. A room reaches the other
+  crowd only when its own is exhausted. With only the three legacy profiles
+  (all `anywhere`) the shuffle input, and so every seeded crew, is unchanged.
 - With four enabled profiles, four seats have four distinct persona IDs. When
   the enabled pool is exhausted, the first eligible persona can repeat.
 - With no enabled profiles, or before the new table is migrated, allocation
@@ -160,6 +176,10 @@ Fields:
   (existing RandomStrategy), affects newly seated bots only. No dynamic atoms
   or module names accepted. Legacy difficulty values still resolve to the
   production rulebook, as before; persona identity is not difficulty.
+- `bot[home]`: `anywhere` (default), `finland` or `louisiana`; a check
+  constraint holds the same set.
+- `bot[lines]`: a textarea, one line per line; each is trimmed and blank ones
+  are dropped, then at most eight of at most 40 characters each.
 - `bot[portrait]`: `marcel`, `antti`, `jocke`, or `upload` when one exists.
 - LiveView upload `avatar`: one PNG/JPEG, at most 5 MiB. Signature-checked;
   maximum 8192px side and 16 megapixels; reused bounded ImageMagick normalizer

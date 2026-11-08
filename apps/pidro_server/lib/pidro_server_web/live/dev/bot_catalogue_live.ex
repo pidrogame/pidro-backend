@@ -41,7 +41,7 @@ defmodule PidroServerWeb.Dev.BotCatalogueLive do
 
   def handle_event("validate", %{"bot" => params}, socket) do
     form =
-      BotCatalogue.change(socket.assigns.profile, params)
+      BotCatalogue.change(socket.assigns.profile, split_lines(params))
       |> Map.put(:action, :validate)
       |> to_form(as: :bot)
 
@@ -53,6 +53,8 @@ defmodule PidroServerWeb.Dev.BotCatalogueLive do
   end
 
   def handle_event("save", %{"bot" => params}, socket) do
+    params = split_lines(params)
+
     results =
       consume_uploaded_entries(socket, :avatar, fn %{path: path}, _entry ->
         case BotCatalogue.save(
@@ -105,6 +107,12 @@ defmodule PidroServerWeb.Dev.BotCatalogueLive do
     {:noreply, socket}
   end
 
+  # The textarea holds one line per line.
+  defp split_lines(%{"lines" => text} = params) when is_binary(text),
+    do: %{params | "lines" => String.split(text, ["\r\n", "\n"])}
+
+  defp split_lines(params), do: params
+
   defp cancel_pending_uploads(socket) do
     Enum.reduce(
       socket.assigns.uploads.avatar.entries,
@@ -154,6 +162,7 @@ defmodule PidroServerWeb.Dev.BotCatalogueLive do
                 <p class="text-xs text-stone-600">
                   {if profile.enabled, do: "Enabled", else: "Disabled"} · {profile.strategy} · {profile.tempo}
                 </p>
+                <p class="text-xs text-stone-600">{profile.home} · {length(profile.lines)}/8 lines</p>
               </div>
               <button
                 phx-click="edit"
@@ -215,6 +224,22 @@ defmodule PidroServerWeb.Dev.BotCatalogueLive do
                 {"Steady (the bot delay)", "steady"},
                 {"Slow (1.3 × the bot delay)", "slow"}
               ]}
+            />
+            <.input
+              field={@form[:home]}
+              type="select"
+              label="Home (seated first at its own crowd's tables)"
+              options={[
+                {"Anywhere", "anywhere"},
+                {"Finland (Ostrobothnia)", "finland"},
+                {"Louisiana (the bayou)", "louisiana"}
+              ]}
+            />
+            <.input
+              field={@form[:lines]}
+              type="textarea"
+              label="Lines while thinking (one per line, up to 8 of 40 characters)"
+              value={Enum.join(@form[:lines].value || [], "\n")}
             />
             <.input
               field={@form[:portrait]}
