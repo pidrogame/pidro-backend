@@ -6,13 +6,26 @@ Rules belong to the engine; the server only serializes what the engine knows.
 
 ## Shipping
 
-- **Prove it.** Run `mix precommit` from the umbrella root, and show in the
-  thread what you checked and how it came out.
+- **Prove changed behavior.** Marcel requires: **"I always want the expectations to
+  be that the orb needs to provide irrefutable proof that whatever it has built is
+  working."** Follow [`docs/testing.md`](docs/testing.md): reproduce the bug, show the
+  fix and a nearby control through the real API/channel/engine boundary; run only
+  affected test files/lines. **Feature orbs must not run `mix precommit`, bare
+  `mix test`, full gameplay/account regression, full visual matrices or native checks.**
+  For app proof use one standard phone size, a second only for a named layout risk.
+  Full suites/native checks belong to Marcel's machine or deliberate release work.
+  Browser proof is not native proof. Missing required focused evidence means
+  **implemented; verification incomplete/blocked**; explicitly list release/native
+  coverage deferred and never claim release ready without it.
 - **Push to `main`.** No PR: a small set of commits, rebased on
-  `origin/main`. Then watch Backend CI on your commit until it is green; if
-  you turned it red, fix forward right away.
-- **A green `main` deploys itself**, after pidro-frontend's Game and Account
-  journeys pass against the commit. Don't run `just deploy` yourself.
+  `origin/main`. Report CI's run URL and current result; **do not foreground-wait**
+  with watch/poll/sleep loops. Pending is not green/deployed. Fix a reported failure
+  caused by the change. No schedules/subscriptions without authorization.
+- **Push CI runs affected tests + smoke only**, with `Backend ready` authoritative.
+  Manual Backend CI runs the complete `mix precommit` release regression.
+- **Production is a deliberate release**, not automatic on push: green manual/full
+  Backend CI for the exact candidate, then manually start Deploy, which retains full
+  frontend Game/Account guards. Don't trigger release/deployment without authorization.
 - **Roll back** with `mise exec -- scripts/rollback` (previous version) or
   `mise exec -- scripts/rollback <sha>`; add `--dry-run` to look first.
   [docs/deploy.md](docs/deploy.md) says when to roll back and when to fix

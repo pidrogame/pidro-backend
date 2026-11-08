@@ -1,12 +1,22 @@
 # Deploying
 
-A green `main` deploys itself. Nobody runs `just deploy` for a normal change.
+Feature pushes no longer deploy automatically. Production is a **deliberate release**:
+full regression runs only for a release or manual dispatch, never on each push.
+Nobody runs `just deploy` as a feature-work shortcut. See [testing](testing.md).
 
 ## How a commit reaches production
 
-1. A push to `main` runs **Backend CI** (`.github/workflows/ci.yml`).
-2. When it passes, **Deploy** (`.github/workflows/deploy.yml`) starts for that
-   exact commit:
+1. A push to `main` runs **Backend CI** (`.github/workflows/ci.yml`): affected ExUnit
+   tests plus two smoke files, static quality, container and deployment-config checks.
+   `Backend ready` is authoritative. Report the URL/current state without foreground
+   CI waits; pending is not deployed.
+2. With release authorization, manually run **Backend CI** on the candidate (`main`)
+   for complete `mix precommit`. Require **Backend ready (full)** / a successful full
+   workflow on that exact SHA. It does not deploy by itself. Collect the app's
+   risk-triggered native/full visual/client regression evidence for release too.
+3. Manually run **Deploy** (`.github/workflows/deploy.yml`, `commit` defaults to `main`).
+   It pins that SHA, requires it to be on main with a successful manual/full Backend
+   CI run, then:
    - **Game journeys** and **Account journeys**: pidro-frontend's reusable
      workflows (`game-e2e.yml`, `account-e2e.yml` at its `main`) boot this
      backend commit and play the app's journeys against it.
@@ -15,13 +25,13 @@ A green `main` deploys itself. Nobody runs `just deploy` for a normal change.
      run migrations against the new image, wait for `/up`, and smoke-test
      production (`ops/smoke-production`). Then it checks that
      `kamal app version` is the commit and that `/up` answers 200.
-3. If the journeys fail, nothing deploys and the run is red on the journey
+4. If the journeys fail, nothing deploys and the run is red on the journey
    job. If the deploy fails, the run is red on **Deploy production**; Kamal
    leaves the previous container serving when the new one never turns healthy.
 
-Only the newest green commit ships. A newer commit cancels the journeys of an
-older one, and replaces an older deploy that is still waiting. A deploy that
-is already running is never cancelled.
+A newer deliberate release cancels older release journeys and replaces a deploy
+still waiting. A deploy already running is never cancelled. Ordinary pushes do not
+start release journeys or supersede a deliberately selected release candidate.
 
 ## Native store notice
 
@@ -62,7 +72,7 @@ update's minimums, or the environment fallback if none remains.
 
 `MINIMUM_NATIVE_*` in `config/deploy.yml` is now **only the fallback when no
 published app-update post exists**, and holds a version only. Store destinations remain in `env.clear`;
-the next automatic deploy applies changes to those URLs:
+the next deliberate release deploy applies changes to those URLs:
 
 | Platform | Minimum (empty disables notice) | Store URL |
 | --- | --- | --- |
@@ -129,8 +139,8 @@ the feed is capped; use the lobby's `native_update_popup` flag.
 
 `WATCHING_TABLES` in `config/deploy.yml` is off (`"false"`) for the beta: the
 lobby's `spectatable` list is empty and Watch answers
-`ROOM_NOT_AVAILABLE_FOR_SPECTATORS`. Set it to `"true"` and push to turn watching
-back on; admin Game Settings shows which it is. The app's CI journeys run with
+`ROOM_NOT_AVAILABLE_FOR_SPECTATORS`. Set it to `"true"`, push and deliberately
+release to turn watching back on; admin Game Settings shows which it is. The app's CI journeys run with
 it on.
 
 ## Secrets
@@ -274,8 +284,9 @@ afterwards), then checks that `kamal app version` is the target and that `/up`
 answers 200. It runs from a local checkout with `.kamal/secrets-common`, the
 same way as `just deploy`.
 
-A rollback does not stop the next green `main` from deploying. Push the fix,
-or a revert, right behind it.
+A rollback does not stop a separately authorized release already in progress.
+Push the fix or revert, then deliberately validate/release it; a push alone no
+longer redeploys production.
 
 **Roll back** when production is broken for players right now and the release
 is the cause: games fail to start or finish, sign-in fails, the app cannot
@@ -292,5 +303,5 @@ journeys.
   [docs/deployment/kamal_hetzner.md](deployment/kamal_hetzner.md#token-payload-rollback)
   marks as roll-forward only;
 - the problem is a limit or another environment value: change
-  `config/deploy.yml` and let `main` deploy it;
-- it is cosmetic or affects few players, and a fix is minutes away.
+  `config/deploy.yml` and deliberately validate/release it;
+- it is cosmetic or affects few players, and a validated release is close.

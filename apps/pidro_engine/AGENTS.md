@@ -15,15 +15,20 @@ Quick reference for building, testing, and understanding the Finnish Pidro game 
 
 ## Quick Validation Loop
 
+**Required policy:** read [`docs/testing.md`](../../docs/testing.md) and root
+`AGENTS.md`. Feature orbs prove changed behavior plus a control, then run only
+affected test files/lines. No full suites, full gameplay/account/visual regression
+or native checks in feature orbs. One standard phone size for app proof; a second
+only for a named layout risk. Full/native coverage is deliberate release work on
+Marcel's machine or a release runner. List it as pending; browser proof is not native
+proof. Missing focused evidence blocks completion. Do not foreground-watch/poll CI.
+This policy supersedes older blanket quality/coverage command examples below.
+
 ```bash
-# Fast feedback (< 10 seconds)
-mix test --stale && mix format --check-formatted
-
-# Full validation before committing
-mix quality && mix test
-
-# The golden rule: if this passes, you're good
-mix test && mix dialyzer && echo "✅ READY TO COMMIT"
+# Feature work: choose the actual affected file/line, show behavior + control
+mix test test/unit/game/bidding_completion_test.exs
+mix format --check-formatted
+# Full mix precommit / mix test / coverage / Dialyzer sweeps: release/manual only
 ```
 
 ---
@@ -52,10 +57,10 @@ mix compile
 ### Testing & Validation
 
 ```bash
-# Primary workflow
-mix test                                    # All tests must pass
+# Full release/manual command (NOT the feature-orb workflow)
+mix test                                    # Full regression, deliberate release only
 mix test --failed                           # Re-run only failed tests
-mix test --stale                            # Only changed tests
+mix test --stale                            # May run everything on a cold cache; not an orb shortcut
 mix test test/path/to/test.exs             # Test specific file
 mix test test/path/to/test.exs:42          # Test specific line
 
@@ -190,9 +195,9 @@ Phases 0-7 and 10 are complete:
 2. Implement the module with `@spec` for all public functions
 3. Write unit tests in `test/unit/`
 4. Write property tests in `test/properties/`
-5. Run `mix test` - all tests must pass
-6. Run `mix dialyzer` - must be clean
-7. Run `mix credo --strict` - must pass
+5. Run affected test files/lines and show the changed engine output plus a control
+6. Compile/type-check affected code as relevant; full Dialyzer is release coverage
+7. Format/lint changed code; no blanket full-suite precommit in feature orbs
 8. Update `_masterplan.md` to mark phase complete
 
 ### Bug Fixing Cycle (Make Dave Thomas Proud)
@@ -213,9 +218,9 @@ Phases 0-7 and 10 are complete:
    - Ensure tests still pass
    
 4. **Validate**
-   - Run full test suite
-   - Run dialyzer
-   - Run credo
+   - Run affected tests and exercise the changed contract plus a control
+   - Compile/format/lint as relevant
+   - List full engine/game/account/native regression as release work, not orb work
 
 **Never fix a bug without a test that proves it exists.**
 
@@ -229,7 +234,8 @@ mix test test/unit/game/bidding_completion_test.exs
 # Commit: "fix(bidding): require 3 consecutive passes after last bid"
 
 # 3. Validate
-mix test && mix dialyzer
+mix test test/unit/game/bidding_completion_test.exs
+# Show old/new state and a nearby control; full regression stays at release
 ```
 
 ---
@@ -467,9 +473,7 @@ card_generator =
 ### Before Starting Work
 
 ```bash
-# 1. Ensure clean baseline
-mix test                                    # Must pass
-mix dialyzer                                # Must pass
+# 1. Inspect baseline, reproduce the changed scenario (not the full suite)
 git status                                  # Check working directory
 
 # 2. Understand the task
@@ -491,12 +495,11 @@ mix format                                  # Format
 ### After Implementing
 
 ```bash
-# Required validation sequence (in order)
-mix format                                  # Auto-format
+# Focused feature validation (choose actual affected test paths)
+mix format                                  # Format changed files only
 mix compile --warnings-as-errors            # No warnings
-mix test                                    # All tests pass
-mix dialyzer                                # Type check
-mix credo --strict                          # Linting
+mix test test/path/to_new_test.exs           # Affected tests, not all tests
+# Show direct behavior/control evidence; full precommit/Dialyzer/coverage at release
 
 # If ALL pass:
 git add .
@@ -509,11 +512,11 @@ git commit -m "type: description"
 
 Before claiming work is complete:
 
-- [ ] `mix test` passes
-- [ ] `mix dialyzer` passes
-- [ ] `mix credo --strict` passes
+- [ ] Affected tests pass; changed behavior and control are observed
+- [ ] Full regression/native checks explicitly deferred to release owner
+- [ ] Relevant compile/lint checks pass
 - [ ] `mix format --check-formatted` passes
-- [ ] Coverage didn't decrease
+- [ ] Release owner has the full coverage/regression checks listed as pending
 - [ ] All public functions have `@spec` and `@doc`
 - [ ] Tests cover success AND error cases
 - [ ] Returns use tagged tuples `{:ok, _}` or `{:error, _}`
@@ -847,7 +850,7 @@ mix hex.outdated
 
 ## Continuous Integration
 
-### Pre-commit Hook
+### Release/manual validation example (do not install as an orb pre-commit hook)
 
 ```bash
 #!/bin/sh
@@ -861,7 +864,7 @@ mix dialyzer || exit 1
 echo "✅ All checks passed"
 ```
 
-### CI Pipeline
+### Full release CI example (not push CI)
 
 ```yaml
 # Example for GitHub Actions
@@ -903,19 +906,16 @@ refactor(web): extract lobby list component
 perf(engine)!: replace naive sort with counting sort
 ```
 
-PRs:
-
-- Small and focused; prefer multiple PRs over one large
-- Title follows Conventional Commits (match main change)
-- Description: brief context, approach, tests/coverage impact, migrations (if any); link issues
-- Checklist: `mix format --check-formatted`, `mix compile --warnings-as-errors`, `mix test`, `mix dialyzer`, `mix credo --strict`, coverage stable
-- Wait for CI green; address review with clear commits; prefer squash-merge using a Conventional Commit title
+Shipping is trunk-based (root `AGENTS.md`), not PR-based. Push affected checks +
+smoke, report the CI URL/current status without foreground waits. Full Backend CI
+and protected production Deploy are deliberate manual release actions. Show focused
+proof and list release gaps; a green check alone never proves changed behavior.
 
 ---
 
-## Quality Gates
+## Full release quality gates (not feature-orb checks)
 
-**Code CANNOT be merged unless:**
+**Before a deliberate release, not before every feature push:**
 
 ```bash
 # All these exit with 0
@@ -927,7 +927,8 @@ mix dialyzer  # No type errors
 mix coveralls  # Coverage maintained/improved
 ```
 
-**If any fail, the work is NOT complete.**
+**If any fail, release verification is incomplete.** Feature handoff instead requires
+the focused behavior/control proof and affected tests in `docs/testing.md`.
 
 ---
 
@@ -1079,7 +1080,9 @@ defp aliases do
 end
 ```
 
-**The Golden Rule**: If `mix test && mix dialyzer` passes, you're good. If it doesn't, you're not done.
+**The Golden Rule**: Prove the changed behavior and a control, run affected checks,
+and disclose unverified claims. Missing focused proof means verification incomplete;
+full/native regression is release work, not a feature-orb obligation.
 
 ---
 

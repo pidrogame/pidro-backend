@@ -4,16 +4,56 @@ on:
   pull_request:
   push:
     branches: [main]
+  # Complete regression only by deliberate dispatch; never deploys by itself.
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: backend-ci-${{ github.ref }}
+  group: backend-ci-${{ github.event_name == 'workflow_dispatch' && 'release-' || '' }}${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
+  select:
+    name: Select affected tests
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 5
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      tests: ${{ steps.select.outputs.tests }}
+      full: ${{ steps.select.outputs.full }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - run: python3 scripts/test-ci-affected.py
+      - name: Select checks since last green push
+        id: select
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          if [ "$EVENT" = workflow_dispatch ]; then
+            echo full=true >> "$GITHUB_OUTPUT"
+            echo 'Complete release regression selected deliberately.' >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          if [ "$EVENT" = pull_request ]; then base=$PR_BASE; else
+            base=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow ci.yml --branch main \
+              --event push --status success --limit 1 --json headSha -q '.[0].headSha' || true)
+          fi
+          tests=$(python3 scripts/ci-affected.py "$base" "$GITHUB_SHA")
+          echo full=false >> "$GITHUB_OUTPUT"
+          echo "tests=$tests" >> "$GITHUB_OUTPUT"
+          echo 'Affected ExUnit files + two smoke files (full regression deferred):' >> "$GITHUB_STEP_SUMMARY"
+          jq -r '.[]' <<< "$tests" >> "$GITHUB_STEP_SUMMARY"
+
   quality:
+    needs: select
     runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 30
 
@@ -61,7 +101,22 @@ jobs:
           key: ${{ runner.os }}-otp-29.0.3-elixir-1.20.2-${{ hashFiles('mix.lock') }}
 
       - run: mix deps.get --only test
-      - run: mix precommit
+      - name: Feature quality and affected tests (complete precommit only on manual release run)
+        env:
+          FULL: ${{ needs.select.outputs.full }}
+          TESTS: ${{ needs.select.outputs.tests }}
+        run: |
+          if [ "$FULL" = true ]; then
+            mix precommit
+          else
+            mix hex.audit
+            mix format --check-formatted
+            mix compile --warnings-as-errors
+            ops/credo-diff
+            mapfile -t tests < <(jq -er '.[]' <<< "$TESTS")
+            test "${#tests[@]}" -gt 0
+            mix test "${tests[@]}" --raise
+          fi
 
   container:
     runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
@@ -108,3 +163,16 @@ jobs:
           '
       - run: bundle exec bundle-audit check --update
       - run: bash -n .kamal/hooks/* ops/backup-production ops/credo-diff ops/install-backup-timer ops/server/pidro-backup ops/smoke-production scripts/rollback
+
+  ready:
+    name: Backend ready${{ github.event_name == 'workflow_dispatch' && ' (full)' || '' }}
+    needs: [select, quality, container, deployment-config]
+    if: ${{ !cancelled() }}
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 5
+    steps:
+      - name: Require every selected job to pass
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          jq -e 'all(.select, .quality, .container, .["deployment-config"]; .result == "success")' <<< "$RESULTS"
