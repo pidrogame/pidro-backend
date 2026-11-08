@@ -25,8 +25,10 @@ Instrumented messages: `bid`, `pass`, `declare_trump`, `play_card`, `select_hand
 not echoed. Client push callbacks already know which local attempt they belong to.
 
 Optional game-channel **join** fields: `app_version`, `app_build`, `platform`.
-Each is a 1–256-byte ASCII token `[A-Za-z0-9_.:-]`, truncated to 64 bytes, otherwise
-omitted. Prefer semver, numeric build, and `ios`/`android`/`web` respectively.
+`app_version` and `platform` are each a 1–256-byte ASCII token `[A-Za-z0-9_.:-]`,
+truncated to 64 bytes, otherwise omitted; prefer semver and `ios`/`android`/`web`.
+`app_build` is the native build as 1–10 digits (iOS build number, Android version
+code), otherwise omitted (PID-399).
 These are untrusted labels, not authoritative identity. Authentication supplies
 `user_id`; room membership is unchanged. Never send credentials in these fields.
 

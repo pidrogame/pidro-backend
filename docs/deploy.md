@@ -37,21 +37,31 @@ at startup, on page load, or on a timer. Errors retain the last good snapshot
 and its timestamp. The cache is node-local and resets on deployment/restart.
 Play tracks do not expose upload/release dates.
 
-**New app-update post** fills both platforms from their live store builds.
+**New app-update post** fills both platforms from their live store builds:
+the version and its build (App Store Connect build number, Play version code).
 Review both values before publishing: that post owns both minimums, including
 empty ones. The News editor warns, without blocking, when a version exceeds
 the live build. See the frontend's `docs/store-builds.md` for the release steps.
 
 When a store build is live, publish an **App update** post in `/admin/news`.
-Set **Android: show below version** and **iPhone: show below version** to the
-live versions (for example `3.2.4`). Leave a platform empty until its build is
-live: empty means nobody on that platform. The newest published app-update
+The post owns a version and a build per platform. Set **Android: show below
+version** and **iPhone: show below version** to the live versions (for example
+`3.3.0`), and **and below version code** / **and below build** to the live
+build (for example Android `12`, iPhone `15`). `3.3.0` build `15` nudges
+installs below 3.3.0, and 3.3.0 installs below build 15. Without a build, only
+installs below the version are nudged; apps too old to send a build are always
+compared by version only. A build needs its version. The game channel already
+records builds (Store builds counts them); the News pop-up and the lobby reply
+only compare them once the app sends `app_build` to `/news` and reads
+`minimum_native_builds` (PID-398), so set a build when that app is out.
+Leave a platform empty until its build is live: empty means nobody on that
+platform. The newest published app-update
 post supplies both minimums immediately, even with **Show as pop-up** off.
 Drafts do not change the minimums. Unpublishing restores the previous published
 update's minimums, or the environment fallback if none remains.
 
 `MINIMUM_NATIVE_*` in `config/deploy.yml` is now **only the fallback when no
-published app-update post exists**. Store destinations remain in `env.clear`;
+published app-update post exists**, and holds a version only. Store destinations remain in `env.clear`;
 the next automatic deploy applies changes to those URLs:
 
 | Platform | Minimum (empty disables notice) | Store URL |
@@ -69,7 +79,11 @@ instead of reusing a stale destination. Android invite/friend install referrers
 are appended to the configured destination.
 
 The lobby join reply keeps `minimum_native_versions` and `native_store_urls`,
-both maps keyed by `android`/`ios`. The app requires both entries for its platform
+both maps keyed by `android`/`ios`. `minimum_native_builds` (PID-399) sits
+beside them, for example `{"android": "12", "ios": "15"}`: the build of that
+platform's minimum version, only for platforms whose post sets one. An app
+below the version, or on the same version with a lower build, is below the
+minimum. The app requires both entries for its platform
 and opens only the supplied URL. `native_update_popup` is true when the newest
 published app-update post has **Show as pop-up** on. New apps then suppress the
 minimum-version fallback card: a seen pop-up must not reappear as that fallback.
@@ -78,15 +92,17 @@ the additive fields and keep their existing store notice.
 
 ### News pop-up contract (PID-363)
 
-Authenticated `GET /api/v1/news?locale=sv&platform=android&app_version=3.2.3`
+Authenticated `GET /api/v1/news?locale=sv&platform=android&app_version=3.3.0&app_build=11`
 returns `data.posts` (latest 30), `data.unread`, and `data.popup` (always present,
 a localized post or `null`). `locale` is `en` or `sv`, `platform` is `android`
-or `ios`, and `app_version` is the installed native version. Missing/invalid
+or `ios`, `app_version` is the installed native version and `app_build` its
+native build (iOS build number, Android version code; optional). Missing/invalid
 platform or version excludes app-update pop-ups, not general News pop-ups.
 
 Posts and pop-ups have `id`, `title`, `body`, `published_at`, `eyebrow`,
 `image_url`, `button_label`, `button_url`, `show_as_popup`, `app_update`,
-`show_below_android`, and `show_below_ios`. Optional fields are null. Swedish
+`show_below_android`, `show_below_ios`, `show_below_android_build` and
+`show_below_ios_build`. Optional fields are null. Swedish
 falls back to English per field. `body` is raw Markdown: bold, line breaks,
 and links only. Images are uploaded PNG/JPEG, normalized to JPEG at up to
 1280 pixels without cropping, stored in the database and served publicly.
@@ -96,7 +112,9 @@ without both a button label and link uses **Got it / Okej**.
 
 Selection is newest published (publication time, then ID), unseen, pop-up on.
 An app-update post also needs a nonempty threshold for the player's platform
-and an installed version strictly below it. Selection is independent of the
+and an installed version strictly below it, or the same version with an
+`app_build` below the post's build for that platform. An app that sends no
+`app_build` is compared by version only. Selection is independent of the
 30-post feed limit and the News unread mark.
 
 `POST /api/v1/news/:id/seen` (authenticated, empty body) acknowledges only this
@@ -166,7 +184,7 @@ gh secret set EXPO_ACCESS_TOKEN
 ```
 
 The app registers its phone with `POST /api/v1/me/push-tokens` (Expo push
-token, platform, install id, app version) and forgets it with
+token, platform, install id, app version and `app_build`) and forgets it with
 `DELETE /api/v1/me/push-tokens/:token` on sign-out. A token signed in from
 another account moves to that account. In `/admin/users/:id` the **Push**
 section lists the player's phones and has **Send a test push** (title, body,
@@ -268,6 +286,8 @@ journeys.
 
 - the bad release ran a migration the older code cannot work with. Migrations
   are not reversed, so an old image against the new schema can be worse;
+- the release adds a field to a room seat (`Seat`): an older image cannot decode
+  the rooms the newer one saved and drops them. PID-399 (`app_build`) is one;
 - the release changes the token payload or anything else
   [docs/deployment/kamal_hetzner.md](deployment/kamal_hetzner.md#token-payload-rollback)
   marks as roll-forward only;
