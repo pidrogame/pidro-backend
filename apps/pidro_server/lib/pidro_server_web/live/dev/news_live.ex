@@ -47,7 +47,7 @@ defmodule PidroServerWeb.Dev.NewsLive do
     params =
       StoreBuilds.live_versions(
         socket.assigns.stores,
-        News.native_update_policy().minimum_native_versions
+        StoreBuilds.minimums(News.native_update_policy())
       )
 
     {:noreply, socket |> edit(post) |> assign(form: to_form(News.change(post, params)))}
@@ -445,6 +445,7 @@ defmodule PidroServerWeb.Dev.NewsLive do
             <.store_hint
               store={@stores["android"]}
               version={@form[:show_below_android].value}
+              build={@form[:show_below_android_build].value}
               platform="android"
             />
             <div class="grid grid-cols-[2fr_1fr] gap-3">
@@ -460,7 +461,12 @@ defmodule PidroServerWeb.Dev.NewsLive do
                 inputmode="numeric"
               />
             </div>
-            <.store_hint store={@stores["ios"]} version={@form[:show_below_ios].value} platform="ios" />
+            <.store_hint
+              store={@stores["ios"]}
+              version={@form[:show_below_ios].value}
+              build={@form[:show_below_ios_build].value}
+              platform="ios"
+            />
             <p class="text-xs text-stone-600">
               3.3.0 build 15: installs below 3.3.0, and 3.3.0 installs below build 15, see the nudge. Without a build, only installs below the version do; apps too old to send a build are compared by version only.
             </p>
@@ -576,10 +582,19 @@ defmodule PidroServerWeb.Dev.NewsLive do
 
   attr :store, :map, required: true
   attr :version, :any, required: true
+  attr :build, :any, default: nil
   attr :platform, :string, required: true
 
   defp store_hint(assigns) do
-    assigns = assign(assigns, live: get_in(assigns.store, [:data, :live, :version]))
+    live = get_in(assigns.store, [:data, :live])
+    minimum = %{version: assigns.version, number: assigns.build}
+
+    assigns =
+      assign(assigns,
+        live: live && live.version,
+        minimum: minimum,
+        above_live: live != nil and StoreBuilds.below?(live, minimum)
+      )
 
     ~H"""
     <div id={"store-hint-#{@platform}"} class="text-xs leading-5 text-stone-600">
@@ -599,8 +614,8 @@ defmodule PidroServerWeb.Dev.NewsLive do
       <p :if={@platform == "android"}>
         Uses the EAS submit account: don't refresh while an Android build is being submitted.
       </p>
-      <p :if={StoreBuilds.above?(@version, @live)} role="alert" class="font-medium text-amber-800">
-        Players would be sent to a store that doesn't have {@version} yet. This is a warning, not a block.
+      <p :if={@above_live} role="alert" class="font-medium text-amber-800">
+        Players would be sent to a store that doesn't have {StoreBuilds.build_label(@minimum)} yet. This is a warning, not a block.
       </p>
       <p
         :if={@version not in [nil, ""] and is_nil(@live)}

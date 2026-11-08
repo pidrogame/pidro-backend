@@ -89,9 +89,9 @@ defmodule PidroServerWeb.Dev.StoreBuildsLiveTest do
     refute has_element?(view, "#next-steps li")
     refute has_element?(view, "#next-steps a[href^='/admin/news']")
     assert has_element?(view, "#store-builds-attention")
-    assert has_element?(view, "#store-ios p", "3.2.1 build 7")
+    assert has_element?(view, "#store-ios p", "3.2.1 (7)")
     assert has_element?(view, "#store-ios li", "3.2.4 (10)")
-    assert has_element?(view, "#store-ios li", "Still 3.2.1")
+    assert has_element?(view, "#store-ios li", "Still 3.2.1 (7)")
     assert has_element?(view, "#store-android li", "nobody to nudge")
     assert has_element?(view, "#track-details", "Play production · 3.2.3 (8) · Draft")
     assert has_element?(view, "#track-details", "from deploy config")
@@ -101,7 +101,7 @@ defmodule PidroServerWeb.Dev.StoreBuildsLiveTest do
     unnamed = put_in(stores, ["ios", :data, :live, :version], nil)
     :sys.replace_state(Cache, &%{&1 | stores: unnamed})
     {:ok, unnamed_view, _} = live(conn, ~p"/admin/store-builds")
-    assert has_element?(unnamed_view, "#store-ios p", "Unknown build 7")
+    assert has_element?(unnamed_view, "#store-ios p", "Unknown (7)")
     :sys.replace_state(Cache, &%{&1 | stores: stores})
 
     PidroServer.Repo.insert!(%PidroServer.Stats.SeatEvent{
@@ -118,11 +118,23 @@ defmodule PidroServerWeb.Dev.StoreBuildsLiveTest do
     {:ok, news, _} = follow_redirect(result, conn, "/admin/news?app_update=true")
     assert has_element?(news, "input[name='post[show_below_android]'][value='3.2.4']")
     assert has_element?(news, "input[name='post[show_below_ios]'][value='3.2.1']")
-    assert has_element?(news, "#store-hint-ios", "players are on 3.2.1")
+    assert has_element?(news, "input[name='post[show_below_android_build]'][value='9']")
+    assert has_element?(news, "input[name='post[show_below_ios_build]'][value='7']")
+    assert has_element?(news, "#store-hint-ios", "players are on 3.2.1 (7)")
+    refute has_element?(news, "#store-hint-ios [role=alert]")
+
+    # The live version with a build the store doesn't have yet.
+    news |> form("#news-form", post: %{show_below_ios_build: "8"}) |> render_change()
+    assert has_element?(news, "#store-hint-ios [role=alert]", "doesn't have 3.2.1 (8) yet")
 
     news
     |> form("#news-form",
-      post: %{title_en: "Future update", body_en: "Soon", show_below_ios: "3.2.4"}
+      post: %{
+        title_en: "Future update",
+        body_en: "Soon",
+        show_below_ios: "3.2.4",
+        show_below_ios_build: ""
+      }
     )
     |> render_change()
 

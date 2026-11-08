@@ -29,13 +29,15 @@ defmodule PidroServerWeb.Dev.StoreBuildsLive do
 
   defp load(socket) do
     policy = News.native_update_policy_with_source()
+    minimums = StoreBuilds.minimums(policy)
     counts = StoreBuilds.player_versions()
 
     assign(socket,
       policy: policy,
+      minimums: minimums,
       counts: counts,
       now: DateTime.utc_now(),
-      steps: StoreBuilds.next_steps(socket.assigns.stores, policy.minimum_native_versions, counts)
+      steps: StoreBuilds.next_steps(socket.assigns.stores, minimums, counts)
     )
   end
 
@@ -98,7 +100,7 @@ defmodule PidroServerWeb.Dev.StoreBuildsLive do
           :for={platform <- ~w(ios android)}
           platform={platform}
           store={@stores[platform]}
-          minimum={@policy.minimum_native_versions[platform]}
+          minimum={@minimums[platform]}
           counts={@counts}
           now={@now}
         />
@@ -117,9 +119,9 @@ defmodule PidroServerWeb.Dev.StoreBuildsLive do
             )}
           </span>
           <span :for={platform <- ~w(ios android)}>
-            {StoreBuilds.name(platform)} update notice minimum · {@policy.minimum_native_versions[
-              platform
-            ] || "None"} · {@policy.source}
+            {StoreBuilds.name(platform)} update notice minimum · {if @minimums[platform],
+              do: StoreBuilds.build_label(@minimums[platform]),
+              else: "None"} · {@policy.source}
           </span>
           <span :for={platform <- ~w(ios android)} :if={@stores[platform].good_at}>
             {StoreBuilds.store_name(platform)} last good data · {date(@stores[platform].good_at)}
@@ -137,7 +139,7 @@ defmodule PidroServerWeb.Dev.StoreBuildsLive do
             Versions use Play release names; check that each name matches the binary's native version.
           </li>
           <li>
-            Counts are distinct players per platform and version, not installs. A player who upgraded can appear under two versions.
+            Counts are distinct players per platform, version and build, not installs. A player who upgraded can appear under two builds; apps that send no build show the version alone.
           </li>
           <li>Builds not yet uploaded to a store are not visible here.</li>
         </ul>
@@ -148,7 +150,7 @@ defmodule PidroServerWeb.Dev.StoreBuildsLive do
 
   attr :platform, :string, required: true
   attr :store, :map, required: true
-  attr :minimum, :string, default: nil
+  attr :minimum, :map, default: nil
   attr :counts, :list, required: true
   attr :now, DateTime, required: true
 
@@ -183,7 +185,7 @@ defmodule PidroServerWeb.Dev.StoreBuildsLive do
             end}<span
               :if={@live}
               class="text-[0.9375rem] font-medium [letter-spacing:0] text-stone-600"
-            > build {@live.number}</span>
+            > ({@live.number})</span>
           </p>
           <p :if={!(@store.error && @store.data)} class="text-xs text-stone-600">
             what players can install
@@ -267,7 +269,7 @@ defmodule PidroServerWeb.Dev.StoreBuildsLive do
         </div>
         <div
           role="img"
-          aria-label={"#{StoreBuilds.name(@platform)} players: #{Enum.map_join(@players.segments, ", ", &"#{&1.count} on #{&1.version} (#{kind_text(&1.kind)})")}"}
+          aria-label={"#{StoreBuilds.name(@platform)} players: #{Enum.map_join(@players.segments, ", ", &"#{&1.count} on #{StoreBuilds.build_label(&1)} (#{kind_text(&1.kind)})")}"}
           class="flex h-3 gap-0.5 overflow-hidden rounded-full bg-stone-100"
         >
           <span
@@ -282,7 +284,7 @@ defmodule PidroServerWeb.Dev.StoreBuildsLive do
             class="inline-flex items-center gap-1.5 text-xs tabular-nums text-stone-700"
           >
             <span aria-hidden="true" class={["size-2 rounded-full", segment_color(segment.kind)]}></span>
-            <strong class="font-semibold text-stone-950">{segment.version}</strong>{segment.count}
+            <strong class="font-semibold text-stone-950">{StoreBuilds.build_label(segment)}</strong>{segment.count}
           </span>
         </div>
       </div>

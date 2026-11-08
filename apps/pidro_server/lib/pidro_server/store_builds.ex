@@ -1,5 +1,10 @@
 defmodule PidroServer.StoreBuilds do
-  @moduledoc "Release advice from store snapshots, the effective News policy and recent players."
+  @moduledoc """
+  Release advice from store snapshots, the effective News policy and recent
+  players. Store builds, minimums and player counts are all maps with a
+  `version` and a build `number` (iOS build number, Android version code);
+  a minimum's or a player's number may be nil.
+  """
   import Ecto.Query
   alias PidroServer.Repo
   alias PidroServer.Stats.SeatEvent
@@ -12,11 +17,24 @@ defmodule PidroServer.StoreBuilds do
 
     from(e in SeatEvent,
       where: e.inserted_at > ^since and not is_nil(e.app_version),
-      group_by: [e.platform, e.app_version],
-      order_by: [e.platform, e.app_version],
-      select: %{platform: e.platform, version: e.app_version, count: count(e.user_id, :distinct)}
+      group_by: [e.platform, e.app_version, e.app_build],
+      order_by: [e.platform, e.app_version, e.app_build],
+      select: %{
+        platform: e.platform,
+        version: e.app_version,
+        number: e.app_build,
+        count: count(e.user_id, :distinct)
+      }
     )
     |> Repo.all()
+  end
+
+  @doc "The policy's minimum per platform: its version and, where set, its build."
+  def minimums(policy) do
+    for {platform, version} <- policy.minimum_native_versions,
+        version not in [nil, ""],
+        into: %{},
+        do: {platform, %{version: version, number: policy.minimum_native_builds[platform]}}
   end
 
   def next_steps(stores, minimums, counts) do
@@ -82,12 +100,12 @@ defmodule PidroServer.StoreBuilds do
           {"No #{name(platform)} builds", "#{name(platform)}: no store builds found."}
 
         platform == "ios" and !newest.friends and newest.team ->
-          {"#{name(platform)} #{newest.version} never reached players",
+          {"#{name(platform)} #{build_label(newest)} never reached players",
            "iPhone: #{build_label(newest)} is only in the Team group. Add it to Friends and submit it for review."}
 
         platform == "android" and newest.track == "internal" and
             (data.live == nil or newer_build?(newest, data.live)) ->
-          {"#{name(platform)} #{newest.version} never reached players",
+          {"#{name(platform)} #{build_label(newest)} never reached players",
            "Android: #{build_label(newest)} is only in internal testing. Release it to open testing and check that the beta track is completed."}
 
         data.live == nil ->
@@ -100,7 +118,7 @@ defmodule PidroServer.StoreBuilds do
 
         newer_build?(newest, data.live) ->
           {pending_title(platform, newest),
-           "#{name(platform)}: #{newest.version} is #{state_phrase(newest.state)}. Players are on #{data.live.version} and get no new-version over-the-air updates until it is live."}
+           "#{name(platform)}: #{build_label(newest)} is #{state_phrase(newest.state)}. Players are on #{build_label(data.live)} and get no new-version over-the-air updates until it is live."}
 
         true ->
           nil
@@ -137,26 +155,26 @@ defmodule PidroServer.StoreBuilds do
             )
           ]
 
-      above?(minimum, data.live.version) ->
+      below?(data.live, minimum) ->
         steps ++
           [
             step(
               platform,
               "#{name(platform)} minimum is above live",
-              "#{name(platform)}: the minimum #{minimum} is above the live version #{data.live.version}. Lower it; the store does not have that update yet.",
+              "#{name(platform)}: the minimum #{build_label(minimum)} is above the live build #{build_label(data.live)}. Lower it; the store does not have that update yet.",
               :news
             )
           ]
 
-      pending == nil and (minimum in [nil, ""] or above?(data.live.version, minimum)) ->
-        older = below(counts, platform, data.live.version)
+      pending == nil and (minimum == nil or newer_build?(data.live, minimum)) ->
+        older = unnudged(counts, platform, data.live, minimum)
 
         if older > 0 do
           [
             step(
               platform,
-              "Nudge #{name(platform)} players to #{data.live.version}",
-              "#{name(platform)} #{data.live.version} is live, but players below it aren't nudged. Publish an app-update post. #{older} player-version records below it in the last 7 days.",
+              "Nudge #{name(platform)} players to #{build_label(data.live)}",
+              "#{name(platform)} #{build_label(data.live)} is live, but players below it aren't nudged. Publish an app-update post. #{older} player-build records below it in the last 7 days.",
               :news
             )
           ]
@@ -175,7 +193,7 @@ defmodule PidroServer.StoreBuilds do
         "Waiting on Apple"
 
       "READY_FOR_BETA_SUBMISSION" ->
-        "Submit #{name(platform)} #{newest.version} for review"
+        "Submit #{name(platform)} #{build_label(newest)} for review"
 
       state ->
         "#{name(platform)} #{build_label(newest)} is #{state_phrase(state)}"
@@ -191,9 +209,10 @@ defmodule PidroServer.StoreBuilds do
 
   defp stuck(_platform, _build), do: nil
 
-  defp below(counts, platform, version) do
+  # Players below the live build whom the minimum does not nudge yet.
+  defp unnudged(counts, platform, live, minimum) do
     counts
-    |> Enum.filter(&(&1.platform == platform and above?(version, &1.version)))
+    |> Enum.filter(&(&1.platform == platform and below?(&1, live) and !below?(&1, minimum)))
     |> Enum.map(& &1.count)
     |> Enum.sum()
   end
@@ -218,7 +237,7 @@ defmodule PidroServer.StoreBuilds do
       review_stop(platform, newest, pending, now),
       cond do
         live == nil -> stop("Players", :todo, "Nobody yet", group(platform))
-        pending -> stop("Players", :todo, "Still #{live.version || live.number}", group(platform))
+        pending -> stop("Players", :todo, "Still #{build_label(live)}", group(platform))
         true -> stop("Players", :done, "Live", group(platform))
       end,
       nudge_stop(platform, live, pending, minimum, counts)
@@ -261,17 +280,17 @@ defmodule PidroServer.StoreBuilds do
       live.version == nil ->
         stop("Nudge", :now, "Check version", "release name")
 
-      above?(minimum, live.version) ->
-        stop("Nudge", :now, "From #{minimum}", "above live")
+      below?(live, minimum) ->
+        stop("Nudge", :now, notice_from(minimum), "above live")
 
       pending ->
         stop("Nudge", :todo, "Not yet", "after review")
 
-      minimum not in [nil, ""] and !above?(live.version, minimum) ->
-        stop("Nudge", :done, "From #{minimum}", "store notice on")
-
-      below(counts, platform, live.version) > 0 ->
+      unnudged(counts, platform, live, minimum) > 0 ->
         stop("Nudge", :now, notice_from(minimum), "publish a post")
+
+      minimum != nil and !above?(live.version, minimum.version) ->
+        stop("Nudge", :done, notice_from(minimum), "store notice on")
 
       true ->
         stop("Nudge", :done, notice_from(minimum), "nobody to nudge")
@@ -287,8 +306,8 @@ defmodule PidroServer.StoreBuilds do
 
   defp group("ios"), do: "Friends group"
   defp group("android"), do: "open testing"
-  defp notice_from(minimum) when minimum in [nil, ""], do: "Not set"
-  defp notice_from(minimum), do: "From #{minimum}"
+  defp notice_from(nil), do: "Not set"
+  defp notice_from(minimum), do: "From #{build_label(minimum)}"
 
   defp time(%DateTime{} = at), do: at
 
@@ -315,28 +334,28 @@ defmodule PidroServer.StoreBuilds do
   end
 
   @doc """
-  This week's players per version, newest first, each `:newest` (on the build
-  players can get or will get after review), `:nudged` (below the minimum) or
-  `:older`, with a one-line summary.
+  This week's players per version and build, newest first, each `:newest`
+  (on the build players can get or will get after review), `:nudged` (below
+  the minimum) or `:older`, with a one-line summary.
   """
   def players(platform, store, minimum, counts) do
     %{newest: newest, live: live} = store.data || %{newest: nil, live: nil}
     stuck = newest && pending?(newest, live) && stuck(platform, newest)
-    target = if newest && !stuck, do: newest.version, else: live && live.version
+    target = if newest && !stuck, do: newest, else: live
 
     segments =
       for count <- counts,
           count.platform == platform do
         kind =
           cond do
-            above?(minimum, count.version) -> :nudged
-            count.version == target or above?(count.version, target) -> :newest
+            below?(count, minimum) -> :nudged
+            at_least?(count, target) -> :newest
             true -> :older
           end
 
         Map.put(count, :kind, kind)
       end
-      |> Enum.sort(&(!above?(&2.version, &1.version)))
+      |> Enum.sort(&(!newer_build?(&2, &1)))
 
     total = Enum.sum_by(segments, & &1.count)
     sum = fn kind -> segments |> Enum.filter(&(&1.kind == kind)) |> Enum.sum_by(& &1.count) end
@@ -349,17 +368,16 @@ defmodule PidroServer.StoreBuilds do
         target == nil ->
           "#{total} players"
 
-        stuck && target != newest.version ->
-          "nobody can get #{newest.version} yet"
+        stuck && target != newest ->
+          "nobody can get #{build_label(newest)} yet"
 
-        newest != nil and target == newest.version and above?(target, live && live.version) ->
-          waiting =
-            segments |> Enum.reject(&above?(&1.version, live.version)) |> Enum.sum_by(& &1.count)
+        newest != nil and target == newest and live != nil and newer_build?(newest, live) ->
+          waiting = segments |> Enum.reject(&newer_build?(&1, live)) |> Enum.sum_by(& &1.count)
 
           if newest.state in ~w(WAITING_FOR_BETA_REVIEW IN_BETA_REVIEW inProgress),
             do:
               "#{waiting} of #{total} wait for #{if platform == "ios", do: "Apple", else: "Google Play"}",
-            else: "#{waiting} of #{total} can't get #{newest.version} yet"
+            else: "#{waiting} of #{total} can't get #{build_label(newest)} yet"
 
         sum.(:older) > 0 ->
           "#{sum.(:older)} of #{total} not nudged"
@@ -380,27 +398,51 @@ defmodule PidroServer.StoreBuilds do
   is unchecked after every deploy. Reads the cache; never asks a store.
   """
   def attention? do
-    policy = PidroServer.News.native_update_policy()
+    minimums = minimums(PidroServer.News.native_update_policy())
     counts = player_versions()
 
     Enum.any?(Cache.snapshot(), fn {platform, store} ->
       store.error == nil and store.data != nil and
-        release_steps(platform, store.data, policy.minimum_native_versions[platform], counts) !=
-          []
+        release_steps(platform, store.data, minimums[platform], counts) != []
     end)
   end
 
+  # A missing build counts as 0: a 3.3.0 minimum without one leaves 3.3.0 (14) un-nudged.
   defp newer_build?(newest, live) do
     above?(newest.version, live.version) or
-      (newest.version == live.version and number(newest.number) > number(live.number))
+      (newest.version == live.version and
+         (number(newest.number) || 0) > (number(live.number) || 0))
   end
 
-  defp number(value) do
-    case Integer.parse(value || "") do
+  @doc """
+  Whether `build` is below `other` as the News nudge sees it: a lower
+  version, or the same version with a lower build where both have one.
+  """
+  def below?(build, other) when is_map(build) and is_map(other) do
+    above?(other.version, build.version) or
+      (build.version == other.version and lower?(number(build.number), number(other.number)))
+  end
+
+  def below?(_build, _other), do: false
+
+  defp lower?(number, other) when is_integer(number) and is_integer(other), do: number < other
+  defp lower?(_number, _other), do: false
+
+  defp at_least?(build, %{} = target),
+    do:
+      above?(build.version, target.version) or
+        (build.version == target.version and !below?(build, target))
+
+  defp at_least?(_build, nil), do: false
+
+  defp number(value) when is_binary(value) do
+    case Integer.parse(value) do
       {n, ""} -> n
-      _ -> 0
+      _ -> nil
     end
   end
+
+  defp number(_value), do: nil
 
   def above?(version, other) when is_binary(version) and is_binary(other) do
     with {:ok, version} <- Version.parse(version), {:ok, other} <- Version.parse(other) do
@@ -412,10 +454,20 @@ defmodule PidroServer.StoreBuilds do
 
   def above?(_, _), do: false
 
+  @doc """
+  The app-update form's minimums from what players can install: the live
+  version and its build (App Store Connect build number, Play version code),
+  else the current minimum.
+  """
   def live_versions(stores, minimums \\ %{}) do
-    Map.new(~w(android ios), fn platform ->
-      {"show_below_#{platform}",
-       get_in(stores, [platform, :data, :live, :version]) || minimums[platform] || ""}
+    Enum.reduce(~w(android ios), %{}, fn platform, params ->
+      live = get_in(stores, [platform, :data, :live])
+      minimum = if live && live.version, do: live, else: minimums[platform] || %{}
+
+      Map.merge(params, %{
+        "show_below_#{platform}" => minimum[:version] || "",
+        "show_below_#{platform}_build" => minimum[:number] || ""
+      })
     end)
   end
 
@@ -428,7 +480,7 @@ defmodule PidroServer.StoreBuilds do
         "Live version is not known yet."
 
       store.error != nil ->
-        "Store check failed; last known live version: #{build_label(store.data.live)}."
+        "Store check failed; last known live build: #{build_label(store.data.live)}."
 
       store.data.live == nil ->
         "No build is live for players yet."
@@ -437,10 +489,10 @@ defmodule PidroServer.StoreBuilds do
         "The live release name is not an app version; verify it in the console."
 
       store.data.newest && newer_build?(store.data.newest, store.data.live) ->
-        "#{store.data.newest.version} is #{state_phrase(store.data.newest.state)}; players are on #{store.data.live.version}"
+        "#{build_label(store.data.newest)} is #{state_phrase(store.data.newest.state)}; players are on #{build_label(store.data.live)}"
 
       true ->
-        "Live for players now: #{store.data.live.version}"
+        "Live for players now: #{build_label(store.data.live)}"
     end
   end
 
@@ -449,6 +501,7 @@ defmodule PidroServer.StoreBuilds do
   def store_name("ios"), do: "App Store Connect"
   def store_name("android"), do: "Google Play"
   def build_label(nil), do: "None known"
+  def build_label(%{number: number} = build) when number in [nil, ""], do: build.version
   def build_label(build), do: "#{build.version || "Unknown version"} (#{build.number})"
 
   defp state_phrase(state) do
