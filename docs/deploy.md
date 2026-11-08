@@ -1,7 +1,7 @@
 # Deploying
 
-Feature pushes no longer deploy automatically. Production is a **deliberate release**:
-full regression runs only for a release or manual dispatch, never on each push.
+Successful main push CI **deploys automatically**. Full regression runs separately
+for a release or manual dispatch, never on each push.
 Nobody runs `just deploy` as a feature-work shortcut. See [testing](testing.md).
 
 ## How a commit reaches production
@@ -10,28 +10,33 @@ Nobody runs `just deploy` as a feature-work shortcut. See [testing](testing.md).
    tests plus two smoke files, static quality, container and deployment-config checks.
    `Backend ready` is authoritative. Report the URL/current state without foreground
    CI waits; pending is not deployed.
-2. With release authorization, manually run **Backend CI** on the candidate (`main`)
-   for complete `mix precommit`. Require **Backend ready (full)** / a successful full
-   workflow on that exact SHA. It does not deploy by itself. Collect the app's
-   risk-triggered native/full visual/client regression evidence for release too.
-3. Manually run **Deploy** (`.github/workflows/deploy.yml`, `commit` defaults to `main`).
-   It pins that SHA, requires it to be on main with a successful manual/full Backend
-   CI run, then:
-   - **Game journeys** and **Account journeys**: pidro-frontend's reusable
-     workflows (`game-e2e.yml`, `account-e2e.yml` at its `main`) boot this
-     backend commit and play the app's journeys against it.
-   - **Deploy production**, only if both pass: `kamal deploy` from a checkout
-     of the commit, the same as `just deploy`. Its hooks back up the database,
-     run migrations against the new image, wait for `/up`, and smoke-test
-     production (`ops/smoke-production`). Then it checks that
-     `kamal app version` is the commit and that `/up` answers 200.
-4. If the journeys fail, nothing deploys and the run is red on the journey
-   job. If the deploy fails, the run is red on **Deploy production**; Kamal
-   leaves the previous container serving when the new one never turns healthy.
+2. **Deploy** (`.github/workflows/deploy.yml`) receives the completed Backend CI run
+   automatically. Only a successful **push** on this repository's `main` qualifies;
+   failed/cancelled runs, PRs, other branches/repositories and manual/full runs cannot
+   deploy. It checks out the triggering run's exact SHA, never a moving `main` ref.
+3. **Deploy production** runs `kamal deploy`. Hooks back up the database, migrate
+   the new image, wait for `/up`, and run `ops/smoke-production`. The final check
+   requires `kamal app version` to match the triggering SHA and `/up` to answer 200.
+   A deploy failure is red; Kamal keeps the previous container when the new one
+   never becomes healthy. Missing deploy secrets are reported as skipped, not proof
+   of a deployment: inspect the summary and version/health check, not just green CI.
 
-A newer deliberate release cancels older release journeys and replaces a deploy
-still waiting. A deploy already running is never cancelled. Ordinary pushes do not
-start release journeys or supersede a deliberately selected release candidate.
+Deploys are serialized: a newer queued deploy can replace one waiting, but an active
+deploy is never cancelled. After pushing, report the known status and finish the
+turn; do not wait in the foreground for CI/deployment.
+
+## Separate release regression
+
+Manually run **Backend CI** on the release candidate for complete `mix precommit`
+and **Backend ready (full)**. This does not deploy. In the frontend repository,
+Actions → **Frontend CI** → **Run workflow** (`full=true`) runs full Game/Account
+journeys and visual regression. Its **Resolve integration backend** summary records
+the backend `main` SHA resolved for that run: require it to match the release
+candidate. It cannot select an arbitrary older backend SHA; the journey workflows
+are reusable (`workflow_call`), not directly manually dispatchable. Collect the
+risk-triggered native proof too. These remain release obligations, not per-push
+deployment gates. No nightly is configured; a GitHub-runner nightly is only an
+option if a cheap scope can be justified.
 
 ## Native store notice
 
@@ -72,7 +77,7 @@ update's minimums, or the environment fallback if none remains.
 
 `MINIMUM_NATIVE_*` in `config/deploy.yml` is now **only the fallback when no
 published app-update post exists**, and holds a version only. Store destinations remain in `env.clear`;
-the next deliberate release deploy applies changes to those URLs:
+the next automatic main deploy applies changes to those URLs:
 
 | Platform | Minimum (empty disables notice) | Store URL |
 | --- | --- | --- |
@@ -139,9 +144,9 @@ the feed is capped; use the lobby's `native_update_popup` flag.
 
 `WATCHING_TABLES` in `config/deploy.yml` is off (`"false"`) for the beta: the
 lobby's `spectatable` list is empty and Watch answers
-`ROOM_NOT_AVAILABLE_FOR_SPECTATORS`. Set it to `"true"`, push and deliberately
-release to turn watching back on; admin Game Settings shows which it is. The app's CI journeys run with
-it on.
+`ROOM_NOT_AVAILABLE_FOR_SPECTATORS`. Set it to `"true"` and push; successful main CI
+automatically deploys the setting to turn watching back on. Admin Game Settings
+shows which it is. The app's CI journeys run with it on.
 
 ## Secrets
 
@@ -284,14 +289,13 @@ afterwards), then checks that `kamal app version` is the target and that `/up`
 answers 200. It runs from a local checkout with `.kamal/secrets-common`, the
 same way as `just deploy`.
 
-A rollback does not stop a separately authorized release already in progress.
-Push the fix or revert, then deliberately validate/release it; a push alone no
-longer redeploys production.
+A rollback does not stop an automatic deploy already queued or in progress.
+Push a focused-proven fix or revert to `main`; successful push CI deploys it.
 
 **Roll back** when production is broken for players right now and the release
 is the cause: games fail to start or finish, sign-in fails, the app cannot
-connect. A rollback takes about a minute; a fix forward takes CI plus the
-journeys.
+connect. A rollback takes about a minute; a fix forward takes affected CI plus
+deployment.
 
 **Fix forward** instead (push a fix or `git revert` to `main`) when:
 
@@ -303,5 +307,5 @@ journeys.
   [docs/deployment/kamal_hetzner.md](deployment/kamal_hetzner.md#token-payload-rollback)
   marks as roll-forward only;
 - the problem is a limit or another environment value: change
-  `config/deploy.yml` and deliberately validate/release it;
+  `config/deploy.yml`, validate the affected behavior and push to auto-deploy it;
 - it is cosmetic or affects few players, and a validated release is close.

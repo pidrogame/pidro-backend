@@ -7,6 +7,13 @@ Marcel's requirement is non-negotiable:
 
 ## Feature work: changed behavior, affected checks only
 
+Root `AGENTS.md` working rules apply: one ticket per thread (no reuse for a new
+task), one independent review (no repeated review-and-fix rounds), and stop/report
+after about 90 minutes with oversized scope, flaky-test or dependency evidence and
+a next step. Start the local backend/DB only for app–backend contract changes;
+pure engine, docs and CI work do not need a running product stack. After pushing,
+finish the turn with commit/CI links and known status, not a foreground CI watch.
+
 Every orb must exercise the changed contract itself and show evidence, not simply
 report green tests. Before editing, name the entry point, likely wrong behavior,
 focused checks and expected observation. For a bug reproduce the old failure, then
@@ -43,7 +50,9 @@ Browser Playwright/Expo-web, synthetic insets and provider stand-ins are **not n
 iOS proof**. Protocol gameplay proves server/protocol integration, not touch UI.
 Full visual/game/account and native checks move to release time, on Marcel's machine
 or by deliberate release execution; do not replace missing native evidence with a
-larger browser matrix. See the frontend's `docs/testing.md` and mobile device flows.
+larger browser matrix. An optional nightly on GitHub runners needs a cheap, justified
+scope; none is configured or added here. See the frontend's `docs/testing.md` and
+mobile device flows.
 
 ## Permanent CI and release split
 
@@ -59,13 +68,15 @@ larger browser matrix. See the frontend's `docs/testing.md` and mobile device fl
   skipped, failed or cancelled selected jobs cannot silently pass.
 - Manually dispatch **Backend CI** for complete `mix precommit` (all tests, audit,
   format, compile, Credo and Dialyzer): **Backend ready (full)**. It does not deploy.
-- Production is a deliberate release: manually start **Deploy** for a main candidate
-  with a successful manual/full Backend CI on that exact SHA. Full frontend Game and
-  Account journeys still guard deployment, then backup/migration/health/smoke/version
-  checks run. Feature pushes no longer start those full journeys or auto-deploy.
-  This preserves production protection rather than replacing full guards with smoke.
+- **Deploy** automatically follows successful **push** Backend CI on `main`, pinned
+  to that run's exact SHA. Failed/cancelled runs, PRs, other branches/repositories and
+  manual/full CI do not deploy. Backup/migration/health/production-smoke/version checks
+  remain. Full frontend Game/Account journeys are no longer deploy prerequisites;
+  run them deliberately with full Backend CI and risk-triggered native/visual proof
+  for releases. This intentionally trades per-push full regression for faster delivery.
 - Do not foreground-wait for CI: no watch/poll/sleep loops. Report commit, run URL
-  and current state; pending is not green/deployed. Fix a reported failure you caused.
+  and current state, then finish the turn; pending is not green/deployed. Fix a later
+  reported failure you caused as a follow-up.
   Do not create schedules/subscriptions or trigger release/production without approval.
 
 From the umbrella root, an example focused command:

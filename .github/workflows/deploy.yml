@@ -1,74 +1,19 @@
 name: Deploy
 
-# Deliberate release only. Feature pushes never launch full client journeys or deploy.
-# Require a green manual/full Backend CI run, then preserve Game/Account guards.
+# Deploy the exact green main push. Full regression is a separate manual release check.
 on:
-  workflow_dispatch:
-    inputs:
-      commit:
-        description: Main commit to release (must have a green manual/full Backend CI run)
-        required: true
-        default: main
+  workflow_run:
+    workflows: [Backend CI]
+    types: [completed]
+    branches: [main]
 
 permissions:
   contents: read
 
 jobs:
-  candidate:
-    name: Require a full-green release candidate
-    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
-    timeout-minutes: 5
-    permissions:
-      actions: read
-      contents: read
-    outputs:
-      sha: ${{ steps.candidate.outputs.sha }}
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          ref: main
-          fetch-depth: 0
-      - name: Resolve candidate and require complete regression
-        id: candidate
-        env:
-          GH_TOKEN: ${{ github.token }}
-          COMMIT: ${{ inputs.commit }}
-        run: |
-          sha=$(git rev-parse --verify "$COMMIT^{commit}")
-          git merge-base --is-ancestor "$sha" origin/main
-          full=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow ci.yml --branch main \
-            --event workflow_dispatch --status success --limit 100 --json headSha,url \
-            --jq ".[] | select(.headSha == \"$sha\") | .url" | head -1)
-          if [ -z "$full" ]; then
-            echo 'Run Backend CI manually on this candidate before releasing.' >&2
-            exit 1
-          fi
-          echo "sha=$sha" >> "$GITHUB_OUTPUT"
-          echo "Release candidate: $sha; full regression: $full" >> "$GITHUB_STEP_SUMMARY"
-
-  game-journeys:
-    name: Game journeys
-    needs: candidate
-    concurrency:
-      group: deploy-game-journeys
-      cancel-in-progress: true
-    uses: pidrogame/pidro-frontend/.github/workflows/game-e2e.yml@main
-    with:
-      backend-sha: ${{ needs.candidate.outputs.sha }}
-
-  account-journeys:
-    name: Account journeys
-    needs: candidate
-    concurrency:
-      group: deploy-account-journeys
-      cancel-in-progress: true
-    uses: pidrogame/pidro-frontend/.github/workflows/account-e2e.yml@main
-    with:
-      backend-sha: ${{ needs.candidate.outputs.sha }}
-
   deploy:
     name: Deploy production
-    needs: [candidate, game-journeys, account-journeys]
+    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.head_repository.full_name == github.repository
     runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 30
     # One deploy at a time. A newer commit replaces one that is waiting here,
@@ -77,7 +22,7 @@ jobs:
       group: deploy-production
       cancel-in-progress: false
     env:
-      SHA: ${{ needs.candidate.outputs.sha }}
+      SHA: ${{ github.event.workflow_run.head_sha }}
       SSH_AUTH_SOCK: /tmp/ssh-agent.sock
       SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
       SSH_KNOWN_HOSTS: ${{ secrets.SSH_KNOWN_HOSTS }}

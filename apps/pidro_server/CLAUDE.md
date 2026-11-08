@@ -11,8 +11,12 @@ regression or native checks during feature work. For app visuals: one standard p
 one additional size only for a named layout risk. Full/native coverage is deliberate
 release work on Marcel's machine or a release runner; list it as pending, not proven.
 Missing focused proof blocks completion claims; browser proof is not native proof.
-Every push runs affected tests + smoke; full CI and production deployment are manual
-release actions. Do not foreground-watch/poll CI; report run URL/current status.
+Every push runs affected tests + smoke; successful main push CI auto-deploys its SHA.
+Full CI remains manual release coverage. Root working rules apply: one ticket per
+thread, one independent review (no repeated review-and-fix rounds), local backend/DB
+only for app–backend contract changes, stop/report after about 90 minutes, and finish
+the turn after pushing without watching CI. Report run URL/current status truthfully.
+An optional GitHub-runner nightly needs a cheap, justified scope; none is configured.
 
 ## Commands
 

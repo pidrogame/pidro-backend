@@ -22,6 +22,11 @@ or native checks in feature orbs. One standard phone size for app proof; a secon
 only for a named layout risk. Full/native coverage is deliberate release work on
 Marcel's machine or a release runner. List it as pending; browser proof is not native
 proof. Missing focused evidence blocks completion. Do not foreground-watch/poll CI.
+Root working rules also apply: one ticket per thread, one independent review (no
+review loops), stop/report after about 90 minutes, and finish the turn after pushing.
+Start the local backend/DB only for app–backend contract changes; pure engine proof
+does not need Phoenix/DB. Full coverage may optionally run on GitHub runners nightly
+only with a cheap, justified scope; no nightly is configured.
 This policy supersedes older blanket quality/coverage command examples below.
 
 ```bash
@@ -908,8 +913,9 @@ perf(engine)!: replace naive sort with counting sort
 
 Shipping is trunk-based (root `AGENTS.md`), not PR-based. Push affected checks +
 smoke, report the CI URL/current status without foreground waits. Full Backend CI
-and protected production Deploy are deliberate manual release actions. Show focused
-proof and list release gaps; a green check alone never proves changed behavior.
+is manual release coverage; successful main push CI auto-deploys that exact SHA.
+Show focused proof and list release gaps; a green check alone never proves changed
+behavior.
 
 ---
 
