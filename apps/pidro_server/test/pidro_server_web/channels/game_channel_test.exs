@@ -1367,6 +1367,7 @@ defmodule PidroServerWeb.GameChannelTest do
           "reason" => "network_lost",
           "network" => "cellular",
           "app_version" => "3.2.4",
+          "app_build" => "14",
           "platform" => "android"
         })
 
@@ -1375,6 +1376,7 @@ defmodule PidroServerWeb.GameChannelTest do
       {:ok, joined_room} = RoomManager.get_room(ctx.room_code)
       joined_seat = Enum.find(Map.values(joined_room.seats), &(&1.user_id == ctx.user1.id))
       assert joined_seat.network == "cellular"
+      assert {joined_seat.app_version, joined_seat.app_build} == {"3.2.4", "14"}
       send(RoomManager, :check_connections)
       assert_push "ping", %{id: id}
       ref = push(socket, "pong", %{"id" => id})

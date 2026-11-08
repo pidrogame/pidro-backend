@@ -18,6 +18,7 @@ defmodule PidroServer.Stats.ConnectionGame do
     field :disconnected_seconds, :float
     field :duration_seconds, :float
     field :app_version, :string
+    field :app_build, :string
     field :platform, :string
     field :network, :string
     field :network_ms, :map, default: %{}

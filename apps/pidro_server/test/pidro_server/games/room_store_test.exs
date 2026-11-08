@@ -33,6 +33,8 @@ defmodule PidroServer.Games.RoomStoreTest do
       decision_id: "decision-1",
       reason: "heartbeat_timeout",
       network: "cellular",
+      app_version: "3.3.0",
+      app_build: "14",
       round_trips: [42, 200, 18]
     }
 
@@ -77,7 +79,7 @@ defmodule PidroServer.Games.RoomStoreTest do
         peers: [host],
         left: [gone],
         participants: %{
-          host => %{platform: "android", app_version: "3.2.4"},
+          host => %{platform: "android", app_version: "3.3.0", app_build: "11"},
           gone => %{platform: "ios", app_version: "3.2.3"}
         }
       },

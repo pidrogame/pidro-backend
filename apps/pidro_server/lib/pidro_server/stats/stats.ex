@@ -93,22 +93,27 @@ defmodule PidroServer.Stats do
           else: 0
         ),
       app_version: Map.get(List.first(rows) || %{}, :app_version),
+      app_build: Map.get(List.first(rows) || %{}, :app_build),
       platform: Map.get(List.first(rows) || %{}, :platform)
     })
   end
 
-  @doc "Share of recorded play time graded poor, by platform/version, with unknown time separate."
+  @doc "Share of recorded play time graded poor, by platform/version/build, with unknown time separate."
   def connection_analytics(days) do
     cutoff = DateTime.add(DateTime.utc_now(), -days, :day)
 
     connections =
       Repo.all(from c in ConnectionGame, where: c.inserted_at >= ^cutoff)
-      |> Enum.group_by(&{&1.user_id, &1.platform, &1.app_version})
-      |> Enum.map(fn {{_user, platform, version}, rows} ->
-        Map.merge(summarize_connections(rows), %{platform: platform, app_version: version})
+      |> Enum.group_by(&{&1.user_id, &1.platform, &1.app_version, &1.app_build})
+      |> Enum.map(fn {{_user, platform, version, build}, rows} ->
+        Map.merge(summarize_connections(rows), %{
+          platform: platform,
+          app_version: version,
+          app_build: build
+        })
       end)
-      |> Enum.group_by(&{&1.platform, &1.app_version})
-      |> Enum.map(fn {{platform, version}, players} ->
+      |> Enum.group_by(&{&1.platform, &1.app_version, &1.app_build})
+      |> Enum.map(fn {{platform, version, build}, players} ->
         total = Enum.sum(Enum.map(players, & &1.duration_seconds))
         poor = Enum.sum(for p <- players, p.grade == :poor, do: p.measured_seconds)
 
@@ -121,6 +126,7 @@ defmodule PidroServer.Stats do
         %{
           platform: platform,
           app_version: version,
+          app_build: build,
           duration_seconds: total,
           poor_percent: if(total > 0, do: poor * 100 / total, else: 0),
           unknown_percent: if(total > 0, do: unknown * 100 / total, else: 0)
@@ -131,16 +137,16 @@ defmodule PidroServer.Stats do
       Repo.all(from t in TableOutcome, where: t.inserted_at >= ^cutoff)
       |> Enum.flat_map(fn row ->
         for cohort <- Enum.uniq(row.cohorts),
-            do: {{cohort["platform"], cohort["app_version"]}, row}
+            do: {{cohort["platform"], cohort["app_version"], cohort["app_build"]}, row}
       end)
       |> Enum.group_by(&elem(&1, 0), &elem(&1, 1))
 
-    connections = Map.new(connections, &{{&1.platform, &1.app_version}, &1})
+    connections = Map.new(connections, &{{&1.platform, &1.app_version, &1.app_build}, &1})
 
     (Map.keys(connections) ++ Map.keys(outcomes))
     |> Enum.uniq()
     |> Enum.sort()
-    |> Enum.map(fn {platform, version} = key ->
+    |> Enum.map(fn {platform, version, build} = key ->
       rows = Map.get(outcomes, key, [])
       turns = Enum.sum(Enum.map(rows, & &1.turns))
       bot_turns = Enum.sum(Enum.map(rows, & &1.bot_turns))
@@ -151,6 +157,7 @@ defmodule PidroServer.Stats do
         Map.get(connections, key, %{
           platform: platform,
           app_version: version,
+          app_build: build,
           duration_seconds: 0,
           poor_percent: 0,
           unknown_percent: 0
@@ -601,6 +608,7 @@ defmodule PidroServer.Stats do
         kind: kind,
         elapsed_ms: elapsed_ms,
         app_version: Map.get(client, :app_version),
+        app_build: Map.get(client, :app_build),
         platform: Map.get(client, :platform),
         reason: Map.get(client, :reason),
         network: Map.get(client, :network),
@@ -661,7 +669,7 @@ defmodule PidroServer.Stats do
           where: e.user_id == ^user_id and not is_nil(e.app_version),
           order_by: [desc: e.inserted_at],
           limit: 1,
-          select: %{app_version: e.app_version, platform: e.platform}
+          select: %{app_version: e.app_version, app_build: e.app_build, platform: e.platform}
       )
 
     Map.merge(
@@ -670,7 +678,7 @@ defmodule PidroServer.Stats do
         timer_plays: count.("timeout", nil) + count.("away_play", "timer"),
         bot_plays: count.("away_play", "bot")
       },
-      latest || %{app_version: nil, platform: nil}
+      latest || %{app_version: nil, app_build: nil, platform: nil}
     )
   end
 

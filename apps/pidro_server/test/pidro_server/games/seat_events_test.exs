@@ -360,6 +360,7 @@ defmodule PidroServer.Games.SeatEventsTest do
       :ok =
         RoomManager.register_game_channel(room.code, user, self(), %{
           app_version: "3.2.4",
+          app_build: "14",
           platform: "android",
           network: "cellular"
         })
@@ -382,6 +383,7 @@ defmodule PidroServer.Games.SeatEventsTest do
       assert saved.p95_ms >= saved.median_ms
       assert saved.network == "cellular"
       assert saved.app_version == "3.2.4"
+      assert saved.app_build == "14"
       assert saved.platform == "android"
 
       send(RoomManager, {:game_over, room.code, :north_south, %{north_south: 62, east_west: 25}})
@@ -633,6 +635,7 @@ defmodule PidroServer.Games.SeatEventsTest do
           reason: "heartbeat_timeout",
           network: "cellular",
           app_version: "3.2.4",
+          app_build: "14",
           platform: "android"
         })
 
@@ -641,7 +644,7 @@ defmodule PidroServer.Games.SeatEventsTest do
       returned = Repo.one!(from e in SeatEvent, where: e.user_id == ^user and e.kind == "return")
       assert Map.get(returned, :reason) == "heartbeat_timeout"
       assert Map.get(returned, :network) == "cellular"
-      assert returned.app_version == "3.2.4"
+      assert {returned.app_version, returned.app_build} == {"3.2.4", "14"}
     end
 
     test "failed abandonment persistence cannot interrupt finished or unrelated rooms" do

@@ -39,7 +39,9 @@ defmodule PidroServerWeb.API.PushTokenController do
 
       conn
       |> put_status(status)
-      |> json(%{data: Map.take(token, [:token, :platform, :install_id, :app_version])})
+      |> json(%{
+        data: Map.take(token, [:token, :platform, :install_id, :app_version, :app_build])
+      })
     end
   end
 

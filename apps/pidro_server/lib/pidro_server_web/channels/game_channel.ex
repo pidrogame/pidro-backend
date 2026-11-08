@@ -1656,7 +1656,10 @@ defmodule PidroServerWeb.GameChannel do
   defp client_build(params) when is_map(params) do
     %{
       app_version: Diagnostics.token(params["app_version"]),
-      app_build: Diagnostics.token(params["app_build"]),
+      app_build:
+        if(is_binary(params["app_build"]) and params["app_build"] =~ ~r/\A\d{1,10}\z/,
+          do: params["app_build"]
+        ),
       platform: Diagnostics.token(params["platform"]),
       reason:
         if(

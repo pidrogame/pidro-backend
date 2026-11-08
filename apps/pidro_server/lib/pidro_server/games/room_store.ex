@@ -31,7 +31,7 @@ defmodule PidroServer.Games.RoomStore do
 
   @strings ~w(id code host_id kicked_ids positions spectator_ids user_id reserved_for decision_id
     decision_player_id vacated_by bot_persona bot_personas name seat_holds seat_password
-    ready_player_ids app_version platform reason network peers left)
+    ready_player_ids app_version app_build platform reason network peers left)
   @times ~w(created_at last_activity invite_live_until)
   @structs %{
     "Elixir.PidroServer.Games.RoomManager.Room" => Room,

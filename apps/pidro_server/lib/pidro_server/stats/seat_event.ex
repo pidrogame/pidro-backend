@@ -29,6 +29,7 @@ defmodule PidroServer.Stats.SeatEvent do
     field :kind, :string
     field :elapsed_ms, :integer
     field :app_version, :string
+    field :app_build, :string
     field :platform, :string
     field :reason, :string
     field :network, :string
@@ -46,6 +47,7 @@ defmodule PidroServer.Stats.SeatEvent do
       :kind,
       :elapsed_ms,
       :app_version,
+      :app_build,
       :platform,
       :reason,
       :network,

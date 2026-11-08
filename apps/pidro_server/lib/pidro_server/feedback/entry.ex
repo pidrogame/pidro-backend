@@ -16,7 +16,7 @@ defmodule PidroServer.Feedback.Entry do
     "pace" => ~w(too_slow right too_fast skipped),
     "old_pidro" => ~w(worse same better skipped)
   }
-  @detail_keys ~w(app_version native_build update_id channel platform os_version device_model)
+  @detail_keys ~w(app_version app_build native_build update_id channel platform os_version device_model)
   @email_format ~r/\A[^\s@]+@[^\s@]+\.[^\s@]+\z/
 
   @type t :: %__MODULE__{}

@@ -156,4 +156,50 @@ defmodule PidroServer.Stats.ConnectionStrengthTest do
     assert mixed.poor_percent == 50
     assert_in_delta mixed.unknown_percent, 33.333333, 0.00001
   end
+
+  test "analytics keeps two builds of one version apart, joining table outcomes by build" do
+    now = NaiveDateTime.utc_now() |> NaiveDateTime.truncate(:second)
+
+    for {user, histogram, build} <- [
+          {"on-14", %{"420" => 100}, "14"},
+          {"on-15", %{"30" => 100}, "15"},
+          {"no-build", %{"30" => 100}, nil}
+        ] do
+      Repo.insert!(%PidroServer.Stats.ConnectionGame{
+        user_id: user,
+        room_id: Ecto.UUID.generate(),
+        room_code: "CONN",
+        game_instance_id: Ecto.UUID.generate(),
+        checks_sent: 100,
+        unanswered_checks: 0,
+        drops: 0,
+        duration_seconds: 3600.0,
+        disconnected_seconds: 0.0,
+        rtt_histogram: histogram,
+        app_version: "3.3.0",
+        app_build: build,
+        platform: "ios",
+        inserted_at: now,
+        updated_at: now
+      })
+    end
+
+    :ok =
+      Stats.record_table_outcome(%{
+        game_instance_id: Ecto.UUID.generate(),
+        turns: 10,
+        bot_turns: 4,
+        others_finished: true,
+        cohorts: [%{platform: "ios", app_version: "3.3.0", app_build: "15"}]
+      })
+
+    await_tasks()
+
+    rows = Map.new(Stats.connection_analytics(7), &{&1.app_build, &1})
+    assert Map.keys(rows) |> Enum.sort(:desc) == ["15", "14", nil]
+    assert Enum.all?(Map.values(rows), &(&1.app_version == "3.3.0"))
+    assert rows["14"].poor_percent == 100 and rows["14"].turns == 0
+    assert rows["15"].poor_percent == 0 and rows["15"].bot_turn_percent == 40
+    assert rows[nil].turns == 0
+  end
 end

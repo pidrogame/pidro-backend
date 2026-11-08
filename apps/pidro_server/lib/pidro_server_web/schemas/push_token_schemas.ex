@@ -17,7 +17,14 @@ defmodule PidroServerWeb.Schemas.PushTokenSchemas do
         },
         platform: %Schema{type: :string, enum: ["ios", "android"]},
         install_id: %Schema{type: :string, maxLength: 64, nullable: true},
-        app_version: %Schema{type: :string, maxLength: 32, nullable: true, example: "3.3.0"}
+        app_version: %Schema{type: :string, maxLength: 32, nullable: true, example: "3.3.0"},
+        app_build: %Schema{
+          type: :string,
+          pattern: "^[0-9]{1,10}$",
+          nullable: true,
+          description: "iOS build number or Android version code",
+          example: "15"
+        }
       }
     })
   end
@@ -36,7 +43,8 @@ defmodule PidroServerWeb.Schemas.PushTokenSchemas do
             token: %Schema{type: :string},
             platform: %Schema{type: :string, enum: ["ios", "android"]},
             install_id: %Schema{type: :string, nullable: true},
-            app_version: %Schema{type: :string, nullable: true}
+            app_version: %Schema{type: :string, nullable: true},
+            app_build: %Schema{type: :string, nullable: true}
           }
         }
       }

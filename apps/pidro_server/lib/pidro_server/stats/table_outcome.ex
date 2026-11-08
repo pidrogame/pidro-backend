@@ -43,7 +43,9 @@ defmodule PidroServer.Stats.TableOutcome do
           id = human_id(seat),
           not is_nil(id),
           into: %{},
-          do: {id, %{platform: seat.platform, app_version: seat.app_version}}
+          do:
+            {id,
+             %{platform: seat.platform, app_version: seat.app_version, app_build: seat.app_build}}
 
     %{outcome | participants: Map.merge(outcome.participants, clients)}
   end

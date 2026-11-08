@@ -74,7 +74,7 @@ defmodule PidroServerWeb.Dev.AnalyticsLive do
             <p :if={rows == []} class="mt-2 text-sm text-stone-600">No measured games yet.</p>
             <ul class="mt-2 divide-y divide-stone-200 text-sm">
               <li :for={row <- rows} class="space-y-2 py-3">
-                <p class="font-semibold">{row.platform || "unknown platform"} · {row.app_version || "unknown version"}</p>
+                <p class="font-semibold">{row.platform || "unknown platform"} · {row.app_version || "unknown version"}{if row.app_build, do: " (#{row.app_build})"}</p>
                 <p>{Float.round(row.poor_percent / 1, 1)}% poor · {Float.round(row.unknown_percent / 1, 1)}% insufficient · {Float.round(row.duration_seconds / 3600, 1)} h</p>
                 <dl class="grid gap-2 sm:grid-cols-2">
                   <div class="rounded-md bg-stone-50 p-3">

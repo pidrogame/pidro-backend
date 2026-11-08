@@ -63,6 +63,7 @@ defmodule PidroServer.Games.Room.Seat do
     :bot_persona,
     :bot_strategy,
     :app_version,
+    :app_build,
     :platform,
     :reason,
     :network,
@@ -531,6 +532,7 @@ defmodule PidroServer.Games.Room.Seat do
          liveness_enabled: false,
          missed_pings: 0,
          app_version: nil,
+         app_build: nil,
          platform: nil,
          network: nil,
          reason: nil

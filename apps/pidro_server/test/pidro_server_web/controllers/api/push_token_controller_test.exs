@@ -11,7 +11,8 @@ defmodule PidroServerWeb.API.PushTokenControllerTest do
     "token" => @token,
     "platform" => "android",
     "install_id" => "install-1",
-    "app_version" => "3.3.0"
+    "app_version" => "3.3.0",
+    "app_build" => "15"
   }
 
   test "POST registers the phone: 201 the first time, 200 after", %{conn: conn} do
@@ -25,14 +26,17 @@ defmodule PidroServerWeb.API.PushTokenControllerTest do
                "token" => @token,
                "platform" => "android",
                "install_id" => "install-1",
-               "app_version" => "3.3.0"
+               "app_version" => "3.3.0",
+               "app_build" => "15"
              }
            }
 
-    again = Map.put(@body, "app_version", "3.3.1")
+    # An app from before builds sends none, and clears the old one.
+    again = @body |> Map.put("app_version", "3.3.1") |> Map.delete("app_build")
     response = conn |> auth(user) |> post(~p"/api/v1/me/push-tokens", again) |> json_response(200)
     assert response["data"]["app_version"] == "3.3.1"
-    assert [%{app_version: "3.3.1"}] = Push.tokens_for(user.id)
+    assert response["data"]["app_build"] == nil
+    assert [%{app_version: "3.3.1", app_build: nil}] = Push.tokens_for(user.id)
 
     other = user_fixture()
     conn |> auth(other) |> post(~p"/api/v1/me/push-tokens", @body) |> json_response(200)
@@ -57,6 +61,17 @@ defmodule PidroServerWeb.API.PushTokenControllerTest do
     end
 
     assert Push.tokens_for(user.id) == []
+
+    # A malformed build is only a missing label: the phone still gets push.
+    for build <- ["15a", 15, "12345678901"] do
+      conn
+      |> auth(user)
+      |> post(~p"/api/v1/me/push-tokens", %{@body | "app_build" => build})
+      |> json_response(201)
+
+      assert [%{app_build: nil}] = Push.tokens_for(user.id)
+      Push.unregister(user, @token)
+    end
   end
 
   test "DELETE forgets the caller's token with 204, also when it is already gone", %{conn: conn} do

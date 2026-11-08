@@ -224,7 +224,8 @@ defmodule PidroServerWeb.Dev.UserDetailLive do
         class="rounded-md border border-stone-300 bg-white px-4 py-3 text-sm text-stone-700"
       >
         Connection: {@connection.drops} drops, {@connection.timer_plays + @connection.bot_plays} plays made for them (timer {@connection.timer_plays}, bot {@connection.bot_plays}) in the last 7 days.
-        Last app version: {@connection.app_version || "unknown"}
+        Last app version: {@connection.app_version || "unknown"}{if @connection.app_build,
+          do: " build #{@connection.app_build}"}
         <span :if={@connection.platform}>({@connection.platform})</span>
       </p>
 
@@ -282,7 +283,8 @@ defmodule PidroServerWeb.Dev.UserDetailLive do
             <span class="font-mono">{event.room_code}</span>
             <span>{connection_event(event)}</span>
             <span class="text-stone-600">{event.reason || "unknown"} · {event.network || "unknown"}</span>
-            <span class="text-stone-600">{event.platform} {event.app_version || "unknown version"}</span>
+            <span class="text-stone-600">{event.platform} {event.app_version || "unknown version"}{if event.app_build,
+              do: " build #{event.app_build}"}</span>
           </li>
         </ol>
       </section>

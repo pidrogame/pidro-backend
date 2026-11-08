@@ -231,7 +231,7 @@ defmodule PidroServer.Feedback do
     Feedback ##{entry.id}
     Player: #{player(user)}
     Reply to: #{entry.reply_email || "No reply address"}
-    App: #{details["app_version"] || "unknown"} (build #{details["native_build"] || "?"}, update #{details["update_id"] || "?"}, #{details["channel"] || "?"})
+    App: #{details["app_version"] || "unknown"} (build #{details["app_build"] || details["native_build"] || "?"}, update #{details["update_id"] || "?"}, #{details["channel"] || "?"})
     Device: #{details["platform"] || "?"} #{details["os_version"]}, #{details["device_model"] || "?"}
     Last game: #{if game, do: "#{game.id} (#{game.rule_set})", else: "None"}
 

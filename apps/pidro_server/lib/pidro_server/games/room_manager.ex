@@ -2058,6 +2058,9 @@ defmodule PidroServer.Games.RoomManager do
              %{
                seat
                | app_version: client[:app_version] || seat.app_version,
+                 # A build belongs to the version it came with.
+                 app_build:
+                   if(client[:app_version], do: client[:app_build], else: seat.app_build),
                  platform: client[:platform] || seat.platform,
                  reason: client[:reason] || seat.reason
              }}
@@ -6347,6 +6350,7 @@ defmodule PidroServer.Games.RoomManager do
         room_code: room.code,
         game_instance_id: instance,
         app_version: seat.app_version,
+        app_build: seat.app_build,
         platform: seat.platform,
         network: seat.network || "unknown"
       })

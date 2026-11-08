@@ -33,6 +33,7 @@ defmodule PidroServer.Push do
            :platform,
            :install_id,
            :app_version,
+           :app_build,
            :last_used_at,
            :disabled_at,
            :disabled_reason,

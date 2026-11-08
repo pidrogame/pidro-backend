@@ -25,7 +25,12 @@ defmodule PidroServer.FeedbackTest do
                    "body" => "The bid button hides behind my thumb",
                    "game_id" => Ecto.UUID.generate(),
                    "rule_set" => "louisiana",
-                   "details" => %{"app_version" => "1.4.0", "platform" => "ios", "pin" => "1234"}
+                   "details" => %{
+                     "app_version" => "1.4.0",
+                     "app_build" => "15",
+                     "platform" => "ios",
+                     "pin" => "1234"
+                   }
                  },
                  user
                )
@@ -34,7 +39,12 @@ defmodule PidroServer.FeedbackTest do
       assert user_id == user.id
       assert {entry.game_id, entry.rule_set} == {latest.id, "finnish"}
       assert entry.reply_email == user.email
-      assert entry.details == %{"app_version" => "1.4.0", "platform" => "ios"}
+
+      assert entry.details == %{
+               "app_version" => "1.4.0",
+               "app_build" => "15",
+               "platform" => "ios"
+             }
     end
 
     test "a note keeps the address the player gave", %{user: user} do
