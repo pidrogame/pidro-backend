@@ -159,7 +159,7 @@ defmodule PidroServerWeb.API.NewsControllerTest do
     assert build_conn() |> post(~p"/api/v1/news/#{id}/seen") |> response(401)
   end
 
-  test "app_build picks the pop-up for a same-version older build; an app without it reads versions",
+  test "app_build picks the pop-up for a same-version older build; an app without it is older",
        %{welcome: welcome} do
     {:ok, _} =
       PidroServer.News.update(welcome, %{
@@ -181,7 +181,7 @@ defmodule PidroServerWeb.API.NewsControllerTest do
              popup.("app_version=3.3.0&app_build=11")
 
     assert popup.("app_version=3.3.0&app_build=12") == nil
-    assert popup.("app_version=3.3.0") == nil
+    assert %{"show_below_android_build" => "12"} = popup.("app_version=3.3.0")
     assert popup.("app_version=3.2.4") != nil
   end
 

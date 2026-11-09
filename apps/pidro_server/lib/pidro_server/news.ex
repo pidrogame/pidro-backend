@@ -57,8 +57,8 @@ defmodule PidroServer.News do
 
   @doc """
   Newest published, unseen pop-up eligible for this phone; independent of
-  feed reads. `build` is the native build; an app that sends none is
-  compared by version only.
+  feed reads. `build` is the native build; on a post's version with a build
+  minimum, an app that sends none counts as older than that build.
   """
   def popup(%User{id: user_id}, locale, platform, version, build \\ nil) do
     user_id = Ecto.UUID.dump!(user_id)
@@ -160,7 +160,10 @@ defmodule PidroServer.News do
 
   defp eligible?(_post, _platform, _version, _build), do: false
 
-  # Same version: only a build on both sides tells them apart.
+  # Same version: only a build on the post tells them apart. Every app that
+  # sends no build predates build numbers, so it is older than any build.
+  defp below_build?(nil, threshold) when is_binary(threshold), do: true
+
   defp below_build?(build, threshold) when is_binary(build) and is_binary(threshold) do
     case Integer.parse(build) do
       {build, ""} -> build < String.to_integer(threshold)

@@ -67,35 +67,37 @@ defmodule PidroServer.NewsTest do
       assert News.popup(user, "en", "ios", "3.2.9").id == post.id
     end
 
-    test "a build beside the version nudges that version's older builds; no build compares versions" do
+    test "a build beside the version nudges that version's older builds and builds that send none" do
       user = AccountsFixtures.user_fixture()
 
       {:ok, post} =
         News.create(%{
-          title_en: "Update to 3.3.0 (15)",
+          title_en: "Update to 3.3.0 (19)",
           body_en: "x",
           show_as_popup: true,
           app_update: true,
           show_below_ios: "3.3.0",
-          show_below_ios_build: "15",
+          show_below_ios_build: "19",
           show_below_android: "3.3.0",
-          show_below_android_build: "12"
+          show_below_android_build: "15"
         })
 
       {:ok, post} = News.publish(post)
 
       for {platform, version, build, eligible} <- [
+            {"ios", "3.3.0", nil, true},
             {"ios", "3.3.0", "14", true},
-            {"ios", "3.3.0", "15", false},
-            {"ios", "3.3.0", "16", false},
+            {"ios", "3.3.0", "19", false},
+            {"ios", "3.3.0", "20", false},
+            {"ios", "3.3.1", nil, false},
             {"ios", "3.2.4", nil, true},
             {"ios", "3.2.4", "99", true},
-            {"ios", "3.3.0", nil, false},
             {"ios", "3.3.0", "", false},
             {"ios", "3.3.0", "14x", false},
             {"ios", "3.3.1", "1", false},
+            {"android", "3.3.0", nil, true},
             {"android", "3.3.0", "11", true},
-            {"android", "3.3.0", "12", false},
+            {"android", "3.3.0", "15", false},
             {"android", "3.3.0", "9", true}
           ] do
         assert News.popup(user, "en", platform, version, build) != nil == eligible,
@@ -104,12 +106,24 @@ defmodule PidroServer.NewsTest do
 
       # Without a build on the post, the same version is not below it.
       {:ok, _} = News.update(post, %{show_below_ios_build: ""})
+      assert News.popup(user, "en", "ios", "3.3.0") == nil
       assert News.popup(user, "en", "ios", "3.3.0", "14") == nil
       assert News.popup(user, "en", "ios", "3.2.4", "14").id == post.id
 
       policy = News.native_update_policy()
       assert policy.minimum_native_versions == %{"android" => "3.3.0", "ios" => "3.3.0"}
-      assert policy.minimum_native_builds == %{"android" => "12"}
+      assert policy.minimum_native_builds == %{"android" => "15"}
+
+      :ok = News.mark_popup_seen(user, post.id)
+
+      for {platform, version, build} <- [
+            {"ios", "3.2.4", nil},
+            {"android", "3.3.0", nil},
+            {"android", "3.3.0", "11"}
+          ] do
+        assert News.popup(user, "en", platform, version, build) == nil,
+               "#{inspect({platform, version, build})}"
+      end
     end
 
     test "a minimum build is digits and needs its version" do
