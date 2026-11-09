@@ -254,6 +254,68 @@ The opening lead and the honour hands fell off the top 20 and overbids on
 an uncovered Five shrank; open-auction passes with an Ace and lesser
 honours, which search opens in nearly every world, remain the largest gap.
 
+## PID-411: search plays Louisiana too
+
+PID-379 kept every Louisiana decision the rulebook's. Search now runs on
+both variants: worlds keep Louisiana's public facts and rollouts play its
+rules through the engine (`Pidro.Rules.for_variant/1`, the rulebook in all
+four seats). The determinizer's Louisiana rules: nobody goes cold; a short
+pack is topped up from the first-deal discards as the engine does, so the
+dealer can hold non-trumps; every non-trump a non-dealer held, played or
+not, was among its draws; and a seat that played neither the led suit nor
+a trump holds neither. A Finnish seat only plays trumps, so none of this
+touches a Finnish world: on every decision of twelve seeded Finnish games
+(2,357 positions) the new determinizer draws the same worlds as the old.
+Budget and veto are PID-379's, K = 100 and 0.4, untuned for Louisiana.
+
+```sh
+mise exec -- mix pidro.selfplay --pairs 1000 --seed 4111 --variant louisiana --a search --b rulebook --worlds 100 --veto 0.4 --report ../../docs/bot-search-disagreements-louisiana.md
+mise exec -- mix pidro.selfplay --pairs 1000 --seed 4112 --variant louisiana --a search --b random --worlds 100 --veto 0.4
+mise exec -- elixir --erl "+S 1:1" -S mix pidro.selfplay --pairs 20 --seed 4114 --variant louisiana --a search --b rulebook
+```
+
+Held-out seeds, 1,000 pairs each (2,000 games, teams swapped), Louisiana:
+
+| search vs …            | rulebook (4111)   | random (4112)     |
+| ---------------------- | ----------------- | ----------------- |
+| wins                   | 96.9%             | 100.0%            |
+| pairs swept            | 937 / 0           | 1,000 / 0         |
+| contracts held         | 10,144 / 4,250    | 6,497 / 6,257     |
+| contracts made         | 93.9% / 65.1%     | 95.2% / 17.6%     |
+| sets                   | 617 / 1,485       | 315 / 5,158       |
+| points lost to sets    | 4,397 / 10,841    | 2,338 / 44,546    |
+| average winning bid    | 7.14 / 7.30       | 7.30 / 8.49       |
+| Fives taken / lost     | 9,068 / 2,245     | 9,706 / 1,640     |
+| search p50 / p95 / max | 34 / 166 / 1,915 ms | 36 / 157 / 1,597 ms |
+| wall time (16 cores)   | 10 min 47 s       | 9 min 41 s        |
+
+Every game finished: no illegal move, crash, stall or capped game. On one
+scheduler, one game at a time (seed 4114, 40 games), search took p50 31
+ms, p95 146 ms, max 462 ms, and won 40 of 40: inside the 400 ms p95 bar.
+The harness's "forced dealer 6" and "volunteered 6s" lines count Finnish
+sixes and read zero here; Louisiana's forced dealer bid is 7.
+
+The margin is wider than Finnish's 81%, and the same caveat applies more
+strongly: rollouts play the rulebook in every seat, so search has an exact
+model of this opponent, and Louisiana's rulebook never got PID-377's
+volunteer margin. What search overrules is in
+[bot-search-disagreements-louisiana.md](bot-search-disagreements-louisiana.md):
+the top fourteen shapes are auctions, nearly all open auctions where the
+rulebook passes a 7 that search makes in 83–100% of worlds, from two to six
+cards in the best suit; the rest are trick-one choices between a low and a
+high trump. Seeds 4111, 4112 and 4114 are used.
+
+The Finnish numbers did not move: PID-379's command (`--a search --b
+rulebook --worlds 100 --veto 0.4`), 100 pairs on each of seeds 3771–3774
+and 3790, prints the same summary on `099fb84` and on this change, every
+line but the decision times and the header's new variant:
+
+| Finnish, search vs rulebook | 3771  | 3772  | 3773  | 3774  | 3790  |
+| --------------------------- | ----- | ----- | ----- | ----- | ----- |
+| search wins, before = after | 78.5% | 78.0% | 79.5% | 81.0% | 77.0% |
+| search made / set           | 889 / 114 | 856 / 125 | 869 / 102 | 884 / 117 | 880 / 118 |
+| p95 before / after, ms      | 97 / 94 | 92 / 89 | 81 / 86 | 81 / 87 | 87 / 87 |
+
 ## Why one bot
 
 The [PR #49](https://github.com/marcelfahle/pidro-backend/pull/49) experiment gave

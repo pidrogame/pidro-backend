@@ -25,8 +25,12 @@ defmodule Pidro.Bot.Search do
     the side holding the contract makes it in at least `:threshold` of the
     worlds where it holds it. A forced dealer and a seat over its partner's
     bid keep the rulebook's move.
-  - Every other decision, every Louisiana decision, and any failure, is the
-    rulebook's.
+  - Both variants. Worlds keep the variant's public facts and rollouts play
+    its rules through the engine: in Louisiana every card in a hand is a
+    candidate under follow-suit-or-trump, nobody goes cold, a seat that
+    discarded holds neither the led suit nor a trump, and the bid search's
+    minimum is the variant's (7).
+  - Every other decision, and any failure, is the rulebook's.
 
   Options: `:worlds` (default 100), `:veto` (0.4), `:threshold` (0.7),
   `:seed` (0).
@@ -195,8 +199,13 @@ defmodule Pidro.Bot.Search do
   defp holder(view, pos),
     do: if(Types.position_to_team(pos) == Knowledge.my_team(view), do: :us, else: :them)
 
-  defp relative({:play_card, {5, suit}}, trump) when suit != trump, do: "off-5"
-  defp relative({:play_card, {rank, _suit}}, _trump), do: rank_label(rank)
+  defp relative({:play_card, {rank, suit} = card}, trump) do
+    cond do
+      suit == trump -> rank_label(rank)
+      Card.is_trump?(card, trump) -> "off-5"
+      true -> "plain #{rank_label(rank)}"
+    end
+  end
 
   defp shape_title(%{phase: :bidding} = s) do
     standing =
@@ -273,18 +282,13 @@ defmodule Pidro.Bot.Search do
   defp trick_plays(%SeatView{current_trick: %{plays: plays}}), do: plays
   defp trick_plays(%SeatView{}), do: []
 
-  defp search(
-         %SeatView{variant: :finnish, phase: :playing} = view,
-         [_, _ | _] = legal,
-         base,
-         opts
-       ) do
+  defp search(%SeatView{phase: :playing} = view, [_, _ | _] = legal, base, opts) do
     values = values(view, legal, opts)
     {choice, reason} = pick(values, base.rulebook, opts[:veto])
     %{base | choice: choice, reason: reason, values: values}
   end
 
-  defp search(%SeatView{variant: :finnish, phase: :bidding} = view, legal, base, opts) do
+  defp search(%SeatView{phase: :bidding} = view, legal, base, opts) do
     partner = Types.partner_position(view.position)
 
     with true <- :pass in legal,

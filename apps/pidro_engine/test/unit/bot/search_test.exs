@@ -151,4 +151,48 @@ defmodule Pidro.Bot.SearchTest do
       assert {:pass, _} = Search.decide(Scenario.view(state), Scenario.legal(state), worlds: 30)
     end
   end
+
+  describe "Louisiana" do
+    defp louisiana(seed, phase) do
+      for state <- Pidro.Test.GameTrace.states(seed, variant: :louisiana),
+          state.phase == phase,
+          legal = Scenario.legal(state),
+          match?([_, _ | _], legal),
+          do: {Scenario.view(state), legal}
+    end
+
+    test "searches the card in play, through the variant's legal plays" do
+      {view, legal} = Enum.find(louisiana(31, :playing), fn {v, _} -> v.tricks != [] end)
+      analysis = Search.analyse(view, legal, worlds: 10, seed: 1)
+
+      assert Enum.sort(Map.keys(analysis.values)) == Enum.sort(legal)
+      assert analysis.choice in legal
+      assert analysis.reason =~ "Rulebook says"
+    end
+
+    defp louisiana_bid(hand) do
+      state = Scenario.bidding(me: :east, dealer: :north, hand: hand)
+      state = %{state | variant: :louisiana, config: Pidro.Rules.defaults(:louisiana)}
+      {Scenario.view(state), Scenario.legal(state)}
+    end
+
+    test "decides whether to take the bid, at the variant's minimum of 7" do
+      strong =
+        Scenario.suit(:hearts, [14, 13, 12, 11, 10, 5]) ++
+          [{5, :diamonds}, {2, :hearts}, {3, :clubs}]
+
+      {view, legal} = louisiana_bid(strong)
+      assert {:bid, 6} not in legal and {:bid, 7} in legal
+
+      analysis = Search.analyse(view, legal, worlds: 20)
+      assert {:bid, _} = analysis.choice
+      assert analysis.reason =~ "of worlds"
+
+      {view, legal} = louisiana_bid(@junk)
+      analysis = Search.analyse(view, legal, worlds: 20)
+      assert analysis.rulebook == :pass
+      assert analysis.choice == :pass
+      assert analysis.values[{:bid, 7}] < 0.7
+    end
+  end
 end
