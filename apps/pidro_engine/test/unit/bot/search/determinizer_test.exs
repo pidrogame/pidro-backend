@@ -7,9 +7,9 @@ defmodule Pidro.Bot.Search.DeterminizerTest do
   alias Pidro.Test.GameTrace
 
   # Every decision a seat faced in some seeded random games, auto and manual rob.
-  defp views(phase, seeds) do
+  defp views(phase, seeds, variant \\ :finnish) do
     for seed <- seeds,
-        state <- GameTrace.states(seed, auto_dealer_rob: rem(seed, 2) == 0),
+        state <- GameTrace.states(seed, auto_dealer_rob: rem(seed, 2) == 0, variant: variant),
         state.phase == phase,
         state.current_turn != nil,
         Engine.legal_actions(state, state.current_turn) != [],
@@ -171,6 +171,137 @@ defmodule Pidro.Bot.Search.DeterminizerTest do
         dealt = Enum.concat(Map.values(world.hands)) ++ world.deck
         assert Enum.sort(dealt ++ view.hand) == Enum.sort(Deck.ordered())
       end
+    end
+  end
+
+  # Louisiana deals the same nine and draws to six, but nobody goes cold, a
+  # short pack is topped up from the discards, every seat plays every trick
+  # following the led suit or trumping, and a hand holds non-trumps.
+  describe "Louisiana" do
+    setup do
+      {:ok, views: views(:playing, 1..12, :louisiana)}
+    end
+
+    # The suits a seat showed it lacks: playing neither the led suit nor a
+    # trump means holding neither. A trump lead's suit is the trump suit.
+    defp voids(view, pos) do
+      for trick <- view.tricks ++ List.wrap(view.current_trick),
+          [{_leader, lead} | _] <- [trick.plays],
+          led =
+            if(Card.is_trump?(lead, view.trump_suit), do: view.trump_suit, else: elem(lead, 1)),
+          {^pos, {_rank, suit} = card} <- trick.plays,
+          not Card.is_trump?(card, view.trump_suit) and suit != led,
+          void <- [led, view.trump_suit],
+          uniq: true,
+          do: void
+    end
+
+    defp holds?(card, suit, trump) do
+      if suit == trump,
+        do: Card.is_trump?(card, trump),
+        else: elem(card, 1) == suit and not Card.is_trump?(card, trump)
+    end
+
+    test "every real position has a consistent world", %{views: views} do
+      assert length(views) > 2_000
+
+      for view <- views do
+        assert {:ok, _world, _rng} = Determinizer.sample(view, Determinizer.rng(1)),
+               inspect(view, limit: :infinity)
+      end
+    end
+
+    test "the voids read from the table hold in the real hands" do
+      checked =
+        for seed <- 1..12,
+            state <- GameTrace.states(seed, variant: :louisiana),
+            state.phase == :playing and state.current_turn != nil,
+            view = SeatView.for_seat(state, state.current_turn),
+            pos <- [:north, :east, :south, :west],
+            suit <- voids(view, pos),
+            card <- state.players[pos].hand do
+          refute holds?(card, suit, view.trump_suit),
+                 "#{pos} showed no #{suit} but really holds #{inspect(card)}"
+        end
+
+      assert length(checked) > 1_000
+    end
+
+    test "worlds respect every public fact", %{views: views} do
+      voided =
+        for view <- views,
+            pos <- [:north, :east, :south, :west] -- [view.position],
+            voids(view, pos) != [],
+            do: view
+
+      assert length(voided) > 300
+
+      for view <- Enum.take_every(views, 3) ++ voided, world <- worlds(view, 3, 3) do
+        me = view.position
+        trump = view.trump_suit
+        others = [:north, :east, :south, :west] -- [me]
+
+        dealt =
+          Enum.concat([Enum.concat(Map.values(world.hands)), world.discards, world.deck])
+
+        assert Enum.sort(dealt) == Enum.sort(Determinizer.unseen(view))
+        assert world.folded == %{}
+
+        for pos <- others do
+          hand = world.hands[pos]
+          refute view.players[pos].eliminated?
+          assert length(hand) == view.players[pos].hand_count
+
+          for suit <- voids(view, pos), card <- hand do
+            refute holds?(card, suit, trump),
+                   "#{pos} showed no #{suit} but holds #{inspect(card)}"
+          end
+
+          # A non-dealer kept trumps and drew the rest: everything it held
+          # that is not a trump, played or not, came from its draw.
+          if pos != view.current_dealer do
+            plain = non_trumps(hand ++ played_by(view, pos), trump)
+            assert length(plain) <= Map.fetch!(view.cards_requested, pos)
+          end
+        end
+      end
+    end
+
+    test "the dealer's hand is the rob selection from its sampled pool", %{views: views} do
+      robbed =
+        for view <- views,
+            view.current_dealer != view.position,
+            world <- worlds(view, 5, 3),
+            world.dealer_pool != nil,
+            do: {view, world}
+
+      assert length(robbed) > 300
+
+      for {view, world} <- robbed do
+        dealer = view.current_dealer
+        start = played_by(view, dealer) ++ world.hands[dealer]
+
+        assert Enum.sort(DealerRob.select_best_cards(world.dealer_pool, view.trump_suit)) ==
+                 Enum.sort(start)
+      end
+    end
+
+    test "at the opening lead, worlds give non-dealers as many trumps as real deals do" do
+      pairs =
+        for seed <- 1..150,
+            state <- GameTrace.states(seed, variant: :louisiana),
+            state.phase == :playing and state.tricks == [] and state.current_trick == nil,
+            view = SeatView.for_seat(state, state.current_turn),
+            worlds = worlds(view, 13, 40),
+            pos <- [:north, :east, :south, :west] -- [view.position, view.current_dealer] do
+          predicted = Enum.sum_by(worlds, &length(trumps(&1.hands[pos], view.trump_suit))) / 40
+          {predicted, length(trumps(state.players[pos].hand, view.trump_suit))}
+        end
+
+      assert length(pairs) > 1_000
+      predicted = Enum.sum_by(pairs, &elem(&1, 0)) / length(pairs)
+      actual = Enum.sum_by(pairs, &elem(&1, 1)) / length(pairs)
+      assert abs(predicted - actual) < 0.04, "predicted #{predicted}, actual #{actual}"
     end
   end
 end

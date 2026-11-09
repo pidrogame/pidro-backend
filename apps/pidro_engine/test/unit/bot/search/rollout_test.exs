@@ -6,9 +6,9 @@ defmodule Pidro.Bot.Search.RolloutTest do
   alias Pidro.Game.Engine
   alias Pidro.Test.GameTrace
 
-  defp positions(phase) do
+  defp positions(phase, variant \\ :finnish) do
     for seed <- 21..26,
-        state <- GameTrace.states(seed),
+        state <- GameTrace.states(seed, variant: variant),
         state.phase == phase,
         state.current_turn != nil,
         Engine.legal_actions(state, state.current_turn) != [],
@@ -38,9 +38,13 @@ defmodule Pidro.Bot.Search.RolloutTest do
     end
   end
 
-  test "every candidate's rollout ends the hand through legal moves only" do
-    for state <- Enum.take_every(positions(:playing), 9) ++ Enum.take(positions(:bidding), 30) do
+  test "every candidate's rollout ends the hand through legal moves only, in both variants" do
+    for variant <- [:finnish, :louisiana],
+        state <-
+          Enum.take_every(positions(:playing, variant), 9) ++
+            Enum.take(positions(:bidding, variant), 30) do
       {view, world} = world_state(state, 2)
+      assert world.variant == variant
 
       for action <- Engine.legal_actions(world, view.position) do
         final = Rollout.run(world, view.position, action)

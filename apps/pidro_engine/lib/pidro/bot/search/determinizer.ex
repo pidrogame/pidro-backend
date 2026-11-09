@@ -51,13 +51,30 @@ defmodule Pidro.Bot.Search.Determinizer do
      outrank in the rob may instead be in its rob discards; how many are is
      drawn with the same weighting.
 
+  ## In Louisiana
+
+  The deal is the same, with the engine's two differences: nobody goes
+  cold, and a pack too short for every seat to reach six is topped up with
+  first-deal discards, which are never trumps, so a dealer robbing fewer
+  than six trumps reaches six. A hand holds non-trumps, and every one a
+  non-dealer held, played or not, was among its draws. A seat that played
+  neither the led suit nor a trump holds neither, so its hand is dealt only
+  from suits it may still hold, and a dealer's sample showing otherwise is
+  drawn again. A Finnish seat only plays trumps, so none of this changes a
+  Finnish world. On random Louisiana games non-dealers' trump counts at the
+  opening lead match real deals to 0.04.
+
   ## Not modelled
 
   What the auction says about hands (a seat that bid 10 holds as many
   worlds as one that passed), the order the rulebook plays cards in, and
   the seat's own discards, which the view does not keep: they count as
-  unseen and may land in another seat's hand. A dealer's killed cards are
-  public, so a dealer that killed holds six first-deal trumps here.
+  unseen and may land in another seat's hand. In Louisiana that matters
+  more, as those cards decide who can follow suit. Plain cards are dealt to
+  the seats in turn, each taking the first ones of suits it may still hold,
+  so beside a seat that showed a void the deal is consistent but not
+  uniform. A dealer's killed cards are public, so a dealer that killed holds
+  six first-deal trumps here.
   """
 
   alias Pidro.Bot.Knowledge
@@ -164,7 +181,7 @@ defmodule Pidro.Bot.Search.Determinizer do
   # left after the second deal (`leftover` slots, `j` trumps). It holds the
   # cards the dealer played and every unseen trump no other seat holds.
   defp options(%SeatView{current_dealer: dealer} = view, trumps) do
-    played = length(played_by(view, dealer))
+    played = length(played_trumps(view, dealer))
     leftover = leftover(view)
     bounds = bounds(view)
 
@@ -173,7 +190,7 @@ defmodule Pidro.Bot.Search.Determinizer do
         region = length(trumps) - held + played,
         k <- 0..min(region, @first_deal),
         j = region - k,
-        dealer_fits?(view, k, j, leftover, played) do
+        dealer_fits?(view, k, j, played) do
       {{:dealer, counts, k, j},
        slot_ways(bounds, counts) * drawn_ways(view, counts) * choose(@first_deal, k) *
          choose(leftover, j) *
@@ -183,16 +200,21 @@ defmodule Pidro.Bot.Search.Determinizer do
 
   # The rob keeps the trumps first, then non-trumps, up to six cards; six or
   # more first-deal trumps skip it. The kept cards must have the size the
-  # table sees, a cold dealer's trumps were all played, and an active one's
-  # hand holds the rest.
-  defp dealer_fits?(view, k, j, leftover, played) do
-    public = view.players[view.current_dealer]
-    rob? = k < 6 and leftover > 0
-    size = if rob?, do: min(6, k + leftover), else: k
+  # table sees, a dealer that is cold or showed it holds no trump played all
+  # its trumps, and any other dealer's hand holds the rest. The non-trumps it
+  # played came from the pack.
+  defp dealer_fits?(view, k, j, played) do
+    dealer = view.current_dealer
+    public = view.players[dealer]
+    pack = pack_size(view, k)
+    plain = length(played_by(view, dealer)) - played
+    rob? = k < 6 and pack > 0
+    size = if rob?, do: min(6, k + pack), else: k
     kept = if rob?, do: min(k + j, 6), else: k
 
-    j <= leftover and size == public.hand_count + public.folded_count + played and
-      if(public.eliminated?,
+    j <= leftover(view) and plain <= pack - j and
+      size == public.hand_count + public.folded_count + played + plain and
+      if(public.eliminated? or view.trump_suit in voids(view, dealer),
         do: kept == played,
         else: kept in played..(played + public.hand_count)
       )
@@ -204,8 +226,12 @@ defmodule Pidro.Bot.Search.Determinizer do
     {held, rng} = :rand.shuffle_s(required ++ kept, rng)
     {hands, folded, [], plain} = deal_seats(view, counts, held, plain)
 
-    {:ok, %{hands: hands, folded: folded, deck: [], discards: gone ++ plain, dealer_pool: nil},
-     rng}
+    if dealt?(view, hands) do
+      {:ok, %{hands: hands, folded: folded, deck: [], discards: gone ++ plain, dealer_pool: nil},
+       rng}
+    else
+      {:reject, rng}
+    end
   end
 
   defp deal(
@@ -217,26 +243,31 @@ defmodule Pidro.Bot.Search.Determinizer do
        ) do
     {:dealer, counts, k, j} = choice
     played = played_by(view, dealer)
+    {played_trumps, played_plain} = Enum.split_with(played, &Card.is_trump?(&1, trump))
     public = view.players[dealer]
-    leftover = leftover(view)
+    size = pack_size(view, k)
+    drawn = size - j - length(played_plain)
 
-    {mine, trumps} = Enum.split(trumps, k + j - length(played))
-    {region, rng} = :rand.shuffle_s(played ++ mine, rng)
+    {mine, trumps} = Enum.split(trumps, k + j - length(played_trumps))
+    {region, rng} = :rand.shuffle_s(played_trumps ++ mine, rng)
     {first, pack_trumps} = Enum.split(region, k)
-    {thrown, plain} = Enum.split(plain, @first_deal - k)
-    {pack_plain, plain} = Enum.split(plain, leftover - j)
-    {pack, rng} = :rand.shuffle_s(pack_trumps ++ pack_plain, rng)
+    # A Louisiana pack topped up from the discards deals thrown cards again.
+    spare = length(plain) - drawn - plain_slots(view, counts)
+    {thrown, plain} = Enum.split(plain, max(min(@first_deal - k, spare), 0))
+    {pack_plain, plain} = Enum.split(plain, drawn)
+    {pack, rng} = :rand.shuffle_s(pack_trumps ++ played_plain ++ pack_plain, rng)
     {hands, folded, [], plain} = deal_seats(view, counts, trumps, plain)
 
     # Without a rob the leftover pack stays undealt, as in the engine.
     {start, pool, deck} =
-      if k >= 6 or leftover == 0,
+      if k >= 6 or size == 0,
         do: {first, nil, pack},
         else: {DealerRob.select_best_cards(first ++ pack, trump), first ++ pack, []}
 
     hand = start -- played
+    void = voids(view, dealer)
 
-    if played -- start == [] do
+    if played -- start == [] and dealt?(view, hands) and Enum.all?(hand, &holds?(void, trump, &1)) do
       {held, faces} = if public.eliminated?, do: {[], hand}, else: {hand, []}
 
       {:ok,
@@ -252,27 +283,53 @@ defmodule Pidro.Bot.Search.Determinizer do
     end
   end
 
-  # Gives each seat its trumps and fills its hand, then its folded faces.
+  # Gives each seat its trumps and fills its hand with the first non-trumps
+  # of suits it may still hold, then its folded faces. A seat left short
+  # rejects the deal (`dealt?/2`).
   defp deal_seats(view, counts, trumps, plain) do
     view
     |> seats()
     |> Enum.zip(counts)
     |> Enum.reduce({%{}, %{}, trumps, plain}, fn {pos, n}, {hands, folded, trumps, plain} ->
       public = view.players[pos]
+      void = voids(view, pos)
       {held, trumps} = Enum.split(trumps, n)
-      {filler, plain} = Enum.split(plain, public.hand_count - n)
-      {faces, plain} = Enum.split(plain, public.folded_count)
+
+      filler =
+        plain
+        |> Enum.filter(&holds?(void, view.trump_suit, &1))
+        |> Enum.take(public.hand_count - n)
+
+      {faces, plain} = Enum.split(plain -- filler, public.folded_count)
       folded = if faces == [], do: folded, else: Map.put(folded, pos, faces)
       {Map.put(hands, pos, held ++ filler), folded, trumps, plain}
     end)
   end
 
-  # `{size, min}` per seat: a non-dealer drew `cards_requested` cards, so the
-  # rest of its hand is trumps. A cold seat has no slots.
+  defp dealt?(view, hands),
+    do: Enum.all?(seats(view), &(length(hands[&1]) == view.players[&1].hand_count))
+
+  # The non-trumps the other seats hold or folded, given their trump counts.
+  defp plain_slots(view, counts) do
+    view
+    |> seats()
+    |> Enum.zip(counts)
+    |> Enum.sum_by(fn {pos, n} ->
+      view.players[pos].hand_count - n + view.players[pos].folded_count
+    end)
+  end
+
+  # `{size, min, max}` trumps per seat: a non-dealer drew `cards_requested`
+  # cards and every non-trump it held, played or not, was one of them, so
+  # the rest of its hand is trumps. A seat that showed it holds no trump
+  # holds none, and a cold seat has no slots.
   defp bounds(view) do
     for pos <- seats(view) do
       size = view.players[pos].hand_count
-      {size, max(size - Map.get(view.cards_requested, pos, 6), 0)}
+      plain = length(played_by(view, pos)) - length(played_trumps(view, pos))
+      drawn = Map.get(view.cards_requested, pos, 6) - plain
+      max = if view.trump_suit in voids(view, pos), do: 0, else: size
+      {size, max(size - drawn, 0), max}
     end
   end
 
@@ -285,8 +342,9 @@ defmodule Pidro.Bot.Search.Determinizer do
     |> Enum.zip(counts)
     |> Enum.map(fn {pos, n} ->
       public = view.players[pos]
-      gone = length(played_by(view, pos)) + length(Map.get(view.killed_cards, pos, []))
-      total = public.hand_count + public.folded_count + gone
+      killed = length(Map.get(view.killed_cards, pos, []))
+      gone = length(played_trumps(view, pos)) + killed
+      total = public.hand_count + public.folded_count + length(played_by(view, pos)) + killed
       choose(n + gone, total - Map.get(view.cards_requested, pos, 6))
     end)
     |> Enum.product()
@@ -295,16 +353,16 @@ defmodule Pidro.Bot.Search.Determinizer do
   defp slot_ways(bounds, counts) do
     bounds
     |> Enum.zip(counts)
-    |> Enum.map(fn {{size, _}, n} -> choose(size, n) end)
+    |> Enum.map(fn {{size, _min, _max}, n} -> choose(size, n) end)
     |> Enum.product()
   end
 
-  # Every way to split `total` trumps over seats of `{size, min}`.
+  # Every way to split `total` trumps over seats of `{size, min, max}`.
   defp splits([], 0), do: [[]]
   defp splits([], _total), do: []
 
-  defp splits([{size, min} | rest], total) do
-    for n <- min..min(size, total)//1, tail <- splits(rest, total - n), do: [n | tail]
+  defp splits([{_size, min, max} | rest], total) do
+    for n <- min..min(max, total)//1, tail <- splits(rest, total - n), do: [n | tail]
   end
 
   defp weighted_pick(options, rng) do
@@ -344,10 +402,38 @@ defmodule Pidro.Bot.Search.Determinizer do
     max(@pack_after_deal - drawn, 0)
   end
 
+  # What the dealer robs from. Louisiana tops a short pack up with first-deal
+  # discards, never trumps, until every seat reaches six.
+  defp pack_size(%SeatView{variant: :louisiana} = view, k) when k < 6,
+    do: max(leftover(view), 6 - k)
+
+  defp pack_size(view, _k), do: leftover(view)
+
   defp played_by(%SeatView{} = view, pos) do
     tricks = view.tricks ++ List.wrap(view.current_trick)
     for trick <- tricks, {^pos, card} <- trick.plays, do: card
   end
+
+  defp played_trumps(view, pos),
+    do: Enum.filter(played_by(view, pos), &Card.is_trump?(&1, view.trump_suit))
+
+  # The suits a seat showed it lacks: playing neither the led suit nor a
+  # trump means holding neither (Louisiana; a Finnish seat only plays
+  # trumps). The trump suit stands for every trump, the left Five too, and
+  # is the suit of a trump lead.
+  defp voids(%SeatView{trump_suit: trump} = view, pos) do
+    for trick <- view.tricks ++ List.wrap(view.current_trick),
+        [{_leader, lead} | _] <- [trick.plays],
+        led = if(Card.is_trump?(lead, trump), do: trump, else: elem(lead, 1)),
+        {^pos, {_rank, suit} = card} <- trick.plays,
+        not Card.is_trump?(card, trump) and suit != led,
+        void <- [led, trump],
+        uniq: true,
+        do: void
+  end
+
+  defp holds?(void, trump, {_rank, suit} = card),
+    do: if(Card.is_trump?(card, trump), do: trump not in void, else: suit not in void)
 
   # The other seats that are not the dealer.
   defp seats(%SeatView{} = view), do: others(view) -- [view.current_dealer]
