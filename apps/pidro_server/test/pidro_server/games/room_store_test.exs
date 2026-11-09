@@ -18,6 +18,8 @@ defmodule PidroServer.Games.RoomStoreTest do
         rule_set: :louisiana,
         seat_requirements: %{south: 100},
         seat_holds: %{west: friend},
+        # An admin-made character's id is a UUID, never an atom.
+        seat_personas: %{south: Ecto.UUID.generate()},
         password_seats: [:south],
         seat_password: "4711"
       )

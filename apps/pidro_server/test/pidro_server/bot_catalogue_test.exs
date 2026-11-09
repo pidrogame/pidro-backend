@@ -98,6 +98,10 @@ defmodule PidroServer.BotCatalogueTest do
     BotCatalogue.refresh()
     assert Seat.bot_personas() == ~w(marcel antti jocke)
     assert Seat.next_bot_persona(%{}, []) == "marcel"
+
+    # A crew used up repeats someone, but never the character a seat chose.
+    full = %{east: Seat.new_bot(:east, nil, "marcel"), west: Seat.new_bot(:west, nil, "jocke")}
+    assert Seat.next_bot_persona(full, ~w(antti marcel jocke), ["antti"]) == "marcel"
     assert Seat.bot_display_name("future-persona") == "Bot"
     assert Seat.serialize(Seat.new_bot(:east, nil, "future-persona")).bot_profile == nil
     {:ok, room} = RoomManager.create_room("fallback", %{})

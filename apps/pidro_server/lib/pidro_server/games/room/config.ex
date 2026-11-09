@@ -7,11 +7,12 @@ defmodule PidroServer.Games.Room.Config do
   still validated and echoed, but every accepted value uses the same production
   rulebook. New clients should omit it.
 
-  Seat requirements, password seats and friend holds stay in the config; holds
-  are consumed when their user sits down or released by the host. A room has
-  at most one seat password, drawn when its first seat needs one and kept for
-  the life of the room, so it carries over on rematch. The initial bot/open
-  plan is returned beside it because occupants change during play.
+  Seat requirements, password seats, friend holds and chosen characters stay
+  in the config; holds are consumed when their user sits down or released by
+  the host. A room has at most one seat password, drawn when its first seat
+  needs one and kept for the life of the room, so it carries over on rematch.
+  The initial bot/open plan is returned beside it because occupants change
+  during play.
 
   There are two ways in, and both end at the same validation:
 
@@ -27,7 +28,8 @@ defmodule PidroServer.Games.Room.Config do
       name            := string, trimmed, at most 60 chars; missing or blank -> none
                          at most 4096 bytes as sent, whatever the char count
       seats           := { seat_2?, seat_3?, seat_4? }      any other key -> error "seats.<key>"
-      seat            := "ai" | "open" | open_seat | { type: "held", user_id: uuid }
+      seat            := "ai" | ai_seat | "open" | open_seat | { type: "held", user_id: uuid }
+      ai_seat         := { type: "ai", persona: id }   an enabled character, once per plan
       open_seat       := { type: "open", min_games: 0 | 100 | 1000, password?: boolean }
       bot_difficulty  := "random" | "basic" | "smart"       missing -> "basic"
       rule_set        := "finnish" | "louisiana"             missing -> "finnish"
@@ -40,11 +42,14 @@ defmodule PidroServer.Games.Room.Config do
   Both entry points collect every problem rather than stopping at the first and
   return `{:error, {:invalid_room_params, errors}}`, where each error is
   `%{field: path, message: text}` and `path` names the offending field, such as
-  `"settings"`, `"bot_difficulty"` or `"seats.seat_5"`. Caller input is never
-  converted to an atom.
+  `"settings"`, `"bot_difficulty"` or `"seats.seat_5"`. A seat naming a
+  character nobody can choose, or one already in the plan, also carries `code`,
+  `"UNKNOWN_PERSONA"` or `"PERSONA_SEATED"`. Caller input is never converted to
+  an atom.
 
-  This module reads no application config, no repo and no process. The only
-  impure step is drawing a seat password from `:crypto`.
+  This module reads no application config, no repo and no process; it checks a
+  chosen character against the bot catalogue's snapshot. The only other impure
+  step is drawing a seat password from `:crypto`.
   """
 
   @type bot_difficulty :: :random | :basic | :smart
@@ -53,8 +58,13 @@ defmodule PidroServer.Games.Room.Config do
           south: :bot | :open | :held,
           west: :bot | :open | :held
         }
-  @type seat_entry :: :bot | {:open, 0 | 100 | 1000, boolean()} | {:held, Ecto.UUID.t()}
-  @type error :: %{field: String.t(), message: String.t()}
+  @type seat_entry ::
+          :bot | {:bot, String.t()} | {:open, 0 | 100 | 1000, boolean()} | {:held, Ecto.UUID.t()}
+  @type error :: %{
+          required(:field) => String.t(),
+          required(:message) => String.t(),
+          optional(:code) => String.t()
+        }
   @type errors :: {:invalid_room_params, [error()]}
 
   @type t :: %__MODULE__{
@@ -64,6 +74,7 @@ defmodule PidroServer.Games.Room.Config do
           solo: boolean(),
           seat_requirements: %{optional(atom()) => 0 | 100 | 1000},
           seat_holds: %{optional(atom()) => Ecto.UUID.t()},
+          seat_personas: %{optional(atom()) => String.t()},
           password_seats: [atom()],
           seat_password: String.t() | nil
         }
@@ -76,6 +87,7 @@ defmodule PidroServer.Games.Room.Config do
             solo: false,
             seat_requirements: %{},
             seat_holds: %{},
+            seat_personas: %{},
             password_seats: [],
             seat_password: nil
 
@@ -100,6 +112,7 @@ defmodule PidroServer.Games.Room.Config do
     :solo,
     :seat_requirements,
     :seat_holds,
+    :seat_personas,
     :password_seats,
     :seat_password
   ]
@@ -110,6 +123,7 @@ defmodule PidroServer.Games.Room.Config do
     "solo" => :solo,
     "seat_requirements" => :seat_requirements,
     "seat_holds" => :seat_holds,
+    "seat_personas" => :seat_personas,
     "password_seats" => :password_seats,
     "seat_password" => :seat_password
   }
@@ -187,7 +201,7 @@ defmodule PidroServer.Games.Room.Config do
   """
   @spec parse_create_params(term()) :: {:ok, t(), seat_plan()} | {:error, errors()}
   def parse_create_params(body) when is_map(body) and not is_struct(body) do
-    {seat_plan, requirements, holds, password_seats, seat_errors} = parse_seats(body)
+    {seat_plan, requirements, holds, personas, password_seats, seat_errors} = parse_seats(body)
     unknown_errors = unknown_key_errors(Map.keys(body), @accepted_fields, "", &body_label/1)
 
     {config, config_errors} =
@@ -196,6 +210,7 @@ defmodule PidroServer.Games.Room.Config do
       |> Map.put("solo", solo_plan?(seat_plan))
       |> Map.put("seat_requirements", requirements)
       |> Map.put("seat_holds", holds)
+      |> Map.put("seat_personas", personas)
       |> Map.put("password_seats", password_seats)
       |> build()
       |> split_result()
@@ -312,23 +327,26 @@ defmodule PidroServer.Games.Room.Config do
   @spec parse_seat_entry(term()) :: {:ok, seat_entry()} | {:error, errors()}
   def parse_seat_entry(value) do
     case parse_seat(%{"seat" => value}, "seat") do
-      {:ok, :bot, _} -> {:ok, :bot}
+      {:ok, :bot, nil} -> {:ok, :bot}
+      {:ok, :bot, persona} -> {:ok, {:bot, persona}}
       {:ok, :open, {games, password?}} -> {:ok, {:open, games, password?}}
       {:ok, :held, user_id} -> {:ok, {:held, user_id}}
-      {:error, message} -> {:error, {:invalid_room_params, [error("seat", message)]}}
+      {:error, reason} -> {:error, {:invalid_room_params, [seat_error("seat", reason)]}}
     end
   end
 
   @doc """
   Makes `position` the seat `entry` asks for. Whatever the config said about the
-  seat before, a requirement, a password or a hold, goes.
+  seat before, a requirement, a password, a hold or a character, goes. A
+  character chosen here leaves any other seat they were chosen for.
   """
   @spec put_seat(t(), atom(), seat_entry()) :: t()
   def put_seat(%__MODULE__{} = config, position, entry) do
     config = %{
       config
       | seat_requirements: Map.delete(config.seat_requirements, position),
-        seat_holds: Map.delete(config.seat_holds, position)
+        seat_holds: Map.delete(config.seat_holds, position),
+        seat_personas: Map.delete(config.seat_personas, position)
     }
 
     case entry do
@@ -342,6 +360,19 @@ defmodule PidroServer.Games.Room.Config do
       {:held, user_id} ->
         holds = Map.put(config.seat_holds, position, user_id)
         put_password_seat(%{config | seat_holds: holds}, position, false)
+
+      {:bot, persona} ->
+        personas =
+          for {seat, chosen} <- config.seat_personas,
+              chosen != persona,
+              into: %{},
+              do: {seat, chosen}
+
+        put_password_seat(
+          %{config | seat_personas: Map.put(personas, position, persona)},
+          position,
+          false
+        )
 
       :bot ->
         put_password_seat(config, position, false)
@@ -513,6 +544,16 @@ defmodule PidroServer.Games.Room.Config do
 
   defp validate(:seat_holds, _), do: {:error, "must be a map"}
 
+  defp validate(:seat_personas, personas) when is_map(personas) do
+    if Enum.all?(personas, fn {position, persona} ->
+         position in [:north, :east, :south, :west] and is_binary(persona)
+       end),
+       do: {:ok, personas},
+       else: {:error, "must map positions to character ids"}
+  end
+
+  defp validate(:seat_personas, _), do: {:error, "must be a map"}
+
   defp validate(:password_seats, positions) when is_list(positions) do
     if Enum.all?(positions, &(&1 in [:north, :east, :south, :west])),
       do: {:ok, positions |> Enum.uniq() |> Enum.sort()},
@@ -547,11 +588,24 @@ defmodule PidroServer.Games.Room.Config do
   defp parse_seats(body) do
     case Map.fetch(body, "seats") do
       :error ->
-        {open_plan(), %{}, %{}, [], []}
+        {open_plan(), %{}, %{}, %{}, [], []}
 
       {:ok, seats} when is_map(seats) and not is_struct(seats) ->
-        results =
-          Enum.map(@seats, fn {key, position} -> {key, position, parse_seat(seats, key)} end)
+        # A character chosen for an earlier seat is already at the table.
+        {results, _chosen} =
+          Enum.map_reduce(@seats, [], fn {key, position}, chosen ->
+            case parse_seat(seats, key) do
+              {:ok, :bot, persona} = result when is_binary(persona) ->
+                if persona in chosen,
+                  do:
+                    {{key, position, {:error, {"PERSONA_SEATED", "is already at this table"}}},
+                     chosen},
+                  else: {{key, position, result}, [persona | chosen]}
+
+              result ->
+                {{key, position, result}, chosen}
+            end
+          end)
 
         plan =
           Map.new(results, fn
@@ -570,24 +624,36 @@ defmodule PidroServer.Games.Room.Config do
               into: %{},
               do: {position, user_id}
 
+        personas =
+          for {_key, position, {:ok, :bot, persona}} <- results,
+              is_binary(persona),
+              into: %{},
+              do: {position, persona}
+
         password_seats =
           for {_key, position, {:ok, :open, {_min_games, true}}} <- results, do: position
 
         value_errors =
-          for {key, _position, {:error, message}} <- results, do: error("seats." <> key, message)
+          for {key, _position, {:error, reason}} <- results,
+              do: seat_error("seats." <> key, reason)
 
-        {plan, requirements, holds, password_seats,
+        {plan, requirements, holds, personas, password_seats,
          value_errors ++ unknown_key_errors(Map.keys(seats), @seat_keys, "seats.", &body_label/1)}
 
       {:ok, _other} ->
-        {open_plan(), %{}, %{}, [], [error("seats", "must be an object")]}
+        {open_plan(), %{}, %{}, %{}, [], [error("seats", "must be an object")]}
     end
   end
 
   defp parse_seat(seats, key) do
     case Map.get(seats, key, "open") do
       "ai" ->
-        {:ok, :bot, 0}
+        {:ok, :bot, nil}
+
+      %{"type" => "ai", "persona" => persona} = value when map_size(value) == 2 ->
+        if persona in PidroServer.Games.Room.Seat.bot_personas(),
+          do: {:ok, :bot, persona},
+          else: {:error, {"UNKNOWN_PERSONA", "must be a character who plays at tables"}}
 
       "open" ->
         {:ok, :open, {0, false}}
@@ -653,4 +719,7 @@ defmodule PidroServer.Games.Room.Config do
   end
 
   defp error(field, message), do: %{field: field, message: message}
+
+  defp seat_error(field, {code, message}), do: Map.put(error(field, message), :code, code)
+  defp seat_error(field, message), do: error(field, message)
 end

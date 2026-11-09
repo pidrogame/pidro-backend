@@ -268,15 +268,18 @@ defmodule PidroServer.Games.Room.Seat do
   end
 
   @doc """
-  The first persona in the room's crew order no other seat holds.
-  Only enabled profiles enter new seats; when exhausted, reuse the first.
+  The first persona in the room's crew order no other seat holds or was chosen
+  for. Only enabled profiles enter new seats; when exhausted, reuse the first
+  nobody chose.
   """
-  @spec next_bot_persona(map(), [bot_persona()]) :: bot_persona()
-  def next_bot_persona(seats, order \\ @bot_personas) when is_map(seats) do
+  @spec next_bot_persona(map(), [bot_persona()], [bot_persona()]) :: bot_persona()
+  def next_bot_persona(seats, order \\ @bot_personas, chosen \\ []) when is_map(seats) do
     available = bot_personas()
     order = Enum.filter(order, &(&1 in available)) ++ (available -- order)
-    taken = for {_position, %__MODULE__{bot_persona: persona}} <- seats, do: persona
-    Enum.find(order, hd(order), &(&1 not in taken))
+    taken = chosen ++ for {_position, %__MODULE__{bot_persona: persona}} <- seats, do: persona
+
+    Enum.find(order, &(&1 not in taken)) ||
+      Enum.find(order, hd(order), &(&1 not in chosen))
   end
 
   @doc "The name a bot persona shows at the table."

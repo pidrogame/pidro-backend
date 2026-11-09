@@ -153,6 +153,76 @@ defmodule PidroServer.Games.RoomManagerTest do
       assert length(Enum.uniq(crews)) == 6
     end
 
+    test "a seeded room without chosen characters seats the crew it always did" do
+      # Pinned against the crews seeded rooms got before a seat could name its character.
+      pinned = %{
+        1 => ~w(marcel jocke antti),
+        2 => ~w(marcel antti jocke),
+        3 => ~w(antti marcel jocke),
+        4 => ~w(jocke antti marcel),
+        5 => ~w(antti jocke marcel),
+        6 => ~w(antti jocke marcel)
+      }
+
+      for {seed, crew} <- pinned do
+        {:ok, room} = RoomManager.create_room("pin_#{seed}", %{}, seed: seed)
+
+        for position <- [:east, :south, :west] do
+          assert {:ok, _, ^position} =
+                   RoomManager.join_bot(
+                     room.code,
+                     "bot_#{room.code}_#{position}",
+                     self(),
+                     position
+                   )
+        end
+
+        {:ok, seated} = RoomManager.get_room(room.code)
+        assert Enum.map([:east, :south, :west], &seated.seats[&1].bot_persona) == crew
+      end
+    end
+
+    test "a chosen partner sits across from the host and the other seats skip them" do
+      plan = %{
+        "seats" => %{
+          "seat_2" => "ai",
+          "seat_3" => %{"type" => "ai", "persona" => "antti"},
+          "seat_4" => "ai"
+        }
+      }
+
+      {:ok, config, _plan} = Config.parse_create_params(plan)
+
+      # Seeds 3, 5 and 6 put Antti first in the crew order, so east would take him.
+      for seed <- 1..6, path <- [:join, :seat_picker] do
+        host = "host_#{seed}_#{path}"
+        {:ok, room} = RoomManager.create_room(host, config, seed: seed)
+
+        for position <- [:east, :south, :west] do
+          case path do
+            :join ->
+              assert {:ok, _, ^position} =
+                       RoomManager.join_bot(
+                         room.code,
+                         "bot_#{room.code}_#{position}",
+                         self(),
+                         position
+                       )
+
+            :seat_picker ->
+              entry = if position == :south, do: {:bot, "antti"}, else: :bot
+              assert {:ok, _} = RoomManager.set_seat(room.code, host, position, entry)
+          end
+        end
+
+        {:ok, seated} = RoomManager.get_room(room.code)
+        assert seated.seats.north.user_id == host
+        assert seated.seats.south.bot_persona == "antti"
+        others = [seated.seats.east.bot_persona, seated.seats.west.bot_persona]
+        assert Enum.sort(others) == ~w(jocke marcel), "seed #{seed} #{path}"
+      end
+    end
+
     test "a bot keeps its persona when another bot leaves and a new one joins" do
       {:ok, room} = RoomManager.create_room("host", %{name: "Crew"})
 

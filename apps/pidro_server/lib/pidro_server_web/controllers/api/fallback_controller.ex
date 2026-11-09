@@ -809,11 +809,12 @@ defmodule PidroServerWeb.API.FallbackController do
   # Room config validation errors (`Room.Config`). Must stay above the
   # `is_atom(reason)` catch-all like every tuple clause here; an unmatched tuple
   # would raise and answer 500. One entry per error in the changeset clause's
-  # shape, with the field path (`name`, `settings`, `seats.seat_5`) as the code.
+  # shape, with the field path (`name`, `settings`, `seats.seat_5`) as the code,
+  # unless the error names its own, as a refused character does.
   def call(conn, {:error, {:invalid_room_params, errors}}) when is_list(errors) do
     formatted_errors =
-      Enum.map(errors, fn %{field: field, message: message} ->
-        %{code: field, title: humanize_field(field), detail: message}
+      Enum.map(errors, fn %{field: field, message: message} = error ->
+        %{code: Map.get(error, :code, field), title: humanize_field(field), detail: message}
       end)
 
     conn

@@ -541,6 +541,58 @@ defmodule PidroServer.Games.Room.ConfigTest do
     end
   end
 
+  describe "chosen characters (PID-410)" do
+    @antti %{"type" => "ai", "persona" => "antti"}
+
+    test "an ai seat may name a character; plain ai stays anyone" do
+      body = %{"seats" => %{"seat_2" => "ai", "seat_3" => @antti, "seat_4" => "ai"}}
+
+      assert {:ok, config, %{east: :bot, south: :bot, west: :bot}} =
+               Config.parse_create_params(body)
+
+      assert config.seat_personas == %{south: "antti"}
+      assert config.solo
+      assert {:ok, ^config} = Config.new(config)
+
+      assert {:ok, plain, _plan} = Config.parse_create_params(%{"seats" => %{"seat_3" => "ai"}})
+      assert plain.seat_personas == %{}
+    end
+
+    test "a character twice, an unknown id or a malformed entry is refused for its seat" do
+      assert {:error, {:invalid_room_params, [%{field: "seats.seat_4", code: "PERSONA_SEATED"}]}} =
+               Config.parse_create_params(%{"seats" => %{"seat_2" => @antti, "seat_4" => @antti}})
+
+      for persona <- ["nobody", "ANTTI", 7, nil] do
+        body = %{"seats" => %{"seat_3" => %{"type" => "ai", "persona" => persona}}}
+
+        assert {:error,
+                {:invalid_room_params, [%{field: "seats.seat_3", code: "UNKNOWN_PERSONA"}]}} =
+                 Config.parse_create_params(body)
+      end
+
+      extra = %{"seats" => %{"seat_3" => Map.put(@antti, "strategy", "search")}}
+      assert {:error, {:invalid_room_params, [error]}} = Config.parse_create_params(extra)
+      assert error.field == "seats.seat_3"
+      refute Map.has_key?(error, :code)
+    end
+
+    test "the seat picker takes a character, and the config moves them to that seat" do
+      assert {:ok, {:bot, "antti"}} = Config.parse_seat_entry(@antti)
+      assert {:ok, :bot} = Config.parse_seat_entry("ai")
+
+      assert {:error, {:invalid_room_params, [%{field: "seat", code: "UNKNOWN_PERSONA"}]}} =
+               Config.parse_seat_entry(%{"type" => "ai", "persona" => "nobody"})
+
+      {:ok, config} = Config.new()
+      config = Config.put_seat(config, :east, {:bot, "antti"})
+      assert config.seat_personas == %{east: "antti"}
+      config = Config.put_seat(config, :west, {:bot, "antti"})
+      assert config.seat_personas == %{west: "antti"}
+      assert Config.put_seat(config, :west, :bot).seat_personas == %{}
+      assert Config.put_seat(config, :west, {:open, 0, false}).seat_personas == %{}
+    end
+  end
+
   describe "parse_create_params/1 error collection" do
     test "a body with three separate problems returns three errors" do
       body = %{

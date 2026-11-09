@@ -1023,6 +1023,156 @@ defmodule PidroServerWeb.API.RoomControllerTest do
     end
   end
 
+  describe "PID-410 chosen characters" do
+    setup do
+      original = PidroServer.BotCatalogue.profiles()
+      on_exit(fn -> :persistent_term.put(PidroServer.BotCatalogue, original) end)
+      catalogue = PidroServer.BotCatalogue
+
+      {:ok, _} =
+        catalogue.save(%PidroServer.BotCatalogue.Profile{id: "gun"}, %{
+          name: "Gun",
+          strategy: "random"
+        })
+
+      {:ok, _} =
+        catalogue.save(%PidroServer.BotCatalogue.Profile{id: "retired"}, %{
+          name: "Retired",
+          enabled: false
+        })
+
+      :ok
+    end
+
+    test "the catalogue says who a seat may still choose" do
+      enabled =
+        build_conn()
+        |> get(~p"/api/v1/bots")
+        |> json_response(200)
+        |> Map.fetch!("data")
+        |> Map.new(&{&1["id"], &1["enabled"]})
+
+      assert %{"gun" => true, "antti" => true, "retired" => false} = enabled
+    end
+
+    test "a chosen partner sits across from the host, and two others fill the bot seats", %{
+      conn: conn
+    } do
+      body = %{
+        "seats" => %{
+          "seat_2" => "ai",
+          "seat_3" => %{"type" => "ai", "persona" => "antti"},
+          "seat_4" => "ai"
+        }
+      }
+
+      for _ <- 1..6 do
+        host = AccountsFixtures.user_fixture()
+
+        code =
+          conn |> as_user(host) |> post(~p"/api/v1/rooms", body) |> data(201) |> Map.get("code")
+
+        seats =
+          build_conn() |> get(~p"/api/v1/rooms/#{code}") |> data(200) |> get_in(["room", "seats"])
+
+        assert seats["north"]["user_id"] == host.id
+        assert %{"occupant_type" => "bot", "bot_persona" => "antti"} = seats["south"]
+        others = [seats["east"]["bot_persona"], seats["west"]["bot_persona"]]
+        assert Enum.all?(others, &(&1 in ~w(marcel jocke gun)))
+        assert length(Enum.uniq(others)) == 2
+      end
+    end
+
+    test "a character twice, an unknown and a disabled one are refused, and no room opens", %{
+      conn: conn
+    } do
+      host = AccountsFixtures.user_fixture()
+      antti = %{"type" => "ai", "persona" => "antti"}
+
+      for {seats, code} <- [
+            {%{"seat_2" => antti, "seat_4" => antti}, "PERSONA_SEATED"},
+            {%{"seat_3" => %{"type" => "ai", "persona" => "nobody"}}, "UNKNOWN_PERSONA"},
+            {%{"seat_3" => %{"type" => "ai", "persona" => "retired"}}, "UNKNOWN_PERSONA"}
+          ] do
+        assert %{"errors" => [%{"code" => ^code}]} =
+                 conn
+                 |> as_user(host)
+                 |> post(~p"/api/v1/rooms", %{"seats" => seats})
+                 |> json_response(422)
+
+        assert_no_room_for(host)
+      end
+    end
+
+    test "the waiting-room seat change seats, swaps and refuses a character", %{conn: conn} do
+      host = AccountsFixtures.user_fixture()
+      {:ok, room} = RoomManager.create_room(host.id)
+      put_seat = &(conn |> as_user(host) |> put(~p"/api/v1/rooms/#{room.code}/seats/#{&1}", &2))
+      persona = &%{"seat" => %{"type" => "ai", "persona" => &1}}
+
+      east = put_seat.("east", persona.("gun")) |> data(200) |> get_in(["room", "seats", "east"])
+      assert %{"occupant_type" => "bot", "bot_persona" => "gun"} = east
+      gun = BotManager.bot_pid(room.code, :east)
+      assert :sys.get_state(gun).strategy == PidroServer.Games.Bots.Strategies.RandomStrategy
+
+      assert %{"errors" => [%{"code" => "PERSONA_SEATED"}]} =
+               json_response(put_seat.("south", persona.("gun")), 422)
+
+      for id <- ["nobody", "retired"] do
+        assert %{"errors" => [%{"code" => "UNKNOWN_PERSONA"}]} =
+                 json_response(put_seat.("south", persona.(id)), 422)
+      end
+
+      # Anyone in the next seat is not Gun; the same character again changes nothing.
+      south =
+        put_seat.("south", %{"seat" => "ai"}) |> data(200) |> get_in(["room", "seats", "south"])
+
+      assert south["bot_persona"] in ~w(marcel antti jocke)
+      put_seat.("east", persona.("gun")) |> data(200)
+      assert BotManager.bot_pid(room.code, :east) == gun
+
+      # Another character takes the seat with their own process.
+      [free | _] = ~w(marcel antti jocke) -- [south["bot_persona"]]
+      ref = Process.monitor(gun)
+      put_seat.("east", persona.(free)) |> data(200)
+      assert_receive {:DOWN, ^ref, :process, ^gun, _}
+
+      shown = build_conn() |> get(~p"/api/v1/rooms/#{room.code}") |> data(200)
+      assert %{"occupant_type" => "bot", "bot_persona" => ^free} = shown["room"]["seats"]["east"]
+      assert Process.alive?(BotManager.bot_pid(room.code, :east))
+    end
+
+    test "a chosen character keeps their seat across a rematch", %{conn: conn} do
+      host = AccountsFixtures.user_fixture()
+
+      body = %{
+        "seats" => %{
+          "seat_2" => %{"type" => "ai", "persona" => "gun"},
+          "seat_3" => "ai",
+          "seat_4" => "ai"
+        }
+      }
+
+      code =
+        conn |> as_user(host) |> post(~p"/api/v1/rooms", body) |> data(201) |> Map.get("code")
+
+      playing = PidroServer.RoomFixtures.ready_room(code)
+      assert playing.status == :playing
+      crew = Map.new(playing.seats, fn {position, seat} -> {position, seat.bot_persona} end)
+      assert crew.east == "gun"
+
+      send(RoomManager, {:game_over, code, :north_south, %{north_south: 62, east_west: 40}})
+      {:ok, %{status: :finished}} = RoomManager.get_room(code)
+      {:ok, %{ready_epoch: epoch}} = RoomManager.readiness(code)
+
+      assert {:ok, %{status: :playing}} =
+               RoomManager.confirm_rematch(code, playing.id, host.id, self(), epoch)
+
+      {:ok, rematch} = RoomManager.get_room(code)
+      assert Map.new(rematch.seats, fn {p, seat} -> {p, seat.bot_persona} end) == crew
+    end
+  end
+
   describe "PID-79 explicit admission" do
     test "REST Join promotes a watcher only after an opened seat is explicitly claimed", %{
       conn: conn

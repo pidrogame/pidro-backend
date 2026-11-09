@@ -68,9 +68,10 @@ defmodule PidroServerWeb.Dev.BotCatalogueLiveTest do
     assert public["avatar_url"] =~ "/images/bots/jocke.svg"
     assert public["tempo"] == "slow"
     assert public["strategy"] == "random"
+    assert public["enabled"] == false
 
     assert Enum.sort(Map.keys(public)) ==
-             ~w(appetite avatar_url description home id lines name strategy tempo voice)
+             ~w(appetite avatar_url description enabled home id lines name strategy tempo voice)
   end
 
   test "a new bot is steady, and the tempo only takes quick, steady or slow", %{conn: conn} do

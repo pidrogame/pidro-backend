@@ -351,9 +351,10 @@ defmodule PidroServer.Games.RoomManager do
   @doc """
   Makes a seat of a waiting room what the host picked for it (see
   `Config.put_seat/3`); host only. A human's seat never changes. A bot leaves
-  the seat unless `entry` is `:bot`. A `:bot` entry seats the bot in the same
-  call; starting its process is the caller's next step, and the process takes
-  the seat it finds waiting for it.
+  the seat unless `entry` is `:bot` or names the character already in it. A
+  character another seat holds is refused with `:persona_seated`. A bot entry
+  seats the bot in the same call; starting its process is the caller's next
+  step, and the process takes the seat it finds waiting for it.
   """
   @spec set_seat(String.t(), String.t(), Positions.position(), Config.seat_entry()) ::
           {:ok, Room.t()} | {:error, term()}
@@ -3668,11 +3669,7 @@ defmodule PidroServer.Games.RoomManager do
          :ok <- ensure_not_in_other_room(state, bot_id, room_code),
          {:ok, assigned_room, assigned_position} <- Positions.assign(room, bot_id, position) do
       bot_seat =
-        Seat.new_bot(
-          assigned_position,
-          bot_pid,
-          room.seats |> Map.delete(assigned_position) |> Seat.next_bot_persona(room.bot_personas)
-        )
+        Seat.new_bot(assigned_position, bot_pid, bot_persona_for(room, assigned_position))
 
       updated =
         assigned_room
@@ -4169,7 +4166,8 @@ defmodule PidroServer.Games.RoomManager do
       %Seat{occupant_type: :human} ->
         {:error, :seat_not_vacant}
 
-      %Seat{occupant_type: :bot} = seat when entry != :bot ->
+      %Seat{occupant_type: :bot, bot_persona: persona} = seat
+      when entry != :bot and entry != {:bot, persona} ->
         bot_id = room.positions[position]
         {:ok, room |> Positions.remove(bot_id) |> vacate_seat(position), {bot_id, seat}}
 
@@ -4181,15 +4179,16 @@ defmodule PidroServer.Games.RoomManager do
   # A bot entry seats its bot in the host's own call, so nobody can take the
   # seat first. The bot's process, started by the caller, attaches to the seat
   # once it has started, like a restarted bot does.
+  defp seat_entry_bot(room, position, {:bot, _persona}), do: seat_entry_bot(room, position, :bot)
+
   defp seat_entry_bot(room, position, :bot) do
     bot_id = "bot_#{room.code}_#{position}"
 
     case room.seats[position] do
       %Seat{occupant_type: :vacant} ->
         with {:ok, assigned, ^position} <- Positions.assign(room, bot_id, position) do
-          persona = room.seats |> Map.delete(position) |> Seat.next_bot_persona(room.bot_personas)
-          seats = Map.put(room.seats, position, Seat.new_bot(position, nil, persona))
-          {:ok, %{assigned | seats: seats}, bot_id}
+          bot = Seat.new_bot(position, nil, bot_persona_for(room, position))
+          {:ok, %{assigned | seats: Map.put(room.seats, position, bot)}, bot_id}
         end
 
       _ ->
@@ -4198,6 +4197,17 @@ defmodule PidroServer.Games.RoomManager do
   end
 
   defp seat_entry_bot(room, _position, _entry), do: {:ok, room, nil}
+
+  # A seat the host chose a character for gets them; any other bot takes the
+  # crew order, past the characters chosen for other seats.
+  defp bot_persona_for(room, position) do
+    chosen = room.config.seat_personas
+
+    Map.get(chosen, position) ||
+      room.seats
+      |> Map.delete(position)
+      |> Seat.next_bot_persona(room.bot_personas, Map.values(chosen))
+  end
 
   # A substitute is this manager's own child and stops here. A seated bot
   # belongs to the bot manager; its pid goes back for the caller to stop.
@@ -4215,6 +4225,14 @@ defmodule PidroServer.Games.RoomManager do
     with :ok <- ensure_unblocked_holds(host_id, [user_id]),
          :ok <- ensure_hold_position(room, position, user_id),
          do: ensure_invitable(state, room.code, [user_id])
+  end
+
+  defp ensure_seat_entry(_state, room, _host_id, position, {:bot, persona}) do
+    if Enum.any?(room.seats, fn {seat, %Seat{bot_persona: held}} ->
+         seat != position and held == persona
+       end),
+       do: {:error, :persona_seated},
+       else: :ok
   end
 
   defp ensure_seat_entry(_state, _room, _host_id, _position, _entry), do: :ok

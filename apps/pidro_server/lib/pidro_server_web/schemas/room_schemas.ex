@@ -70,10 +70,9 @@ defmodule PidroServerWeb.Schemas.RoomSchemas do
         },
         bot_persona: %Schema{
           type: :string,
-          enum: ["marcel", "antti", "jocke"],
           nullable: true,
           description:
-            "Who a real bot seat is named after; null for humans, vacant seats and substitute bots"
+            "The bot catalogue id of who a real bot seat is named after, chosen or drawn; null for humans, vacant seats and substitute bots"
         },
         username: %Schema{
           type: :string,
@@ -194,9 +193,15 @@ defmodule PidroServerWeb.Schemas.RoomSchemas do
   end
 
   defmodule SeatPlanEntry do
-    @moduledoc "An initial bot, held or open seat, optionally requiring experience or a password."
+    @moduledoc "An initial bot, chosen character, held or open seat, optionally requiring experience or a password."
     OpenApiSpex.schema(%{
       title: "SeatPlanEntry",
+      description: """
+      `ai` seats anyone from the table's crew. `{type: ai, persona}` seats that
+      character: an enabled id from `GET /api/v1/bots`, once per table. Other bot
+      seats skip a chosen character. Refused with 422 `UNKNOWN_PERSONA` (no such
+      enabled character) or `PERSONA_SEATED` (already at this table).
+      """,
       oneOf: [
         %Schema{type: :string, enum: Config.seat_values()},
         %Schema{
@@ -221,6 +226,15 @@ defmodule PidroServerWeb.Schemas.RoomSchemas do
           properties: %{
             type: %Schema{type: :string, enum: ["held"]},
             user_id: %Schema{type: :string, format: :uuid}
+          }
+        },
+        %Schema{
+          type: :object,
+          additionalProperties: false,
+          required: [:type, :persona],
+          properties: %{
+            type: %Schema{type: :string, enum: ["ai"]},
+            persona: %Schema{type: :string, description: "A bot catalogue id", example: "antti"}
           }
         }
       ]

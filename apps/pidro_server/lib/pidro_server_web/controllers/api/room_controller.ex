@@ -410,7 +410,9 @@ defmodule PidroServerWeb.API.RoomController do
       a bot, held for a friend, with a games requirement or a password, with
       `seat`, validated as a create request's seat is. A bot in the seat leaves
       and a released friend's invitation goes. A human's seat cannot change:
-      422 SEAT_NOT_VACANT. The same entry again changes nothing.
+      422 SEAT_NOT_VACANT. The same entry again changes nothing. A chosen
+      character (`{type: ai, persona}`) takes the seat in place of its bot, unless
+      another seat holds them: 422 PERSONA_SEATED.
 
       The first password seat draws the table's four-digit seat password; every
       password seat shares it and it never changes for the room. The response is
@@ -1693,6 +1695,8 @@ defmodule PidroServerWeb.API.RoomController do
   end
 
   # The room manager already sat the bot; its process takes the seat on start.
+  defp seat_bot_for(room, position, {:bot, _persona}), do: seat_bot_for(room, position, :bot)
+
   defp seat_bot_for(room, position, :bot) do
     case room.seats[position] do
       %{occupant_type: :bot, bot_pid: pid} when is_pid(pid) -> {:ok, room}

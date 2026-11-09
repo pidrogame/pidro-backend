@@ -3,9 +3,14 @@ defmodule PidroServerWeb.API.BotCatalogueController do
   alias PidroServer.BotCatalogue
 
   def index(conn, _params) do
-    # Include disabled profiles so already seated identities remain resolvable.
+    # Include disabled profiles so already seated identities remain resolvable;
+    # `enabled` says who a seat plan may still choose (PID-410).
     profiles = Enum.uniq_by(BotCatalogue.profiles() ++ BotCatalogue.defaults(), & &1.id)
-    json(conn, %{data: Enum.map(profiles, &BotCatalogue.public/1)})
+    enabled = Enum.map(BotCatalogue.available(), & &1.id)
+
+    json(conn, %{
+      data: Enum.map(profiles, &Map.put(BotCatalogue.public(&1), :enabled, &1.id in enabled))
+    })
   end
 
   def avatar(conn, %{"id" => id, "version" => version}) do
