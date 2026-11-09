@@ -152,9 +152,24 @@ defmodule Pidro.Integration.SelfPlayTest do
   test "the mix task prints the summary for a game count and seed" do
     output = capture_io(fn -> SelfplayTask.run(["--games", "20", "--seed", "3"]) end)
 
-    assert output =~ "Self-play: 20 games, seed 3"
+    assert output =~ "Self-play: 20 games, seed 3, finnish"
     assert output =~ "rulebook"
     assert output =~ "random"
     assert output =~ "complete 20, illegal 0"
+  end
+
+  test "the mix task plays the variant it is given" do
+    output =
+      capture_io(fn -> SelfplayTask.run(~w(--games 10 --seed 3 --variant louisiana)) end)
+
+    assert output =~ "Self-play: 10 games, seed 3, louisiana"
+    assert output =~ "complete 10, illegal 0"
+
+    # Louisiana's minimum bid is 7, so no contract is won below it.
+    bids =
+      for [bid] <- Regex.scan(~r/average winning bid ([\d.]+)/, output, capture: :all_but_first),
+          do: String.to_float(bid)
+
+    assert length(bids) == 2 and Enum.all?(bids, &(&1 >= 7))
   end
 end

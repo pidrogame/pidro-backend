@@ -210,7 +210,10 @@ defmodule Pidro.Bot.SelfPlay do
       )
       |> Enum.map(fn {:ok, labelled} -> labelled end)
 
-    summary = summarise(results, [label_a, label_b], games, seed)
+    summary =
+      results
+      |> summarise([label_a, label_b], games, seed)
+      |> Map.put(:variant, Keyword.get(opts, :variant, :finnish))
 
     if paired? do
       Map.merge(summary, %{
@@ -253,7 +256,7 @@ defmodule Pidro.Bot.SelfPlay do
       end
 
     """
-    Self-play: #{summary.games} games, seed #{summary.seed}
+    Self-play: #{summary.games} games, seed #{summary.seed}, #{summary.variant}
     Scored hands: #{summary.hands}; forced dealer 6: #{summary.forced_sixes} (#{pct(ratio(summary.forced_sixes, summary.hands))}); volunteered contracts #{Float.round(ratio(summary.volunteered, summary.hands), 3)} per hand; two or more bids: #{summary.auctions} (#{pct(ratio(summary.auctions, summary.hands))})
     #{format_pairs(summary)}#{Enum.join(teams)}
     complete #{summary.complete}, illegal #{summary.illegal}, crashed #{summary.crashed}, stalled #{summary.stalled}, capped #{summary.capped}
