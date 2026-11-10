@@ -101,7 +101,7 @@ defmodule PidroServer.Games.RoomManager do
     - `:config` - The `Room.Config` set at creation: name, requested bot difficulty and whether the table is solo. Never changes for the life of the room
     - `:phase_timers` - Map of position to timer reference for the disconnect cascade (%{position => reference()})
     - `:post_game_summaries` - The last game's `%{user_id => summary}`, kept while `:finished` so a rejoin sees it
-    - `:talk` - The last 20 faces, words and typed lines at the table, newest first, so a report quotes what the server saw and a join hears what was said. Gone with the room
+    - `:talk` - The last 20 faces, words and typed lines at the table, newest first, so a report quotes what the server saw and a join hears what was said. Cleared when a game ends; gone with the room
     - `:talk_id` - The `id` of the last line said at the table; each line takes the next, so a client shows a line it hears twice once. Stored with the room, so it keeps climbing across a deploy
     - `:bot_talk` - What the bots said, `%{seen: {game_instance_id, events}, said: [{persona, item}], hand: [item], shown_until: ms, phase, turn}`: the game events already answered, each character's recent items, the table's this hand, and the last state as clients see it (`Bots.Talk`). Only `said` and `hand` are stored
 
@@ -3143,12 +3143,14 @@ defmodule PidroServer.Games.RoomManager do
         record_connection_games(room, state.active_game_instances[room_code])
         record_table_outcome(room, state.active_game_instances[room_code], true)
 
-        # Clearing readiness turns the ready check into the rematch vote.
+        # Clearing readiness turns the ready check into the rematch vote. Talk
+        # ends with the game; `talk_id` goes on, so ids keep climbing.
         finished_room =
           room
           |> maybe_cancel_turn_timer()
           |> Map.put(:status, :finished)
           |> Map.put(:phase_timers, %{})
+          |> Map.put(:talk, [])
           |> Map.update!(:seats, fn seats ->
             Map.new(seats, fn {position, seat} ->
               {position, %{seat | background_token: nil, pending_ping: nil}}

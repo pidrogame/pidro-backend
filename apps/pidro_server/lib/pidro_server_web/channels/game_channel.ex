@@ -66,7 +66,8 @@ defmodule PidroServerWeb.GameChannel do
     (`PidroServer.Games.Bots.Talk`); a typed line,
     `%{id: 9, seat: :north, user_id: id, text: "Hyvä peli"}`, only to seated players
     who read typed talk. `id` climbs by one per line at the table. Every join reply carries
-    `talk`: the room's last 20 lines, oldest first, filtered for the joiner the same way. A
+    `talk`: the room's last 20 lines since the last game ended, oldest first, filtered for the
+    joiner the same way. A
     client can get a line twice, in the reply and live, or live after a reconnect; show each
     `id` once
   * `"moment"` - `%{id: "start" | "partner_trick" | "game_end"}`, pushed with the

@@ -317,6 +317,26 @@ defmodule PidroServerWeb.TalkChannelTest do
     end
   end
 
+  describe "after a game" do
+    test "talk ends with the game; a line said while waiting again is all a rejoin hears", ctx do
+      assert say(ctx, :adult, "Hyvä peli") == :ok
+      assert send_talk(ctx, :guest, %{"item" => "coin_heart"}) == :ok
+
+      send(
+        RoomManager,
+        {:game_over, ctx.room.code, :north_south, %{north_south: 62, east_west: 40}}
+      )
+
+      assert {:ok, %{status: :finished}} = RoomManager.get_room(ctx.room.code)
+
+      assert say(ctx, :adult, "Uusi peli?") == :ok
+      _ = client(:adult2_again, ctx.people.adult2, ctx.room.code)
+
+      assert [%{id: 3} = line] = Process.get({:reply, :adult2_again}).talk
+      assert Map.delete(line, :id) == text(:north, ctx.people.adult, "Uusi peli?")
+    end
+  end
+
   describe "line ids" do
     test "each line takes the room's next id, alike on every push and in the replay", ctx do
       assert say(ctx, :adult, "Hyvä peli") == :ok
