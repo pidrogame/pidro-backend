@@ -301,6 +301,42 @@ defmodule PidroServer.Profiles do
     end)
   end
 
+  @doc """
+  Profiles of players who were paying Classic subscribers when they claimed:
+  `heritage_flags["legacy_premium"]` is true. A query for reads to build on.
+  """
+  @spec classic_subscriber_profiles() :: Ecto.Query.t()
+  def classic_subscriber_profiles do
+    from p in PlayerProfile, where: fragment("?->>'legacy_premium' = 'true'", p.heritage_flags)
+  end
+
+  @doc """
+  How many Classic subscribers claimed, and those without an active Premium
+  row here yet, oldest claim first. One query.
+  """
+  @spec classic_subscribers() :: %{count: non_neg_integer(), not_premium: [map()]}
+  def classic_subscribers do
+    rows =
+      Repo.all(
+        from p in classic_subscriber_profiles(),
+          join: u in User,
+          on: u.id == p.user_id,
+          left_join: e in subquery(PidroServer.Entitlements.premium_now()),
+          on: e.user_id == u.id,
+          order_by: [asc: u.classic_claimed_at, asc: u.username],
+          select: %{
+            user_id: u.id,
+            name: coalesce(u.display_name, u.username),
+            classic_user_id: u.classic_user_id,
+            classic_claimed_at: u.classic_claimed_at,
+            classic_username: fragment("?->>'classic_username'", p.heritage_flags),
+            premium: not is_nil(e.id)
+          }
+      )
+
+    %{count: length(rows), not_premium: Enum.reject(rows, & &1.premium)}
+  end
+
   defp pin(heritage_flags),
     do: if(heritage_value(heritage_flags, :played_pidro_one) == true, do: "classic")
 

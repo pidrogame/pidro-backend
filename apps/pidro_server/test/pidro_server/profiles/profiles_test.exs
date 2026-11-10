@@ -707,6 +707,63 @@ defmodule PidroServer.ProfilesTest do
     end
   end
 
+  describe "classic_subscribers/0 (PID-397)" do
+    defp claimed(classic_id, legacy) do
+      user = insert_user()
+
+      user
+      |> Ecto.Changeset.change(
+        classic_user_id: classic_id,
+        classic_claimed_at: ~U[2026-11-01 09:00:00.000000Z]
+      )
+      |> Repo.update!()
+
+      {:ok, _profile} = Profiles.import_legacy_progression(user.id, legacy)
+      user
+    end
+
+    defp premium(user, expires_at) do
+      Repo.insert!(%PidroServer.Entitlements.Entitlement{
+        user_id: user.id,
+        entitlement: "premium",
+        active: true,
+        source: "store",
+        expires_at: expires_at
+      })
+    end
+
+    test "counts Classic subscribers and lists those without an active Premium row" do
+      waiting = claimed(4001, %{premium: true, classic_username: "oldtimer"})
+      carried = claimed(4002, %{premium: true, classic_username: "carried"})
+      lapsed = claimed(4003, %{premium: true, classic_username: "lapsed"})
+      _free = claimed(4004, %{premium: false, classic_username: "free"})
+      _unclaimed = insert_user()
+
+      premium(carried, nil)
+      premium(lapsed, DateTime.utc_now() |> DateTime.add(-60) |> DateTime.truncate(:second))
+
+      assert %{count: 3, not_premium: not_premium} = Profiles.classic_subscribers()
+
+      assert not_premium |> Enum.map(& &1.user_id) |> Enum.sort() ==
+               Enum.sort([waiting.id, lapsed.id])
+
+      assert %{
+               classic_username: "oldtimer",
+               classic_user_id: 4001,
+               classic_claimed_at: ~U[2026-11-01 09:00:00.000000Z],
+               name: name
+             } = Enum.find(not_premium, &(&1.user_id == waiting.id))
+
+      assert name == waiting.username
+    end
+
+    test "is empty without Classic subscribers" do
+      claimed(4005, %{premium: false})
+
+      assert Profiles.classic_subscribers() == %{count: 0, not_premium: []}
+    end
+  end
+
   describe "xp_periods/2 (PID-198)" do
     # Each case is a fresh player: the XP rows earned at those times, the moment
     # the periods are read, and the expected sum.

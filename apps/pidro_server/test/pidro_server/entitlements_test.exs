@@ -286,4 +286,83 @@ defmodule PidroServer.EntitlementsTest do
     assert Entitlements.premium_fields(user) ==
              %{premium: false, premium_until: nil, premium_source: nil}
   end
+
+  # Four rows, one of each kind: a store subscription ending in three days, a
+  # promotional grant ending in thirty, a lapsed subscription whose row still
+  # says active, a lifetime purchase, and a refunded lifetime row RevenueCat
+  # turned inactive. Plus a row for another entitlement.
+  defp seed_kinds do
+    soon = AccountsFixtures.user_fixture(%{username: "soon_store"})
+    promo = AccountsFixtures.user_fixture(%{username: "promo_grant", display_name: "Promo Pat"})
+    lapsed = AccountsFixtures.user_fixture(%{username: "lapsed_store"})
+    lifetime = AccountsFixtures.user_fixture(%{username: "lifetime_buyer"})
+    refunded = AccountsFixtures.user_fixture(%{username: "refunded_buyer"})
+
+    entitlement(soon,
+      expires_at: from_now(3 * 86_400),
+      store: "app_store",
+      product_id: "pidro.monthauto"
+    )
+
+    entitlement(promo,
+      expires_at: from_now(30 * 86_400),
+      store: "promotional",
+      source: "promotional"
+    )
+
+    entitlement(lapsed, expires_at: from_now(-86_400), store: "app_store")
+    entitlement(lifetime, expires_at: nil, store: "play_store", product_id: "pidro.lifetime")
+    entitlement(refunded, active: false, expires_at: nil, store: "app_store")
+    entitlement(soon, entitlement: "founders", expires_at: nil, store: "app_store")
+
+    %{soon: soon, promo: promo, lapsed: lapsed, lifetime: lifetime, refunded: refunded}
+  end
+
+  describe "summary/0" do
+    test "counts Premium right now by store and source, and those ending within 7 days" do
+      seed_kinds()
+
+      assert Entitlements.summary() == %{
+               total: 3,
+               by_store: %{"app_store" => 1, "promotional" => 1, "play_store" => 1},
+               by_source: %{"store" => 2, "promotional" => 1},
+               expiring_soon: 1
+             }
+    end
+
+    test "is all zeros without rows" do
+      assert Entitlements.summary() ==
+               %{total: 0, by_store: %{}, by_source: %{}, expiring_soon: 0}
+    end
+  end
+
+  describe "list/1" do
+    test "lists every premium row with its player, soonest expiry first and lifetime last" do
+      %{soon: soon, promo: promo, lapsed: lapsed, lifetime: lifetime, refunded: refunded} =
+        seed_kinds()
+
+      rows = Entitlements.list()
+
+      assert Enum.map(rows, &{&1.user_id, &1.active}) == [
+               {lapsed.id, false},
+               {soon.id, true},
+               {promo.id, true},
+               {lifetime.id, true},
+               {refunded.id, false}
+             ]
+
+      assert %{name: "Promo Pat", store: "promotional", source: "promotional"} =
+               Enum.find(rows, &(&1.user_id == promo.id))
+
+      assert %{name: "lifetime_buyer", expires_at: nil, product_id: "pidro.lifetime"} =
+               Enum.find(rows, &(&1.user_id == lifetime.id))
+    end
+
+    test "active_only leaves out the lapsed and the inactive row" do
+      %{soon: soon, promo: promo, lifetime: lifetime} = seed_kinds()
+
+      assert Entitlements.list(active_only: true) |> Enum.map(& &1.user_id) ==
+               [soon.id, promo.id, lifetime.id]
+    end
+  end
 end

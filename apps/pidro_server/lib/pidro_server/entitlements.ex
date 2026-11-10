@@ -7,6 +7,7 @@ defmodule PidroServer.Entitlements do
   updates or deletes a row, and no date is ever set by hand. Every write
   starts from what RevenueCat answers for the player (`sync_from_revenuecat/2`);
   a promotional grant goes through RevenueCat first and is then synced back.
+  Admin's reads (`summary/0`, `list/1`) only read.
   """
 
   import Ecto.Query, only: [from: 2]
@@ -28,6 +29,81 @@ defmodule PidroServer.Entitlements do
 
   def premium?(user_id) when is_binary(user_id),
     do: RevenueCat.configured?() and Repo.exists?(active_premium(user_id))
+
+  @doc """
+  The `premium` rows active right now, as a query for reads that build on it:
+  `active`, and an `expires_at` that is nil (lifetime) or in the future. It
+  does not ask whether RevenueCat is configured.
+  """
+  @spec premium_now() :: Ecto.Query.t()
+  def premium_now do
+    now = DateTime.utc_now()
+
+    from e in Entitlement,
+      where:
+        e.entitlement == @premium and e.active and
+          (is_nil(e.expires_at) or e.expires_at > ^now)
+  end
+
+  @doc """
+  How many players are Premium right now, by `store` and by `source`, and how
+  many of them end within 7 days. One query.
+  """
+  @spec summary() :: %{
+          total: non_neg_integer(),
+          by_store: %{optional(String.t() | nil) => pos_integer()},
+          by_source: %{optional(String.t()) => pos_integer()},
+          expiring_soon: non_neg_integer()
+        }
+  def summary do
+    week = DateTime.add(DateTime.utc_now(), 7, :day)
+
+    from(e in premium_now(),
+      group_by: [e.store, e.source],
+      select: {e.store, e.source, count(e.id), filter(count(e.id), e.expires_at <= ^week)}
+    )
+    |> Repo.all()
+    |> Enum.reduce(
+      %{total: 0, by_store: %{}, by_source: %{}, expiring_soon: 0},
+      fn {store, source, count, soon}, acc ->
+        %{
+          total: acc.total + count,
+          by_store: Map.update(acc.by_store, store, count, &(&1 + count)),
+          by_source: Map.update(acc.by_source, source, count, &(&1 + count)),
+          expiring_soon: acc.expiring_soon + soon
+        }
+      end
+    )
+  end
+
+  @doc """
+  Every `premium` row with its player's public name, soonest `expires_at`
+  first and lifetime last. `active` is whether it counts right now.
+  `active_only: true` keeps only those. One query.
+  """
+  @spec list(keyword()) :: [map()]
+  def list(opts \\ []) do
+    now = DateTime.utc_now()
+    rows = if opts[:active_only], do: premium_now(), else: Entitlement
+
+    Repo.all(
+      from e in rows,
+        join: u in User,
+        on: u.id == e.user_id,
+        where: e.entitlement == @premium,
+        order_by: [asc_nulls_last: e.expires_at, asc: u.username],
+        select: %{
+          user_id: u.id,
+          name: coalesce(u.display_name, u.username),
+          active: e.active and (is_nil(e.expires_at) or e.expires_at > ^now),
+          expires_at: e.expires_at,
+          store: e.store,
+          source: e.source,
+          product_id: e.product_id,
+          last_synced_at: e.last_synced_at
+        }
+    )
+  end
 
   @doc "The player's `premium` row, or nil."
   @spec get(Ecto.UUID.t()) :: Entitlement.t() | nil
@@ -157,14 +233,7 @@ defmodule PidroServer.Entitlements do
   defp id_string(id) when is_integer(id), do: Integer.to_string(id)
   defp id_string(_id), do: nil
 
-  defp active_premium(user_id) do
-    now = DateTime.utc_now()
-
-    from e in Entitlement,
-      where:
-        e.user_id == ^user_id and e.entitlement == @premium and e.active and
-          (is_nil(e.expires_at) or e.expires_at > ^now)
-  end
+  defp active_premium(user_id), do: from(e in premium_now(), where: e.user_id == ^user_id)
 
   # `granted` is the reason a grant was made, recorded when RevenueCat reports
   # the entitlement as promotional.
