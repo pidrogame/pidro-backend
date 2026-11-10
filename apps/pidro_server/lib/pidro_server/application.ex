@@ -47,6 +47,17 @@ defmodule PidroServer.Application do
     # for other strategies and supported options
     opts = [strategy: :one_for_one, name: PidroServer.Supervisor]
 
+    # Before the endpoint serves a join; detached first so a restart in the same VM boots.
+    _ = :telemetry.detach(PidroServerWeb.GameChannel)
+
+    :ok =
+      :telemetry.attach(
+        PidroServerWeb.GameChannel,
+        [:phoenix, :channel_joined],
+        &PidroServerWeb.GameChannel.handle_joined/4,
+        nil
+      )
+
     with {:ok, _pid} = started <- Supervisor.start_link(children, opts) do
       # Everything rooms need is up now: take over rooms a previous node left.
       send(PidroServer.Games.RoomManager, :restore_rooms)

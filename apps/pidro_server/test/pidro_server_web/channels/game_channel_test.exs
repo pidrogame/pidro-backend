@@ -867,6 +867,38 @@ defmodule PidroServerWeb.GameChannelTest do
       refute_push "turn_timer_cancelled", %{timer_id: ^marker}, 100
     end
 
+    # PID-419: a reconnecting app's first live events landed while the channel
+    # still held its join-time subscription next to Phoenix's, and came twice.
+    test "events broadcast as the join completes reach the socket once", context do
+      topic = "game:#{context.room_code}"
+      marker = System.unique_integer([:positive])
+      handler = {__MODULE__, marker}
+
+      # Runs in the channel process once Phoenix has subscribed it, before the
+      # join reply, after the app's own handler: telemetry keeps a duplicate_bag
+      # per event, so handlers run in the order they were attached.
+      :ok =
+        :telemetry.attach(
+          handler,
+          [:phoenix, :channel_joined],
+          &__MODULE__.broadcast_on_join/4,
+          {topic, marker}
+        )
+
+      on_exit(fn -> :telemetry.detach(handler) end)
+
+      {:ok, _, _joined} =
+        subscribe_and_join(context.sockets[context.user1.id], GameChannel, topic, %{})
+
+      # Intercepted, fastlaned to the transport, and a plain engine message.
+      assert_push "player_ready", %{probe: ^marker}, 1000
+      assert_push "spectator_left", %{probe: ^marker}, 1000
+      assert_push "turn_timer_cancelled", %{timer_id: ^marker}, 1000
+      refute_push "player_ready", %{probe: ^marker}, 100
+      refute_push "spectator_left", %{probe: ^marker}, 100
+      refute_push "turn_timer_cancelled", %{timer_id: ^marker}, 100
+    end
+
     test "tracks presence when user joins", %{
       user1: user,
       room_code: room_code,
@@ -2648,6 +2680,19 @@ defmodule PidroServerWeb.GameChannelTest do
       end
     end
   end
+
+  def broadcast_on_join(_event, _measurements, %{socket: %{topic: topic}}, {topic, marker}) do
+    PidroServerWeb.Endpoint.broadcast!(topic, "player_ready", %{probe: marker})
+    PidroServerWeb.Endpoint.broadcast!(topic, "spectator_left", %{probe: marker})
+
+    Phoenix.PubSub.broadcast(
+      PidroServer.PubSub,
+      topic,
+      {:turn_timer_cancelled, %{timer_id: marker}}
+    )
+  end
+
+  def broadcast_on_join(_event, _measurements, _metadata, _config), do: :ok
 
   # Replace the setup fixture's synthetic registration only after a real channel
   # joins, preserving last-channel disconnect semantics in lifecycle tests.

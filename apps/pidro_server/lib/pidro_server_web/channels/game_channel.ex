@@ -1169,9 +1169,7 @@ defmodule PidroServerWeb.GameChannel do
   end
 
   def handle_info(:after_join, socket) do
-    # Phoenix has now installed its channel subscription. Remove only the
-    # temporary plain subscription used to queue updates during join reads;
-    # unsubscribing the whole topic would also remove Phoenix's fastlane entry.
+    # Normally gone already (`handle_joined/4`); kept should that handler ever detach.
     :ok = Phoenix.PubSub.unsubscribe_match(socket.pubsub_server, socket.topic, nil)
 
     user_id = socket.assigns.user_id
@@ -1217,6 +1215,26 @@ defmodule PidroServerWeb.GameChannel do
     {:ok, _} = Presence.track(socket, user_id, presence_meta(socket))
     :ok
   end
+
+  @doc """
+  Handles Phoenix's `[:phoenix, :channel_joined]`, attached at boot. It runs in
+  the channel process right after Phoenix subscribes it, before the join reply.
+
+  Removes only the temporary plain subscription that queued updates during join
+  reads; Phoenix's fastlane entry stays. Left until `:after_join`, both delivered
+  every broadcast while the channel worked through its queue, so a reconnecting
+  socket got its first events twice.
+  """
+  def handle_joined(
+        _event,
+        _measurements,
+        %{result: :ok, socket: %{channel: __MODULE__} = socket},
+        _config
+      ) do
+    Phoenix.PubSub.unsubscribe_match(socket.pubsub_server, socket.topic, nil)
+  end
+
+  def handle_joined(_event, _measurements, _metadata, _config), do: :ok
 
   @doc """
   Intercepts outgoing broadcasts.
