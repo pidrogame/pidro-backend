@@ -21,14 +21,16 @@ defmodule PidroServerWeb.GameChannel do
   * `"rematch"` - Ask for another game in a finished room, same payload and replies as
     `"ready"`. Game over clears readiness and bumps `ready_epoch`; when every human has
     asked, a new game starts in the same room with the same seats.
-  * `"talk"` - A seated player at a table with anyone else, bots included, sends a face or a
-    word: `%{"item" => "coin_heart"}`, one of `@talk_items`. Five per ten
+  * `"talk"` - A seated player sends a face or a word: `%{"item" => "coin_heart"}`, one of
+    `@talk_items`. While a table fills (`:waiting` or `:ready`) anyone seated may, even
+    alone; a game in progress or against bots needs anyone else, bots included. Five per ten
     seconds; errors reply `%{error: "not_seated" | "no_table" | "rate_limited" | "invalid_item"}`
   * `"say"` - A seated player who reads typed talk (an adult account, see
     `PidroServer.Accounts.User.reads_typed?/1`) types to the table: `%{"text" => "Hyvä peli"}`,
-    trimmed, 1 to 80 characters, through `PidroServer.Moderation`, at a table with
-    another human. Shares the talk limit; errors reply `%{error: "not_allowed" | "invalid_text" | "filtered"}`
-    or a talk error. Nothing typed is stored outside a report
+    trimmed, 1 to 80 characters, through `PidroServer.Moderation`, while a table fills, even
+    alone, unless it is a game against bots; otherwise at a table with another human. Shares
+    the talk limit; errors reply `%{error: "not_allowed" | "invalid_text" | "filtered"}` or a
+    talk error. Nothing typed is stored outside a report
   * `"report"` - Report a player at the table: `%{"user_id" => id, "reason" =>
     "rude" | "bothering" | "other"}`. The server quotes what they said at this
     table. Errors reply `%{error: "already_reported" | "invalid_report"}`
@@ -63,7 +65,8 @@ defmodule PidroServerWeb.GameChannel do
     `%{seat: :east, user_id: "bot:antti", item: "line_teasing_five_caught_1"}` or a coin
     (`PidroServer.Games.Bots.Talk`); a typed line,
     `%{seat: :north, user_id: id, text: "Hyvä peli"}`, only to seated players
-    who read typed talk
+    who read typed talk. Every join reply carries `talk`: the room's last 20 lines,
+    oldest first, filtered for the joiner the same way
   * `"moment"` - `%{id: "start" | "partner_trick" | "game_end"}`, pushed with the
     game state to the seats `PidroServer.Games.Moments` names, never to spectators
   * `"presence_state"` - Presence information (who's online)
@@ -314,7 +317,9 @@ defmodule PidroServerWeb.GameChannel do
         reconnected: join_type == :reconnect,
         turn_timer: turn_timer,
         readiness: RoomJSON.readiness(readiness),
-        seat_lifecycle: seat_lifecycle
+        seat_lifecycle: seat_lifecycle,
+        # What was said before this join, oldest first, as the live push filters it.
+        talk: current_room.talk |> Enum.reverse() |> Enum.filter(&hears?(&1, socket.assigns))
       }
 
       # Add state only if game has started
@@ -1223,16 +1228,8 @@ defmodule PidroServerWeb.GameChannel do
   custom broadcast messages like player_ready.
   """
   @impl true
-  # Blocks were loaded at join, so a talk costs no query per message. A
-  # typed line reaches only seated players who read typed talk.
-  def handle_out("talk", %{user_id: sender} = msg, socket) do
-    blocked? = MapSet.member?(socket.assigns[:blocked_ids] || MapSet.new(), sender)
-
-    reads? =
-      not is_map_key(msg, :text) or
-        (socket.assigns.role == :player and socket.assigns[:reads_typed] == true)
-
-    if reads? and not blocked?, do: push(socket, "talk", msg)
+  def handle_out("talk", msg, socket) do
+    if hears?(msg, socket.assigns), do: push(socket, "talk", msg)
     {:noreply, socket}
   end
 
@@ -1320,7 +1317,7 @@ defmodule PidroServerWeb.GameChannel do
 
   ## Private Helpers
 
-  # The sender is seated with someone else; typed text needs another human.
+  # The sender is seated at a table that talks (`talk_table?/2`).
   defp may_talk(%{assigns: %{role: :player, position: position} = assigns}, kind)
        when not is_nil(position) do
     user_id = assigns.user_id
@@ -1376,11 +1373,25 @@ defmodule PidroServerWeb.GameChannel do
   defp said(room, user_id),
     do: room.talk |> Enum.filter(&(&1.user_id == user_id)) |> Enum.reverse()
 
-  defp talk_table?(room, :item),
+  # A table filling up talks, even its host alone; a game against bots, or
+  # one in progress, needs someone else there, a human for typed text.
+  defp talk_table?(room, kind),
+    do:
+      (room.status in [:waiting, :ready] and not RoomManager.game_against_bots?(room)) or
+        company?(room, kind)
+
+  defp company?(room, :item),
     do: Enum.count(room.seats, fn {_position, seat} -> seat.occupant_type != :vacant end) >= 2
 
-  defp talk_table?(room, :text),
+  defp company?(room, :text),
     do: Enum.count(room.seats, fn {_position, seat} -> seat.occupant_type == :human end) >= 2
+
+  # Blocks were loaded at join, so a talk costs no query per message. A
+  # typed line reaches only seated players who read typed talk.
+  defp hears?(%{user_id: sender} = line, assigns) do
+    not MapSet.member?(assigns[:blocked_ids] || MapSet.new(), sender) and
+      (not is_map_key(line, :text) or (assigns.role == :player and assigns[:reads_typed] == true))
+  end
 
   @spec apply_game_action(Phoenix.Socket.t(), term()) ::
           {:reply, :ok | {:error, map()}, Phoenix.Socket.t()}

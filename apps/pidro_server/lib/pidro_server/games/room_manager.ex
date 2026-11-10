@@ -101,7 +101,7 @@ defmodule PidroServer.Games.RoomManager do
     - `:config` - The `Room.Config` set at creation: name, requested bot difficulty and whether the table is solo. Never changes for the life of the room
     - `:phase_timers` - Map of position to timer reference for the disconnect cascade (%{position => reference()})
     - `:post_game_summaries` - The last game's `%{user_id => summary}`, kept while `:finished` so a rejoin sees it
-    - `:talk` - The last 20 faces, words and typed lines at the table, newest first, so a report quotes what the server saw. Gone with the room
+    - `:talk` - The last 20 faces, words and typed lines at the table, newest first, so a report quotes what the server saw and a join hears what was said. Gone with the room
     - `:bot_talk` - What the bots said, `%{seen: {game_instance_id, events}, said: [{persona, item}], hand: [item], shown_until: ms, phase, turn}`: the game events already answered, each character's recent items, the table's this hand, and the last state as clients see it (`Bots.Talk`). Only `said` and `hand` are stored
 
     ## Derived Data

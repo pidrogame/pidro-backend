@@ -190,6 +190,132 @@ defmodule PidroServerWeb.TalkChannelTest do
     end
   end
 
+  describe "a table filling up" do
+    test "the host alone may talk and type; the next to sit hears it, oldest first" do
+      host = adult()
+      {:ok, room} = RoomManager.create_room(host.id, %{name: "Filling"})
+      ctx = %{clients: %{host: client(:host, host, room.code)}}
+      assert %{role: :player, position: :north, talk: []} = Process.get({:reply, :host})
+
+      assert send_talk(ctx, :host, %{"item" => "word_hello"}) == :ok
+      assert say(ctx, :host, "Moi, kuka pelaa?") == :ok
+      said = [talk(:north, host, "word_hello"), text(:north, host, "Moi, kuka pelaa?")]
+      assert received(ctx) == %{host: said}
+      assert {:ok, %{status: :waiting}} = RoomManager.get_room(room.code)
+
+      second = adult()
+      {:ok, _, :east} = RoomManager.join_room(room.code, second.id)
+      ctx = put_in(ctx.clients[:second], client(:second, second, room.code))
+      assert %{position: :east, talk: ^said} = Process.get({:reply, :second})
+
+      assert say(ctx, :second, "Minä") == :ok
+      assert received(ctx) == Map.new([:host, :second], &{&1, [text(:east, second, "Minä")]})
+    end
+
+    test "each joiner reads the earlier lines as the live push would reach them" do
+      [host, other, watcher] = [adult(), adult(), adult()]
+      teen = AccountsFixtures.user_fixture() |> age("13_17")
+      guest = AccountsFixtures.guest_fixture()
+      {:ok, _} = Blocks.block(teen.id, other.id)
+
+      {:ok, room} = RoomManager.create_room(host.id, %{name: "Filling"})
+      {:ok, _, :east} = RoomManager.join_room(room.code, other.id)
+
+      ctx = %{
+        clients: %{host: client(:host, host, room.code), other: client(:other, other, room.code)}
+      }
+
+      assert send_talk(ctx, :host, %{"item" => "word_hello"}) == :ok
+      assert say(ctx, :host, "Moi") == :ok
+      assert send_talk(ctx, :other, %{"item" => "coin_heart"}) == :ok
+      assert say(ctx, :other, "Terve") == :ok
+      items = [talk(:north, host, "word_hello"), talk(:east, other, "coin_heart")]
+
+      # The teen blocked `other`, and reads no typed talk.
+      {:ok, _, :south} = RoomManager.join_room(room.code, teen.id)
+      _ = client(:teen, teen, room.code)
+      assert Process.get({:reply, :teen}).talk == [talk(:north, host, "word_hello")]
+
+      {:ok, _, :west} = RoomManager.join_room(room.code, guest.id)
+      _ = client(:guest, guest, room.code)
+      assert Process.get({:reply, :guest}).talk == items
+
+      # An adult, but a spectator, who may watch once the game starts: items only.
+      PidroServer.RoomFixtures.ready_room(room.code)
+      {:ok, _} = RoomManager.join_spectator_room(room.code, watcher.id)
+      _ = client(:watcher, watcher, room.code)
+      assert %{role: :spectator, talk: ^items} = Process.get({:reply, :watcher})
+    end
+
+    test "a host who opened the table to bots types to no one, waiting or playing" do
+      host = adult()
+      {:ok, room} = RoomManager.create_room(host.id, %{name: "Bots"})
+      for pos <- [:east, :south, :west], do: BotManager.start_bot(room.code, pos, :basic, 5_000)
+      ctx = %{clients: %{host: client(:host, host, room.code)}}
+
+      assert say(ctx, :host, "hello bots") == {:error, %{error: "no_table"}}
+      assert send_talk(ctx, :host, %{"item" => "coin_heart"}) == :ok
+
+      PidroServer.RoomFixtures.ready_room(room.code)
+      assert {:ok, %{status: :playing}} = RoomManager.get_room(room.code)
+      assert say(ctx, :host, "hello bots") == {:error, %{error: "no_table"}}
+    end
+
+    test "once the game is on, typing needs another human again" do
+      [north, south] = [adult(), adult()]
+      {:ok, room} = RoomManager.create_room(north.id, %{name: "Two and two"})
+      {:ok, _, _} = RoomManager.join_room(room.code, south.id, :south)
+      for pos <- [:east, :west], do: BotManager.start_bot(room.code, pos, :basic, 5_000)
+
+      ctx = %{
+        clients: %{
+          north: client(:north, north, room.code),
+          south: client(:south, south, room.code)
+        }
+      }
+
+      PidroServer.RoomFixtures.ready_room(room.code)
+      assert say(ctx, :north, "hello south") == :ok
+
+      :channels_remaining = RoomManager.unregister_game_channel(room.code, south.id, self())
+      Process.exit(ctx.clients.south, :kill)
+      wait_for_seat(room.code, :south, &(&1 == :bot_substitute))
+
+      assert say(ctx, :north, "anyone?") == {:error, %{error: "no_table"}}
+      assert send_talk(ctx, :north, %{"item" => "coin_heart"}) == :ok
+    end
+  end
+
+  describe "joining again mid-game" do
+    test "a reconnect reads what was said, without the lines of a blocked player", ctx do
+      assert say(ctx, :adult, "Hyvä peli") == :ok
+      assert send_talk(ctx, :teen, %{"item" => "word_sorry"}) == :ok
+      assert send_talk(ctx, :guest, %{"item" => "coin_ha"}) == :ok
+
+      said = [
+        text(:north, ctx.people.adult, "Hyvä peli"),
+        talk(:south, ctx.people.teen, "word_sorry"),
+        talk(:west, ctx.people.guest, "coin_ha")
+      ]
+
+      # adult2 blocked the teen. `ready_room` registered the test as a channel too.
+      :channels_remaining =
+        RoomManager.unregister_game_channel(ctx.room.code, ctx.people.adult2.id, self())
+
+      Process.exit(ctx.clients.adult2, :kill)
+      wait_for_seat(ctx.room.code, :east, &(&1 != :connected))
+      _ = client(:adult2_again, ctx.people.adult2, ctx.room.code)
+
+      assert %{reconnected: true, position: :east, talk: talk} =
+               Process.get({:reply, :adult2_again})
+
+      assert talk == List.delete_at(said, 1)
+
+      _ = client(:adult_again, ctx.people.adult, ctx.room.code)
+      assert %{reconnected: false, talk: ^said} = Process.get({:reply, :adult_again})
+    end
+  end
+
   describe "report" do
     test "quotes what the server saw, never what the client sends; a guest may report", ctx do
       assert send_talk(ctx, :adult2, %{"item" => "coin_ha"}) == :ok
@@ -527,6 +653,16 @@ defmodule PidroServerWeb.TalkChannelTest do
       state.phase == phase -> state
       tries == 0 -> flunk("game stayed in #{state.phase}")
       true -> Process.sleep(50) && wait_for_phase(code, phase, tries - 1)
+    end
+  end
+
+  defp wait_for_seat(code, position, status?, tries \\ 100) do
+    {:ok, room} = RoomManager.get_room(code)
+
+    cond do
+      status?.(room.seats[position].status) -> room
+      tries == 0 -> flunk("#{position} stayed #{room.seats[position].status}")
+      true -> Process.sleep(20) && wait_for_seat(code, position, status?, tries - 1)
     end
   end
 
