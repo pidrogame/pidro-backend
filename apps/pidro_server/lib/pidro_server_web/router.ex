@@ -335,6 +335,7 @@ defmodule PidroServerWeb.Router do
       live "/games/:code", GameDetailLive
       live "/game-settings", GameSettingsLive
       live "/ads", AdsLive
+      live "/premium", PremiumLive
       live "/history", HistoryLive, :archives
       live "/history/summaries", HistoryLive, :summaries
       live "/history/summaries/:id", HistoryLive, :summary

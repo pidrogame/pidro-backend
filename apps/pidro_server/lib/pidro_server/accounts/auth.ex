@@ -74,6 +74,7 @@ defmodule PidroServer.Accounts.Auth do
   alias PidroServer.Accounts
   alias PidroServer.Accounts.{Avatars, ClassicNameReservations, GuestNames, Token}
   alias PidroServer.Accounts.User
+  alias PidroServer.Entitlements
   alias PidroServer.Games.RoomManager
   alias PidroServer.Games.RoomManager.Room
   alias PidroServer.Invites
@@ -643,8 +644,9 @@ defmodule PidroServer.Accounts.Auth do
   end
 
   @doc """
-  Lists users for admin screens with search, account-type filtering, sorting,
-  and pagination.
+  Lists users for admin screens with search, account-type and Premium
+  filtering (`premium: "premium" | "classic" | "neither"`), sorting, and
+  pagination.
   """
   def list_users(opts \\ []) do
     page = opts |> Keyword.get(:page, 1) |> normalize_positive_integer(1)
@@ -658,6 +660,7 @@ defmodule PidroServer.Accounts.Auth do
       User
       |> search_users(Keyword.get(opts, :search, ""))
       |> filter_guest(Keyword.get(opts, :guest, :all))
+      |> filter_premium(Keyword.get(opts, :premium, "all"))
 
     total = Repo.aggregate(query, :count, :id)
 
@@ -678,6 +681,16 @@ defmodule PidroServer.Accounts.Auth do
       per_page: per_page,
       total_pages: total_pages
     }
+  end
+
+  @doc """
+  Which of `user_ids` are Premium right now, and which were Classic
+  subscribers at claim, for the marks on admin's player rows.
+  """
+  @spec premium_marks([Ecto.UUID.t()]) :: %{premium: MapSet.t(), classic: MapSet.t()}
+  def premium_marks(user_ids) do
+    among = fn ids -> ids |> where([r], r.user_id in ^user_ids) |> Repo.all() |> MapSet.new() end
+    %{premium: among.(premium_ids()), classic: among.(classic_subscriber_ids())}
   end
 
   @doc """
@@ -1150,6 +1163,27 @@ defmodule PidroServer.Accounts.Auth do
   end
 
   defp filter_guest(query, _guest), do: query
+
+  # Premium right now, a Classic subscriber at claim (either may also be the
+  # other), or neither.
+  defp filter_premium(query, "premium"),
+    do: from(u in query, where: u.id in subquery(premium_ids()))
+
+  defp filter_premium(query, "classic"),
+    do: from(u in query, where: u.id in subquery(classic_subscriber_ids()))
+
+  defp filter_premium(query, "neither") do
+    from u in query,
+      where:
+        u.id not in subquery(premium_ids()) and u.id not in subquery(classic_subscriber_ids())
+  end
+
+  defp filter_premium(query, _premium), do: query
+
+  defp premium_ids, do: from(e in Entitlements.premium_now(), select: e.user_id)
+
+  defp classic_subscriber_ids,
+    do: from(p in Profiles.classic_subscriber_profiles(), select: p.user_id)
 
   defp sort_users(query, sort) when sort in [:username, "username"] do
     from u in query, order_by: [asc: fragment("lower(?)", u.username), desc: u.inserted_at]

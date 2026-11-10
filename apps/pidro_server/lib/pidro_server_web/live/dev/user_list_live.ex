@@ -49,6 +49,7 @@ defmodule PidroServerWeb.Dev.UserListLive do
       |> Map.merge(%{
         search: Map.get(params, "search", ""),
         guest: Map.get(params, "guest", "all"),
+        premium: Map.get(params, "premium", "all"),
         sort: Map.get(params, "sort", "recent"),
         page: 1
       })
@@ -164,7 +165,7 @@ defmodule PidroServerWeb.Dev.UserListLive do
           id="user-filters"
           phx-change="filter_users"
           phx-submit="filter_users"
-          class="grid gap-3 lg:grid-cols-[minmax(16rem,1fr)_12rem_12rem]"
+          class="grid gap-3 lg:grid-cols-[minmax(16rem,1fr)_12rem_14rem_12rem]"
         >
           <label class="block">
             <span class="text-xs font-medium text-stone-600">
@@ -196,6 +197,23 @@ defmodule PidroServerWeb.Dev.UserListLive do
                 Registered
               </option>
               <option value="guest" selected={@filters.guest == "guest"}>Guests</option>
+            </select>
+          </label>
+
+          <label class="block">
+            <span class="text-xs font-medium text-stone-600">
+              Premium
+            </span>
+            <select
+              name="filters[premium]"
+              class="mt-1 w-full rounded-md border-stone-300 bg-white py-2 text-sm shadow-sm focus:border-orange-500 focus:ring-orange-500"
+            >
+              <option value="all" selected={@filters.premium == "all"}>Everyone</option>
+              <option value="premium" selected={@filters.premium == "premium"}>Premium now</option>
+              <option value="classic" selected={@filters.premium == "classic"}>
+                Classic subscriber at claim
+              </option>
+              <option value="neither" selected={@filters.premium == "neither"}>Neither</option>
             </select>
           </label>
 
@@ -234,7 +252,7 @@ defmodule PidroServerWeb.Dev.UserListLive do
 
         <%= if Enum.empty?(@users) do %>
           <div class="p-5">
-            <.empty_state title="No players match this search or account type" />
+            <.empty_state title="No players match these filters" />
           </div>
         <% else %>
           <div class="overflow-x-auto">
@@ -285,6 +303,21 @@ defmodule PidroServerWeb.Dev.UserListLive do
                         <div class="mt-1 flex flex-wrap items-center gap-2">
                           <span class={account_badge_class(user)}>
                             {account_label(user)}
+                          </span>
+                          <span
+                            :if={MapSet.member?(@marks.premium, user.id)}
+                            id={"premium-mark-#{user.id}"}
+                            class="inline-flex items-center gap-1 whitespace-nowrap rounded-md bg-amber-50 px-2 py-1 text-xs font-bold text-amber-700"
+                          >
+                            <.icon name="hero-star-solid" class="size-3" /> Premium
+                          </span>
+                          <span
+                            :if={MapSet.member?(@marks.classic, user.id)}
+                            id={"classic-mark-#{user.id}"}
+                            title="Paying Classic subscriber when they claimed"
+                            class="whitespace-nowrap rounded-md border border-stone-200 px-2 py-1 text-xs font-medium text-stone-600"
+                          >
+                            Classic sub
                           </span>
                           <span class="font-mono text-xs text-stone-600">
                             {short_id(user.id)}
@@ -438,17 +471,19 @@ defmodule PidroServerWeb.Dev.UserListLive do
     |> assign(:page, page)
     |> assign(:stats_by_user, stats_by_user)
     |> assign(:summaries_by_user, summaries_by_user)
+    |> assign(:marks, Auth.premium_marks(user_ids))
     |> assign(:summary, summary)
   end
 
   defp default_filters do
-    %{search: "", guest: "all", sort: "recent", page: 1, per_page: @per_page}
+    %{search: "", guest: "all", premium: "all", sort: "recent", page: 1, per_page: @per_page}
   end
 
   defp filters_to_opts(filters) do
     [
       search: filters.search,
       guest: filters.guest,
+      premium: filters.premium,
       sort: filters.sort,
       page: filters.page,
       per_page: filters.per_page

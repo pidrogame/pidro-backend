@@ -441,6 +441,66 @@ defmodule PidroServerWeb.Dev.UserManagementLiveTest do
     end
   end
 
+  test "filters players by Premium now, Classic subscriber at claim, or neither", %{conn: conn} do
+    premium = AccountsFixtures.user_fixture(%{username: "filter_premium"})
+    classic = AccountsFixtures.user_fixture(%{username: "filter_classic"})
+    both = AccountsFixtures.user_fixture(%{username: "filter_both"})
+    lapsed = AccountsFixtures.user_fixture(%{username: "filter_lapsed"})
+    plain = AccountsFixtures.user_fixture(%{username: "filter_plain"})
+
+    for {user, expires_at} <- [
+          {premium, nil},
+          {both, DateTime.utc_now() |> DateTime.add(1, :day) |> DateTime.truncate(:second)},
+          {lapsed, DateTime.utc_now() |> DateTime.add(-1, :day) |> DateTime.truncate(:second)}
+        ] do
+      PidroServer.Repo.insert!(%PidroServer.Entitlements.Entitlement{
+        user_id: user.id,
+        entitlement: "premium",
+        active: true,
+        source: "store",
+        expires_at: expires_at
+      })
+    end
+
+    for {user, classic_id} <- [{classic, 6001}, {both, 6002}] do
+      user
+      |> Ecto.Changeset.change(
+        classic_user_id: classic_id,
+        classic_claimed_at: DateTime.utc_now()
+      )
+      |> PidroServer.Repo.update!()
+
+      {:ok, _} = Profiles.import_legacy_progression(user.id, %{premium: true})
+    end
+
+    {:ok, _} = Profiles.import_legacy_progression(plain.id, %{premium: false})
+
+    {:ok, view, _html} = live(conn, ~p"/admin/users")
+
+    assert has_element?(view, "#premium-mark-#{premium.id}")
+    assert has_element?(view, "#premium-mark-#{both.id}")
+    refute has_element?(view, "#premium-mark-#{lapsed.id}")
+    assert has_element?(view, "#classic-mark-#{classic.id}")
+    assert has_element?(view, "#classic-mark-#{both.id}")
+    refute has_element?(view, "#classic-mark-#{plain.id}")
+
+    shown = fn premium_filter ->
+      html =
+        render_change(view, "filter_users", %{
+          "filters" => %{"search" => "filter_", "premium" => premium_filter}
+        })
+
+      for user <- [premium, classic, both, lapsed, plain],
+          html =~ "@#{user.username}<",
+          do: user.username
+    end
+
+    assert Enum.sort(shown.("premium")) == ["filter_both", "filter_premium"]
+    assert Enum.sort(shown.("classic")) == ["filter_both", "filter_classic"]
+    assert Enum.sort(shown.("neither")) == ["filter_lapsed", "filter_plain"]
+    assert length(shown.("all")) == 5
+  end
+
   defp save_game(user, room_code, result) do
     winner = if result == "win", do: "north_south", else: "east_west"
 
