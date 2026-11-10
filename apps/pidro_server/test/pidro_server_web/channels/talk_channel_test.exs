@@ -335,6 +335,48 @@ defmodule PidroServerWeb.TalkChannelTest do
       assert [%{id: 3} = line] = Process.get({:reply, :adult2_again}).talk
       assert Map.delete(line, :id) == text(:north, ctx.people.adult, "Uusi peli?")
     end
+
+    test "a report from the result screen quotes that game, until the next one starts", ctx do
+      assert say(ctx, :adult, "learn to bid") == :ok
+      assert send_talk(ctx, :adult, %{"item" => "coin_ha"}) == :ok
+      finish_game(ctx.room.code)
+      assert say(ctx, :adult, "gg") == :ok
+
+      report = %{"user_id" => ctx.people.adult.id, "reason" => "rude"}
+      assert call(ctx, :teen, "report", report) == :ok
+      assert [%{body: "learn to bid\n(coin_ha)\ngg"}] = Feedback.list("reports")
+
+      {:ok, room} = RoomManager.get_room(ctx.room.code)
+      {:ok, %{ready_epoch: epoch}} = RoomManager.readiness(ctx.room.code)
+
+      for name <- [:adult, :adult2, :teen, :guest],
+          do:
+            {:ok, _} =
+              RoomManager.confirm_rematch(room.code, room.id, ctx.people[name].id, self(), epoch)
+
+      # The next game started: the line said while waiting carried into it, the
+      # finished game's did not.
+      assert {:ok, %{status: :playing}} = RoomManager.get_room(ctx.room.code)
+      assert call(ctx, :guest, "report", report) == :ok
+      assert [%{body: "gg"}, %{body: "learn to bid\n(coin_ha)\ngg"}] = Feedback.list("reports")
+    end
+
+    test "a player who left mid-game can still be reported once it ends", ctx do
+      assert send_talk(ctx, :adult2, %{"item" => "coin_ha"}) == :ok
+      :ok = RoomManager.leave_room(ctx.room.code, ctx.people.adult2.id)
+      {:ok, room} = RoomManager.get_room(ctx.room.code)
+      refute Enum.any?(room.seats, fn {_, seat} -> seat.user_id == ctx.people.adult2.id end)
+      finish_game(ctx.room.code)
+
+      report = %{"user_id" => ctx.people.adult2.id, "reason" => "bothering"}
+      assert call(ctx, :guest, "report", report) == :ok
+      assert [%{body: "(coin_ha)"}] = Feedback.list("reports")
+    end
+  end
+
+  defp finish_game(code) do
+    send(RoomManager, {:game_over, code, :north_south, %{north_south: 62, east_west: 40}})
+    assert {:ok, %{status: :finished}} = RoomManager.get_room(code)
   end
 
   describe "line ids" do

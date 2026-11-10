@@ -102,6 +102,7 @@ defmodule PidroServer.Games.RoomManager do
     - `:phase_timers` - Map of position to timer reference for the disconnect cascade (%{position => reference()})
     - `:post_game_summaries` - The last game's `%{user_id => summary}`, kept while `:finished` so a rejoin sees it
     - `:talk` - The last 20 faces, words and typed lines at the table, newest first, so a report quotes what the server saw and a join hears what was said. Cleared when a game ends; gone with the room
+    - `:last_game_talk` - The finished game's `:talk`, kept only so a report from the result screen quotes it; never replayed. Dropped when the next game starts; gone with the room
     - `:talk_id` - The `id` of the last line said at the table; each line takes the next, so a client shows a line it hears twice once. Stored with the room, so it keeps climbing across a deploy
     - `:bot_talk` - What the bots said, `%{seen: {game_instance_id, events}, said: [{persona, item}], hand: [item], shown_until: ms, phase, turn}`: the game events already answered, each character's recent items, the table's this hand, and the last state as clients see it (`Bots.Talk`). Only `said` and `hand` are stored
 
@@ -145,6 +146,7 @@ defmodule PidroServer.Games.RoomManager do
             game_started_at: DateTime.t() | nil,
             post_game_summaries: %{optional(String.t()) => map()},
             talk: [map()],
+            last_game_talk: [map()],
             talk_id: non_neg_integer(),
             bot_talk: %{
               seen: {String.t() | nil, non_neg_integer()} | nil,
@@ -193,6 +195,7 @@ defmodule PidroServer.Games.RoomManager do
       game_started_at: nil,
       post_game_summaries: %{},
       talk: [],
+      last_game_talk: [],
       talk_id: 0,
       bot_talk: %{seen: nil, said: [], hand: [], shown_until: 0, phase: nil, turn: nil}
     ]
@@ -3144,13 +3147,13 @@ defmodule PidroServer.Games.RoomManager do
         record_table_outcome(room, state.active_game_instances[room_code], true)
 
         # Clearing readiness turns the ready check into the rematch vote. Talk
-        # ends with the game; `talk_id` goes on, so ids keep climbing.
+        # ends with the game, kept aside for reports; `talk_id` goes on.
         finished_room =
           room
           |> maybe_cancel_turn_timer()
           |> Map.put(:status, :finished)
           |> Map.put(:phase_timers, %{})
-          |> Map.put(:talk, [])
+          |> Map.merge(%{talk: [], last_game_talk: room.talk})
           |> Map.update!(:seats, fn seats ->
             Map.new(seats, fn {position, seat} ->
               {position, %{seat | background_token: nil, pending_ping: nil}}
@@ -6027,7 +6030,8 @@ defmodule PidroServer.Games.RoomManager do
             Map.new(room.seats, fn {position, seat} ->
               {position, Seat.start_connection_stats(seat, now)}
             end),
-          post_game_summaries: %{}
+          post_game_summaries: %{},
+          last_game_talk: []
       }
       |> revive_substitute_bots()
       |> bump_seat_lifecycle_revision()

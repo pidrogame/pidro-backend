@@ -1354,7 +1354,7 @@ defmodule PidroServerWeb.GameChannel do
 
   defp at_table?(room, user_id) do
     Enum.any?(room.seats, fn {_position, seat} -> seat.user_id == user_id end) or
-      Enum.any?(room.talk, &(&1.user_id == user_id))
+      Enum.any?(reportable(room), &(&1.user_id == user_id))
   end
 
   # The game a report is about: the one being played, else the room.
@@ -1368,7 +1368,10 @@ defmodule PidroServerWeb.GameChannel do
   end
 
   defp said(room, user_id),
-    do: room.talk |> Enum.filter(&(&1.user_id == user_id)) |> Enum.reverse()
+    do: room |> reportable() |> Enum.filter(&(&1.user_id == user_id)) |> Enum.reverse()
+
+  # A report also quotes the game just finished; a join never hears it.
+  defp reportable(room), do: room.talk ++ room.last_game_talk
 
   # A table filling up talks, even its host alone; a game against bots, or
   # one in progress, needs someone else there, a human for typed text.

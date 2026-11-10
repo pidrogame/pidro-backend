@@ -253,6 +253,7 @@ defmodule PidroServer.Games.RoomStore do
         paused_turn: nil,
         turn_pause_budget: budget,
         talk: [],
+        last_game_talk: [],
         # What changes with every move stays out, so a move saves nothing.
         bot_talk: %{room.bot_talk | seen: nil, shown_until: 0, phase: nil, turn: nil},
         game: nil

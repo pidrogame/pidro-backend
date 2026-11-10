@@ -307,7 +307,7 @@ deployment.
   older image does not know, so it drops every room with a search character;
 - the release adds a field to a room (`Room`) for the same reason: PID-408
   (`bot_talk`) is one, and an older image drops every live room after it; PID-418
-  (`talk_id`) is another;
+  (`talk_id`, `last_game_talk`) is another;
 - the release changes the token payload or anything else
   [docs/deployment/kamal_hetzner.md](deployment/kamal_hetzner.md#token-payload-rollback)
   marks as roll-forward only;

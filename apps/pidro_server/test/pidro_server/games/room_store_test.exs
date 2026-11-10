@@ -95,6 +95,7 @@ defmodule PidroServer.Games.RoomStoreTest do
       game_started_at: now,
       post_game_summaries: %{},
       talk: [%{id: 7, user_id: host, seat: :north, text: "gg"}],
+      last_game_talk: [%{id: 6, user_id: host, seat: :north, text: "hyvä"}],
       talk_id: 7,
       bot_talk: %{
         seen: {"instance-1", 42},
@@ -117,6 +118,7 @@ defmodule PidroServer.Games.RoomStoreTest do
                phase_timers: %{},
                turn_timer: nil,
                talk: [],
+               last_game_talk: [],
                bot_talk: %{room.bot_talk | seen: nil},
                game: nil
            }
