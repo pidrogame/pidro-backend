@@ -102,6 +102,7 @@ defmodule PidroServer.Games.RoomManager do
     - `:phase_timers` - Map of position to timer reference for the disconnect cascade (%{position => reference()})
     - `:post_game_summaries` - The last game's `%{user_id => summary}`, kept while `:finished` so a rejoin sees it
     - `:talk` - The last 20 faces, words and typed lines at the table, newest first, so a report quotes what the server saw and a join hears what was said. Gone with the room
+    - `:talk_id` - The `id` of the last line said at the table; each line takes the next, so a client shows a line it hears twice once. Stored with the room, so it keeps climbing across a deploy
     - `:bot_talk` - What the bots said, `%{seen: {game_instance_id, events}, said: [{persona, item}], hand: [item], shown_until: ms, phase, turn}`: the game events already answered, each character's recent items, the table's this hand, and the last state as clients see it (`Bots.Talk`). Only `said` and `hand` are stored
 
     ## Derived Data
@@ -144,6 +145,7 @@ defmodule PidroServer.Games.RoomManager do
             game_started_at: DateTime.t() | nil,
             post_game_summaries: %{optional(String.t()) => map()},
             talk: [map()],
+            talk_id: non_neg_integer(),
             bot_talk: %{
               seen: {String.t() | nil, non_neg_integer()} | nil,
               said: list(),
@@ -191,6 +193,7 @@ defmodule PidroServer.Games.RoomManager do
       game_started_at: nil,
       post_game_summaries: %{},
       talk: [],
+      talk_id: 0,
       bot_talk: %{seen: nil, said: [], hand: [], shown_until: 0, phase: nil, turn: nil}
     ]
 
@@ -1469,9 +1472,12 @@ defmodule PidroServer.Games.RoomManager do
   def set_pace(room_code, user_id, pace) when pace in [:quick, :own],
     do: GenServer.call(__MODULE__, {:set_pace, room_code, user_id, pace})
 
-  @doc "Keeps a talk line (`%{user_id, seat, item}` or `%{user_id, seat, text}`) in the room's last 20."
-  @spec note_talk(String.t(), map()) :: :ok
-  def note_talk(room_code, line), do: GenServer.cast(__MODULE__, {:note_talk, room_code, line})
+  @doc """
+  Says a talk line (`%{user_id, seat, item}` or `%{user_id, seat, text}`) at the table: gives it
+  the room's next `id`, keeps it in the room's last 20 and broadcasts it.
+  """
+  @spec note_talk(String.t(), map()) :: {:ok, map()} | {:error, :room_not_found | :room_moving}
+  def note_talk(room_code, line), do: GenServer.call(__MODULE__, {:note_talk, room_code, line})
 
   @doc "Releases an own-pace hand for its human; otherwise a no-op."
   @spec continue_hand(String.t(), String.t()) :: :ok | {:error, atom()}
@@ -2747,14 +2753,14 @@ defmodule PidroServer.Games.RoomManager do
   end
 
   @impl true
-  def handle_cast({:note_talk, code, line}, %State{} = state) do
+  def handle_call({:note_talk, code, line}, _from, %State{} = state) do
     case fetch_room(state, code) do
       {:ok, room} ->
-        room = bot_reply(%{room | talk: Enum.take([line | room.talk], 20)}, line)
-        {:noreply, put_room(state, room)}
+        {room, line} = talk(room, line)
+        {:reply, {:ok, line}, put_room(state, bot_reply(room, line))}
 
-      {:error, _} ->
-        {:noreply, state}
+      {:error, _} = error ->
+        {:reply, error, state}
     end
   end
 
@@ -3238,9 +3244,8 @@ defmodule PidroServer.Games.RoomManager do
          %{occupant_type: :bot, bot_persona: ^persona} <- room.seats[position],
          true <- is_nil(heard_at) or System.monotonic_time(:millisecond) - heard_at <= 6_000,
          false <- quiet?(room) do
-      line = %{seat: position, user_id: "bot:" <> persona, item: item}
-      PidroServerWeb.Endpoint.broadcast!("game:#{code}", "talk", line)
-      {:noreply, put_room(state, %{room | talk: Enum.take([line | room.talk], 20)})}
+      {room, _line} = talk(room, %{seat: position, user_id: "bot:" <> persona, item: item})
+      {:noreply, put_room(state, room)}
     else
       _ -> {:noreply, state}
     end
@@ -6086,6 +6091,13 @@ defmodule PidroServer.Games.RoomManager do
     }
 
     say(room, Talk.remark(Talk.moments(events, seen, game_state), room), nil)
+  end
+
+  # One place gives a line its id, so the push and the kept line agree.
+  defp talk(%Room{} = room, line) do
+    line = Map.put(line, :id, room.talk_id + 1)
+    PidroServerWeb.Endpoint.broadcast!("game:#{room.code}", "talk", line)
+    {%{room | talk: Enum.take([line | room.talk], 20), talk_id: line.id}, line}
   end
 
   # One bot may answer a person's word or coin, never a typed line or a bot.

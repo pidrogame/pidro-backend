@@ -94,7 +94,8 @@ defmodule PidroServer.Games.RoomStoreTest do
       game_number: 2,
       game_started_at: now,
       post_game_summaries: %{},
-      talk: [%{user_id: host, seat: :north, text: "gg"}],
+      talk: [%{id: 7, user_id: host, seat: :north, text: "gg"}],
+      talk_id: 7,
       bot_talk: %{
         seen: {"instance-1", 42},
         said: [{"antti", "line_teasing_hello_1"}, {"gun", "coin_heart"}],

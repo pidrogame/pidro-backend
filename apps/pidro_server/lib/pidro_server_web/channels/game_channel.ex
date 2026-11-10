@@ -60,13 +60,15 @@ defmodule PidroServerWeb.GameChannel do
     reason: "not_now" | "sat_elsewhere"}`
   * `"kicked"` - Pushed to the kicked player only, then the channel closes with
     reason `{:shutdown, :kicked}`
-  * `"talk"` - `%{seat: :north, user_id: id, item: "coin_heart"}`, to everyone on
+  * `"talk"` - `%{id: 7, seat: :north, user_id: id, item: "coin_heart"}`, to everyone on
     the channel except a player either side has blocked. A bot sends
-    `%{seat: :east, user_id: "bot:antti", item: "line_teasing_five_caught_1"}` or a coin
+    `%{id: 8, seat: :east, user_id: "bot:antti", item: "line_teasing_five_caught_1"}` or a coin
     (`PidroServer.Games.Bots.Talk`); a typed line,
-    `%{seat: :north, user_id: id, text: "Hyvä peli"}`, only to seated players
-    who read typed talk. Every join reply carries `talk`: the room's last 20 lines,
-    oldest first, filtered for the joiner the same way
+    `%{id: 9, seat: :north, user_id: id, text: "Hyvä peli"}`, only to seated players
+    who read typed talk. `id` climbs by one per line at the table. Every join reply carries
+    `talk`: the room's last 20 lines, oldest first, filtered for the joiner the same way. A
+    client can get a line twice, in the reply and live, or live after a reconnect; show each
+    `id` once
   * `"moment"` - `%{id: "start" | "partner_trick" | "game_end"}`, pushed with the
     game state to the seats `PidroServer.Games.Moments` names, never to spectators
   * `"presence_state"` - Presence information (who's online)
@@ -872,15 +874,11 @@ defmodule PidroServerWeb.GameChannel do
 
   # The seat and sender come from the socket, never the payload.
   def handle_in("talk", %{"item" => item}, socket) when item in @talk_items do
-    case may_talk(socket, :item) do
-      :ok ->
-        line = %{seat: socket.assigns.position, user_id: socket.assigns.user_id, item: item}
-        broadcast!(socket, "talk", line)
-        RoomManager.note_talk(socket.assigns.room_code, line)
-        {:reply, :ok, socket}
-
-      {:error, reason} ->
-        {:reply, {:error, %{error: reason}}, socket}
+    with :ok <- may_talk(socket, :item),
+         {:ok, _line} <- say(socket, %{item: item}) do
+      {:reply, :ok, socket}
+    else
+      {:error, reason} -> {:reply, {:error, %{error: reason}}, socket}
     end
   end
 
@@ -889,10 +887,8 @@ defmodule PidroServerWeb.GameChannel do
 
   def handle_in("say", %{"text" => text}, socket) when is_binary(text) do
     with {:ok, text} <- typed(String.trim(text), socket.assigns.reads_typed),
-         :ok <- may_talk(socket, :text) do
-      line = %{seat: socket.assigns.position, user_id: socket.assigns.user_id, text: text}
-      broadcast!(socket, "talk", line)
-      RoomManager.note_talk(socket.assigns.room_code, line)
+         :ok <- may_talk(socket, :text),
+         {:ok, _line} <- say(socket, %{text: text}) do
       {:reply, :ok, socket}
     else
       {:error, reason} -> {:reply, {:error, %{error: reason}}, socket}
@@ -1385,6 +1381,17 @@ defmodule PidroServerWeb.GameChannel do
 
   defp company?(room, :text),
     do: Enum.count(room.seats, fn {_position, seat} -> seat.occupant_type == :human end) >= 2
+
+  # The room gives the line its id and broadcasts it.
+  defp say(%{assigns: assigns}, line) do
+    case RoomManager.note_talk(
+           assigns.room_code,
+           Map.merge(line, %{seat: assigns.position, user_id: assigns.user_id})
+         ) do
+      {:ok, _line} = ok -> ok
+      {:error, _} -> {:error, "no_table"}
+    end
+  end
 
   # Blocks were loaded at join, so a talk costs no query per message. A
   # typed line reaches only seated players who read typed talk.

@@ -206,7 +206,8 @@ defmodule PidroServerWeb.TalkChannelTest do
       second = adult()
       {:ok, _, :east} = RoomManager.join_room(room.code, second.id)
       ctx = put_in(ctx.clients[:second], client(:second, second, room.code))
-      assert %{position: :east, talk: ^said} = Process.get({:reply, :second})
+      assert %{position: :east} = Process.get({:reply, :second})
+      assert replay(:second) == said
 
       assert say(ctx, :second, "Minä") == :ok
       assert received(ctx) == Map.new([:host, :second], &{&1, [text(:east, second, "Minä")]})
@@ -234,17 +235,18 @@ defmodule PidroServerWeb.TalkChannelTest do
       # The teen blocked `other`, and reads no typed talk.
       {:ok, _, :south} = RoomManager.join_room(room.code, teen.id)
       _ = client(:teen, teen, room.code)
-      assert Process.get({:reply, :teen}).talk == [talk(:north, host, "word_hello")]
+      assert replay(:teen) == [talk(:north, host, "word_hello")]
 
       {:ok, _, :west} = RoomManager.join_room(room.code, guest.id)
       _ = client(:guest, guest, room.code)
-      assert Process.get({:reply, :guest}).talk == items
+      assert replay(:guest) == items
 
       # An adult, but a spectator, who may watch once the game starts: items only.
       PidroServer.RoomFixtures.ready_room(room.code)
       {:ok, _} = RoomManager.join_spectator_room(room.code, watcher.id)
       _ = client(:watcher, watcher, room.code)
-      assert %{role: :spectator, talk: ^items} = Process.get({:reply, :watcher})
+      assert %{role: :spectator} = Process.get({:reply, :watcher})
+      assert replay(:watcher) == items
     end
 
     test "a host who opened the table to bots types to no one, waiting or playing" do
@@ -306,13 +308,56 @@ defmodule PidroServerWeb.TalkChannelTest do
       wait_for_seat(ctx.room.code, :east, &(&1 != :connected))
       _ = client(:adult2_again, ctx.people.adult2, ctx.room.code)
 
-      assert %{reconnected: true, position: :east, talk: talk} =
-               Process.get({:reply, :adult2_again})
-
-      assert talk == List.delete_at(said, 1)
+      assert %{reconnected: true, position: :east} = Process.get({:reply, :adult2_again})
+      assert replay(:adult2_again) == List.delete_at(said, 1)
 
       _ = client(:adult_again, ctx.people.adult, ctx.room.code)
-      assert %{reconnected: false, talk: ^said} = Process.get({:reply, :adult_again})
+      assert %{reconnected: false} = Process.get({:reply, :adult_again})
+      assert replay(:adult_again) == said
+    end
+  end
+
+  describe "line ids" do
+    test "each line takes the room's next id, alike on every push and in the replay", ctx do
+      assert say(ctx, :adult, "Hyvä peli") == :ok
+      assert send_talk(ctx, :teen, %{"item" => "word_sorry"}) == :ok
+
+      ids =
+        ctx |> received_raw() |> Map.new(fn {name, lines} -> {name, Enum.map(lines, & &1.id)} end)
+
+      # adult2 blocked the teen; only adults read typed lines.
+      assert ids == %{adult: [1, 2], adult2: [1], teen: [2], guest: [2], watcher: [2]}
+
+      _ = client(:adult_again, ctx.people.adult, ctx.room.code)
+      assert Enum.map(Process.get({:reply, :adult_again}).talk, & &1.id) == [1, 2]
+    end
+
+    test "a line said while someone joins reaches them once when shown by id" do
+      [host, second] = [adult(), adult()]
+      {:ok, room} = RoomManager.create_room(host.id, %{name: "Filling"})
+      ctx = %{clients: %{host: client(:host, host, room.code)}}
+      assert say(ctx, :host, "Moi") == :ok
+      {:ok, _, :east} = RoomManager.join_room(room.code, second.id)
+
+      # Hold the room manager while the joiner subscribes and asks for the
+      # room, then queue a line behind that request: it is broadcast to the
+      # joiner and kept before the join reads the room again.
+      manager = Process.whereis(RoomManager)
+      :ok = :sys.suspend(manager)
+      start_client(:second, second, room.code)
+      await_call(manager, &match?({:get_room, _, :force}, &1))
+      line = %{seat: :north, user_id: host.id, text: "Tule pelaamaan"}
+      Task.start(fn -> RoomManager.note_talk(room.code, line) end)
+      await_call(manager, &match?({:note_talk, _, _}, &1))
+      :ok = :sys.resume(manager)
+
+      assert_receive {:joined, :second, reply}, 2_000
+      ctx = put_in(ctx.clients[:second], :joined)
+      heard = reply.talk ++ Map.get(received_raw(ctx), :second, [])
+
+      assert [%{id: 2} = first, %{id: 2} = again] = Enum.filter(heard, &(&1[:text] == line.text))
+      assert first == again
+      assert Enum.uniq_by(heard, & &1.id) == [text(:north, host, "Moi") |> Map.put(:id, 1), first]
     end
   end
 
@@ -384,6 +429,7 @@ defmodule PidroServerWeb.TalkChannelTest do
 
       {:ok, room} = RoomManager.get_room(ctx.room.code)
       assert Enum.map(room.talk, & &1.item) == Enum.map(25..6//-1, &"#{&1}")
+      assert Enum.map(room.talk, & &1.id) == Enum.to_list(25..6//-1)
     end
   end
 
@@ -572,21 +618,41 @@ defmodule PidroServerWeb.TalkChannelTest do
   # A client process owns its socket: pushes and replies go to it, and it
   # forwards them to the test tagged with its name.
   defp client(name, user, code) do
-    test = self()
-
-    pid =
-      spawn_link(fn ->
-        {:ok, socket} =
-          connect(UserSocket, %{"token" => create_token(user)}, test_process: test)
-
-        {:ok, reply, channel} = join(socket, GameChannel, "game:#{code}")
-        send(test, {:joined, name, reply})
-        relay(test, name, channel)
-      end)
-
+    pid = start_client(name, user, code)
     assert_receive {:joined, ^name, reply}, 2_000
     Process.put({:reply, name}, reply)
     pid
+  end
+
+  defp start_client(name, user, code) do
+    test = self()
+
+    spawn_link(fn ->
+      {:ok, socket} =
+        connect(UserSocket, %{"token" => create_token(user)}, test_process: test)
+
+      {:ok, reply, channel} = join(socket, GameChannel, "game:#{code}")
+      send(test, {:joined, name, reply})
+      relay(test, name, channel)
+    end)
+  end
+
+  # Waits until `pid` has a call queued whose request `match?` accepts.
+  defp await_call(pid, request?, tries \\ 100) do
+    {:messages, messages} = Process.info(pid, :messages)
+
+    cond do
+      Enum.any?(messages, fn message ->
+        match?({:"$gen_call", _from, _request}, message) and request?.(elem(message, 2))
+      end) ->
+        :ok
+
+      tries == 0 ->
+        flunk("no such call queued")
+
+      true ->
+        Process.sleep(10) && await_call(pid, request?, tries - 1)
+    end
   end
 
   defp relay(test, name, channel) do
@@ -622,15 +688,28 @@ defmodule PidroServerWeb.TalkChannelTest do
     end
   end
 
-  # Every `event` push each client received, waiting briefly for stragglers.
-  defp received(ctx, event \\ "talk", acc \\ %{}) do
+  # Every `event` push each client received, without talk ids, waiting briefly for stragglers.
+  defp received(ctx, event \\ "talk")
+
+  defp received(ctx, "talk") do
+    ctx
+    |> received_raw()
+    |> Map.new(fn {name, lines} -> {name, Enum.map(lines, &Map.delete(&1, :id))} end)
+  end
+
+  defp received(ctx, event), do: received_raw(ctx, event)
+
+  defp received_raw(ctx, event \\ "talk", acc \\ %{}) do
     receive do
       {:got, name, ^event, payload} when is_map_key(ctx.clients, name) ->
-        received(ctx, event, Map.update(acc, name, [payload], &(&1 ++ [payload])))
+        received_raw(ctx, event, Map.update(acc, name, [payload], &(&1 ++ [payload])))
     after
       150 -> acc
     end
   end
+
+  # The talk a client's join reply carried, without ids.
+  defp replay(name), do: Enum.map(Process.get({:reply, name}).talk, &Map.delete(&1, :id))
 
   # The live game, or the last snapshot sent, with `events` appended, as the
   # game would broadcast it. Returns the snapshot so a test can send the next.
