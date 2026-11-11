@@ -363,6 +363,31 @@ defmodule PidroServerWeb.Dev.AdminComponents do
     """
   end
 
+  @doc "A Classic Premium carry-over's state as a badge, with its failed attempts."
+  attr :carryover, :any, required: true
+
+  def carryover_state(assigns) do
+    ~H"""
+    <span :if={!@carryover} class="text-xs text-stone-500">not tried</span>
+    <span :if={@carryover} class="whitespace-nowrap">
+      <span class={[
+        "rounded-md px-2 py-0.5 text-xs font-bold",
+        case @carryover.state do
+          "granted" -> "bg-emerald-50 text-emerald-700"
+          "imported" -> "bg-emerald-50 text-emerald-700"
+          "pending" -> "bg-amber-50 text-amber-800"
+          _ended_or_none -> "bg-stone-100 text-stone-600"
+        end
+      ]}>
+        {@carryover.state}
+      </span>
+      <span :if={@carryover.attempts > 0} class="ml-1 text-xs text-stone-500">
+        {@carryover.attempts} failed
+      </span>
+    </span>
+    """
+  end
+
   attr :icon, :string, default: "hero-magnifying-glass"
   attr :title, :string, required: true
   attr :body, :string, default: nil

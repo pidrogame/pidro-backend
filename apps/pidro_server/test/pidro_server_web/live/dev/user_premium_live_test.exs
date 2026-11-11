@@ -22,6 +22,33 @@ defmodule PidroServerWeb.Dev.UserPremiumLiveTest do
       File.read!(Path.expand("../../../fixtures/revenuecat/#{name}.json", __DIR__))
       |> Jason.decode!()
 
+  test "shows the Classic Premium carry-over, when there is one", %{conn: conn} do
+    user = AccountsFixtures.user_fixture()
+    other = AccountsFixtures.user_fixture()
+
+    Repo.insert!(%PidroServer.ClassicPremium.Carryover{
+      user_id: user.id,
+      classic_user_id: 7001,
+      state: "pending",
+      attempts: 3,
+      classic_premium_until: ~U[2027-02-01 00:00:00Z],
+      last_error: "{:revenuecat_status, 500}",
+      last_tried_at: ~U[2026-11-11 08:00:00Z]
+    })
+
+    {:ok, view, _html} = live(conn, ~p"/admin/users/#{user.id}")
+    carryover = view |> element("#premium #classic-premium") |> render()
+
+    assert carryover =~ "pending"
+    assert carryover =~ "3 failed"
+    assert carryover =~ "Feb 01, 2027 00:00 UTC"
+    assert carryover =~ "Nov 11, 2026 08:00 UTC"
+    assert carryover =~ "{:revenuecat_status, 500}"
+
+    {:ok, view, _html} = live(conn, ~p"/admin/users/#{other.id}")
+    refute has_element?(view, "#classic-premium")
+  end
+
   test "shows the entitlement row and the last raw event", %{conn: conn} do
     user = AccountsFixtures.user_fixture()
 

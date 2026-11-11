@@ -88,6 +88,78 @@ defmodule PidroServerWeb.Dev.PremiumLiveTest do
     end
   end
 
+  describe "the Classic carry-over (PID-391)" do
+    setup :register_and_log_in_admin
+
+    setup do
+      # The LiveView process reaches the Classic and RevenueCat stubs.
+      Req.Test.set_req_test_to_shared()
+      on_exit(fn -> Req.Test.set_req_test_to_private() end)
+    end
+
+    test "shows each subscriber's state, Classic's date and the last error; tries one again",
+         %{conn: conn} do
+      untried = classic(AccountsFixtures.user_fixture(%{username: "never_tried"}), 6001)
+      pending = classic(AccountsFixtures.user_fixture(%{username: "classic_down"}), 6002)
+      ended = classic(AccountsFixtures.user_fixture(%{username: "ran_out"}), 6003)
+
+      carryover(pending, 6002,
+        state: "pending",
+        attempts: 2,
+        last_error: "{:classic, :provider_unavailable}"
+      )
+
+      carryover(ended, 6003, state: "ended", classic_premium_until: ~U[2026-10-01 00:00:00Z])
+
+      {:ok, view, _html} = live(conn, ~p"/admin/premium")
+
+      assert view |> element("#classic-row-#{untried.id}") |> render() =~ "not tried"
+
+      pending_row = view |> element("#classic-row-#{pending.id}") |> render()
+      assert pending_row =~ "pending"
+      assert pending_row =~ "2 failed"
+      assert pending_row =~ "{:classic, :provider_unavailable}"
+
+      ended_row = view |> element("#classic-row-#{ended.id}") |> render()
+      assert ended_row =~ "ended"
+      assert ended_row =~ "Oct 01, 2026 00:00 UTC"
+
+      PidroServer.ClassicPremiumFixtures.stub_classic("2027-01-15T00:00:00Z")
+      PidroServer.ClassicPremiumFixtures.fake_revenuecat()
+
+      view |> element("#classic-retry-#{pending.id}") |> render_click()
+
+      assert render(view) =~ "classic_down: granted."
+      refute has_element?(view, "#classic-row-#{pending.id}")
+      assert has_element?(view, "#premium-rows a[href='/admin/users/#{pending.id}#premium']")
+    end
+
+    test "Queue all queues those without a carry-over, once", %{conn: conn} do
+      untried = classic(AccountsFixtures.user_fixture(%{username: "never_tried"}), 6001)
+      ended = classic(AccountsFixtures.user_fixture(%{username: "ran_out"}), 6003)
+      carryover(ended, 6003, state: "ended")
+
+      {:ok, view, _html} = live(conn, ~p"/admin/premium")
+
+      view |> element("#classic-queue-all") |> render_click()
+      assert render(view) =~ "Queued 1 for the daily carry-over."
+      assert view |> element("#classic-row-#{untried.id}") |> render() =~ "pending"
+      assert view |> element("#classic-row-#{ended.id}") |> render() =~ "ended"
+
+      view |> element("#classic-queue-all") |> render_click()
+      assert render(view) =~ "Queued 0 for the daily carry-over."
+    end
+  end
+
+  defp carryover(user, classic_id, attrs) do
+    Repo.insert!(
+      struct(
+        %PidroServer.ClassicPremium.Carryover{user_id: user.id, classic_user_id: classic_id},
+        attrs
+      )
+    )
+  end
+
   defp seed do
     soon = AccountsFixtures.user_fixture(%{username: "soon_store"})
     promo = AccountsFixtures.user_fixture(%{username: "promo_grant"})

@@ -8,6 +8,7 @@ defmodule PidroServerWeb.Dev.UserDetailLive do
   import PidroServerWeb.Dev.AdminComponents
 
   alias PidroServer.Accounts.{Auth, User}
+  alias PidroServer.ClassicPremium
   alias PidroServer.Entitlements
   alias PidroServer.Games.Room.Positions
   alias PidroServer.Games.Room.Seat
@@ -806,6 +807,31 @@ defmodule PidroServerWeb.Dev.UserDetailLive do
               </p>
             <% end %>
 
+            <dl
+              :if={@classic_premium}
+              id="classic-premium"
+              class="mt-4 grid grid-cols-[7rem_minmax(0,1fr)] gap-x-3 gap-y-2 border-t border-stone-200 pt-4 text-sm"
+            >
+              <dt class="text-stone-600">Classic carry-over</dt>
+              <dd><.carryover_state carryover={@classic_premium} /></dd>
+              <dt class="text-stone-600">Classic until</dt>
+              <dd class="text-stone-950">
+                {if @classic_premium.classic_premium_until,
+                  do: format_datetime_full(@classic_premium.classic_premium_until),
+                  else: "none"}
+              </dd>
+              <dt class="text-stone-600">Last tried</dt>
+              <dd class="text-stone-950">
+                {if @classic_premium.last_tried_at,
+                  do: format_datetime_full(@classic_premium.last_tried_at),
+                  else: "never"}
+              </dd>
+              <dt :if={@classic_premium.last_error} class="text-stone-600">Last error</dt>
+              <dd :if={@classic_premium.last_error} class="break-all text-xs text-red-700">
+                {@classic_premium.last_error}
+              </dd>
+            </dl>
+
             <%= if @premium_event do %>
               <details class="mt-4 rounded-md border border-stone-200 bg-stone-50 p-3 text-xs">
                 <summary class="cursor-pointer font-semibold text-stone-700">
@@ -1002,6 +1028,7 @@ defmodule PidroServerWeb.Dev.UserDetailLive do
     |> assign(:premium, Entitlements.get(user.id))
     |> assign(:premium_now, Entitlements.premium?(user))
     |> assign(:premium_event, Entitlements.last_event(user.id))
+    |> assign(:classic_premium, ClassicPremium.get(user.id))
     |> assign(:revenuecat_configured, RevenueCat.configured?())
   end
 

@@ -312,7 +312,8 @@ defmodule PidroServer.Profiles do
 
   @doc """
   How many Classic subscribers claimed, and those without an active Premium
-  row here yet, oldest claim first. One query.
+  row here yet, oldest claim first, each with its `carryover` row (PID-391)
+  or nil. One query.
   """
   @spec classic_subscribers() :: %{count: non_neg_integer(), not_premium: [map()]}
   def classic_subscribers do
@@ -323,6 +324,8 @@ defmodule PidroServer.Profiles do
           on: u.id == p.user_id,
           left_join: e in subquery(PidroServer.Entitlements.premium_now()),
           on: e.user_id == u.id,
+          left_join: c in PidroServer.ClassicPremium.Carryover,
+          on: c.user_id == u.id,
           order_by: [asc: u.classic_claimed_at, asc: u.username],
           select: %{
             user_id: u.id,
@@ -330,7 +333,8 @@ defmodule PidroServer.Profiles do
             classic_user_id: u.classic_user_id,
             classic_claimed_at: u.classic_claimed_at,
             classic_username: fragment("?->>'classic_username'", p.heritage_flags),
-            premium: not is_nil(e.id)
+            premium: not is_nil(e.id),
+            carryover: c
           }
       )
 

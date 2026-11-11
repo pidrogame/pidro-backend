@@ -160,6 +160,25 @@ defmodule PidroServer.Release do
   end
 
   @doc """
+  Queues every claimed Classic subscriber without a carry-over row for the
+  Classic Premium retry job (PID-391) and prints how many. Safe to re-run.
+
+      ./bin/pidro_server eval "PidroServer.Release.queue_classic_premium()"
+  """
+  @spec queue_classic_premium() :: :ok
+  def queue_classic_premium do
+    load_app()
+
+    {:ok, count, _started_apps} =
+      Ecto.Migrator.with_repo(PidroServer.Repo, fn _repo ->
+        PidroServer.ClassicPremium.queue_claimed()
+      end)
+
+    IO.puts("Queued #{count} Classic subscriber(s) for the Premium carry-over.")
+    :ok
+  end
+
+  @doc """
   Creates the first ops-panel admin from `ADMIN_EMAIL`, if no admin exists.
 
   Invoke after production migrations with `just seed-admin`, which runs:

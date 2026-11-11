@@ -2,31 +2,58 @@ defmodule PidroServerWeb.Dev.PremiumLive do
   @moduledoc """
   Who is Premium (PID-397): the numbers by store and source, every `premium`
   row from `PidroServer.Entitlements`, and the claimed Classic subscribers
-  who are not Premium here yet. Read once on mount and on each toggle.
+  who are not Premium here yet, with their Classic Premium carry-over
+  (PID-391): try one again, or queue everyone who has none. Read once on
+  mount, on each toggle and after each action.
   """
 
   use PidroServerWeb, :live_view
 
   import PidroServerWeb.Dev.AdminComponents
 
-  alias PidroServer.{Entitlements, Profiles, RevenueCat}
+  alias PidroServer.{ClassicPremium, Entitlements, Profiles, RevenueCat}
 
   @impl true
   def mount(_params, _session, socket) do
     {:ok,
      socket
-     |> assign(
-       page_title: "Premium",
-       configured: RevenueCat.configured?(),
-       summary: Entitlements.summary(),
-       classic: Profiles.classic_subscribers()
-     )
+     |> assign(page_title: "Premium", configured: RevenueCat.configured?())
+     |> load_counts()
      |> load_rows(true)}
   end
 
   @impl true
   def handle_event("filter", params, socket),
     do: {:noreply, load_rows(socket, params["active_only"] == "true")}
+
+  def handle_event("carry_over", %{"user-id" => user_id}, socket) do
+    case Enum.find(socket.assigns.classic.not_premium, &(&1.user_id == user_id)) do
+      nil ->
+        {:noreply, socket}
+
+      row ->
+        {:ok, carryover} =
+          ClassicPremium.carry_over(%{id: row.user_id, classic_user_id: row.classic_user_id})
+
+        {:noreply,
+         socket
+         |> load_counts()
+         |> load_rows(socket.assigns.active_only)
+         |> put_flash(:info, "#{row.name}: #{(carryover && carryover.state) || "nothing done"}.")}
+    end
+  end
+
+  def handle_event("queue_all", _params, socket) do
+    count = ClassicPremium.queue_claimed()
+
+    {:noreply,
+     socket
+     |> load_counts()
+     |> put_flash(:info, "Queued #{count} for the daily carry-over.")}
+  end
+
+  defp load_counts(socket),
+    do: assign(socket, summary: Entitlements.summary(), classic: Profiles.classic_subscribers())
 
   defp load_rows(socket, active_only),
     do:
@@ -148,13 +175,24 @@ defmodule PidroServerWeb.Dev.PremiumLive do
         id="classic-waiting"
         class="mt-6 overflow-hidden rounded-lg border border-stone-200 bg-white"
       >
-        <div class="border-b border-stone-200 px-4 py-3">
-          <h2 class="text-sm font-semibold text-stone-950">
-            Classic subscribers without Premium here
-          </h2>
-          <p class="mt-1 text-sm text-stone-600">
-            Paying in Classic when they claimed, with no active Premium row here. This is PID-391's work list: carrying their subscription over.
-          </p>
+        <div class="flex flex-wrap items-start justify-between gap-3 border-b border-stone-200 px-4 py-3">
+          <div>
+            <h2 class="text-sm font-semibold text-stone-950">
+              Classic subscribers without Premium here
+            </h2>
+            <p class="mt-1 text-sm text-stone-600">
+              Paying in Classic when they claimed, with no active Premium row here. PID-391 carries their Classic Premium over at claim; a daily job retries what is pending.
+            </p>
+          </div>
+          <button
+            id="classic-queue-all"
+            type="button"
+            phx-click="queue_all"
+            data-confirm="Queue every claimed Classic subscriber without a carry-over for the daily job?"
+            class="rounded-md border border-stone-300 bg-white px-3 py-1.5 text-sm font-semibold text-stone-900 hover:border-orange-400 hover:text-orange-700"
+          >
+            Queue all
+          </button>
         </div>
         <div :if={@classic.not_premium == []} class="p-4">
           <.empty_state
@@ -171,7 +209,17 @@ defmodule PidroServerWeb.Dev.PremiumLive do
             <thead class="bg-stone-50">
               <tr>
                 <th
-                  :for={label <- ["Player", "Classic username", "Classic id", "Claimed"]}
+                  :for={
+                    label <- [
+                      "Player",
+                      "Classic username",
+                      "Classic id",
+                      "Claimed",
+                      "Carry-over",
+                      "Classic until",
+                      ""
+                    ]
+                  }
                   class="px-2 py-2 text-left text-xs font-medium text-stone-600 sm:px-4"
                 >
                   {label}
@@ -194,6 +242,31 @@ defmodule PidroServerWeb.Dev.PremiumLive do
                 </td>
                 <td class="whitespace-nowrap px-2 py-2 tabular-nums text-stone-600 sm:px-4">
                   {if row.classic_claimed_at, do: format(row.classic_claimed_at)}
+                </td>
+                <td class="px-2 py-2 sm:px-4">
+                  <.carryover_state carryover={row.carryover} />
+                  <p
+                    :if={row.carryover && row.carryover.last_error}
+                    class="mt-1 max-w-56 break-all font-mono text-xs text-red-700"
+                  >
+                    {row.carryover.last_error}
+                  </p>
+                </td>
+                <td class="whitespace-nowrap px-2 py-2 tabular-nums text-stone-600 sm:px-4">
+                  {if row.carryover && row.carryover.classic_premium_until,
+                    do: format(row.carryover.classic_premium_until)}
+                </td>
+                <td class="px-2 py-2 sm:px-4">
+                  <button
+                    id={"classic-retry-#{row.user_id}"}
+                    type="button"
+                    phx-click="carry_over"
+                    phx-value-user-id={row.user_id}
+                    disabled={!@configured}
+                    class="whitespace-nowrap rounded-md bg-stone-950 px-3 py-1 text-xs font-bold text-white hover:bg-orange-700 disabled:cursor-not-allowed disabled:bg-stone-300"
+                  >
+                    Try again
+                  </button>
                 </td>
               </tr>
             </tbody>
