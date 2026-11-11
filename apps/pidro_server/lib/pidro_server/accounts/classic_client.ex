@@ -4,7 +4,7 @@ defmodule PidroServer.Accounts.ClassicClient do
   @callback verify_password(String.t(), String.t()) ::
               {:ok, map()}
               | {:error, :invalid_credentials | :account_inactive | :provider_unavailable}
-  @callback lookup(:email | :fbid | :login, String.t()) ::
+  @callback lookup(:email | :fbid | :login | :id, String.t() | integer()) ::
               {:ok, map()} | {:error, :not_found | :ambiguous | :provider_unavailable}
 
   def verify_password(login, password) do
@@ -14,6 +14,13 @@ defmodule PidroServer.Accounts.ClassicClient do
 
   def lookup(field, value) when field in [:email, :fbid, :login] do
     request(:get, "/internal/claims/lookup", params: [{field, value}])
+    |> lookup_result()
+  end
+
+  # The Classic id of an account already linked here; no client chooses it.
+  # The Premium carry-over retries on its own schedule, so one try only.
+  def lookup(:id, classic_user_id) do
+    request(:get, "/internal/claims/lookup", params: [id: classic_user_id], retry: false)
     |> lookup_result()
   end
 
@@ -82,6 +89,8 @@ defmodule PidroServer.Accounts.ClassicClient do
       "ended" => games["games_ended"],
       "inserted_at" => profile["member_since"],
       "premium_until" => premium["until"],
+      "premium_product" => premium["product"],
+      "premium_store" => premium["store"],
       "account_deleted" => get_in(profile, ["account", "deleted"]),
       "account_visible" => get_in(profile, ["account", "visible"]),
       "badges" => profile["badges"] || []

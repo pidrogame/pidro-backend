@@ -616,4 +616,168 @@ defmodule PidroServerWeb.API.ClassicClaimControllerTest do
 
     refute Repo.get_by(User, username: "not_created")
   end
+
+  describe "a claim carries Classic Premium over (PID-391)" do
+    import ExUnit.CaptureLog
+    import PidroServer.ClassicPremiumFixtures
+
+    alias PidroServer.ClassicPremium
+
+    # A signed-out password claim, as the app sends it. `premium` is what
+    # Classic said about Premium when the player verified.
+    defp claim(conn, premium) do
+      n = System.unique_integer([:positive])
+
+      {:ok, %{ticket: ticket}} =
+        ClassicClaims.issue_ticket(%{
+          classic_user_id: n,
+          method: :password,
+          install_id: "install-391",
+          legacy_data: %{premium: premium}
+        })
+
+      response =
+        post(conn, ~p"/api/v1/classic/claim", %{
+          ticket: ticket,
+          install_id: "install-391",
+          account: %{
+            username: "p391_#{rem(n, 1_000_000)}",
+            email: "p391-#{n}@example.com",
+            password: "secret123"
+          },
+          age_band: "18_plus",
+          terms_version: "1"
+        })
+
+      {json_response(response, 200)["data"], n}
+    end
+
+    test "running: Premium from the first answer, carried until Classic's date", %{conn: conn} do
+      until = days_from_now(60)
+      stub_classic(DateTime.to_iso8601(until))
+      fake_revenuecat()
+
+      {data, classic_id} = claim(conn, true)
+
+      assert data["classic_premium"] == %{
+               "state" => "carried",
+               "until" => DateTime.to_iso8601(until)
+             }
+
+      assert data["user"]["premium"] == true
+      assert data["user"]["premium_source"] == "classic_honored"
+      assert data["user"]["premium_until"] == DateTime.to_iso8601(until)
+      id = Integer.to_string(classic_id)
+      assert_received {:classic_lookup, %{"id" => ^id}}
+    end
+
+    test "ended within 12 months: says so, grants nothing", %{conn: conn} do
+      until = days_from_now(-30)
+      stub_classic(DateTime.to_iso8601(until))
+      fake_revenuecat()
+
+      {data, _} = claim(conn, false)
+
+      assert data["classic_premium"] == %{
+               "state" => "ended",
+               "until" => DateTime.to_iso8601(until)
+             }
+
+      assert data["user"]["premium"] == false
+      refute_received {:revenuecat_grant, _, _}
+    end
+
+    test "Classic down or RevenueCat down: the claim succeeds and says pending", %{conn: conn} do
+      stub_classic({:status, 503})
+      fake_revenuecat()
+      {{classic_down, _}, log} = with_log(fn -> claim(conn, true) end)
+
+      stub_classic(DateTime.to_iso8601(days_from_now(60)))
+      fake_revenuecat({:status, 500})
+      {{revenuecat_down, _}, _log} = with_log(fn -> claim(conn, true) end)
+
+      for data <- [classic_down, revenuecat_down] do
+        assert data["classic_premium"] == %{"state" => "pending", "until" => nil}
+        assert data["user"]["premium"] == false
+        assert is_binary(data["token"])
+        assert %{state: "pending", attempts: 1} = ClassicPremium.get(data["user"]["id"])
+      end
+
+      assert log =~ classic_down["user"]["id"]
+    end
+
+    test "answers within 8 seconds when Classic hangs, leaving it pending", %{conn: conn} do
+      Req.Test.stub(PidroServer.Accounts.ClassicClient, fn conn ->
+        Process.sleep(12_000)
+        Req.Test.json(conn, %{})
+      end)
+
+      fake_revenuecat()
+
+      {elapsed, {data, _}} = :timer.tc(fn -> claim(conn, true) end, :millisecond)
+
+      assert elapsed >= 8_000 and elapsed < 9_500
+      assert data["classic_premium"] == %{"state" => "pending", "until" => nil}
+      assert %{state: "pending", attempts: 0} = ClassicPremium.get(data["user"]["id"])
+    end
+
+    test "a carry-over that crashes leaves the claim as it is", %{conn: conn} do
+      Req.Test.stub(PidroServer.Accounts.ClassicClient, fn _conn ->
+        Process.exit(self(), :kill)
+      end)
+
+      {{data, _}, _log} = with_log(fn -> claim(conn, true) end)
+
+      assert data["classic_premium"] == %{"state" => "pending", "until" => nil}
+      assert data["user"]["premium"] == false
+      assert is_binary(data["token"])
+    end
+
+    test "control: never a subscriber, or unknown to the lookup, answers as before", %{
+      conn: conn
+    } do
+      for classic <- [nil, {:status, 404}, {:status, 503}] do
+        stub_classic(classic)
+        fake_revenuecat()
+
+        {{data, _}, _log} = with_log(fn -> claim(conn, false) end)
+
+        assert Map.keys(data) |> Enum.sort() == ["token", "user"]
+        assert data["user"]["premium"] == false
+        assert data["user"]["premium_source"] == nil
+      end
+
+      refute_received {:revenuecat_grant, _, _}
+    end
+
+    test "a retried claim does not run it again", %{conn: conn} do
+      stub_classic(DateTime.to_iso8601(days_from_now(60)))
+      fake_revenuecat()
+
+      {:ok, %{ticket: ticket}} =
+        ClassicClaims.issue_ticket(%{
+          classic_user_id: System.unique_integer([:positive]),
+          method: :password,
+          install_id: "install-391-retry",
+          legacy_data: %{premium: true}
+        })
+
+      params = %{
+        ticket: ticket,
+        install_id: "install-391-retry",
+        account: %{username: "p391_retry", email: "p391-retry@example.com", password: "secret123"},
+        age_band: "18_plus",
+        terms_version: "1"
+      }
+
+      first = conn |> post(~p"/api/v1/classic/claim", params) |> json_response(200)
+      assert first["data"]["classic_premium"]["state"] == "carried"
+      assert_received {:classic_lookup, _}
+
+      retry = conn |> post(~p"/api/v1/classic/claim", params) |> json_response(200)
+      refute Map.has_key?(retry["data"], "classic_premium")
+      assert retry["data"]["user"]["premium"] == true
+      refute_received {:classic_lookup, _}
+    end
+  end
 end

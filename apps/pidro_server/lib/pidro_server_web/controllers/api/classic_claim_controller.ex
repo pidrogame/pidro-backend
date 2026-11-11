@@ -62,7 +62,12 @@ defmodule PidroServerWeb.API.ClassicClaimController do
 
       conn
       |> put_view(UserJSON)
-      |> render(:show, %{user: user, token: token, linked_friend: claimed.linked_friend})
+      |> render(:show, %{
+        user: user,
+        token: token,
+        linked_friend: claimed.linked_friend,
+        classic_premium: claimed.classic_premium
+      })
     end
   end
 

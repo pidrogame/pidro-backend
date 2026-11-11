@@ -234,6 +234,39 @@ Until both are set, a deploy runs as usual and Premium is off: `/me` says
 disabled with a line saying why. For `just deploy`, set them in
 `.kamal/secrets-common`.
 
+### Classic Premium carry-over (PID-391)
+
+Nothing here needs new configuration: it uses the Classic secret and the two
+RevenueCat secrets above, and does nothing while RevenueCat is not configured.
+
+A Classic claim that links an account reads Classic's `premium_until` by the
+Classic id and, while it runs, grants Premium until that date in RevenueCat
+(`classic_honored`, capped at 13 months from now). The claim waits for this at
+most 8 seconds and succeeds either way; the outcome is a row in
+`classic_premium_carryovers` (`pending`, `granted`, `imported`, `ended`,
+`none`), visible on `/admin/premium` and the player's admin page.
+
+`PidroServer.ClassicPremium.Retry` runs two minutes after each boot and then
+once a day, at most 200 players per run, one at a time. Up to 150 go to
+carry-overs not tried in the last 20 hours: every `pending` one younger than
+30 days and every `granted` one (extending the grant when Classic moved its
+date on a renewal, or when the 13-month cap is about to run out). The rest go
+to active Premium rows not synced from RevenueCat for 7 days. Failures are
+`Logger.error` lines naming the user id; a Classic id Classic no longer finds
+counts as a failure and stays `pending`.
+
+Players who claimed before this shipped have no row. **Queue all** on
+`/admin/premium`, or the release command below, queues them as `pending` for
+the next daily run; it is safe to repeat.
+
+```bash
+./bin/pidro_server eval "PidroServer.Release.queue_classic_premium()"
+```
+
+Before launch, try one 13-month grant against RevenueCat's sandbox: RevenueCat
+once said a promotional grant lasts at most a year. If it refuses, lower
+`@max_grant_months` in `PidroServer.ClassicPremium`.
+
 The four store credentials are also **optional**, outside the required secret
 check. Missing credentials show “App Store Connect not connected” or “Google
 Play not connected” without affecting the app or deployment:

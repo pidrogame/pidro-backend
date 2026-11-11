@@ -59,4 +59,30 @@ defmodule PidroServer.PremiumUnconfiguredTest do
              |> json_response(200)
              |> get_in(["data", "user"])
   end
+
+  test "a Classic Premium carry-over writes nothing and asks nobody" do
+    user =
+      AccountsFixtures.user_fixture()
+      |> Ecto.Changeset.change(classic_user_id: 8001, classic_claimed_at: DateTime.utc_now())
+      |> Repo.update!()
+
+    # Any call to either would raise: neither has a stub.
+    assert PidroServer.ClassicPremium.carry_over(user) == {:ok, nil}
+    assert Repo.aggregate(PidroServer.ClassicPremium.Carryover, :count) == 0
+    assert Repo.aggregate(Entitlement, :count) == 0
+  end
+
+  test "the Classic Premium retry job does nothing" do
+    user = AccountsFixtures.user_fixture()
+
+    Repo.insert!(%Entitlement{
+      user_id: user.id,
+      entitlement: "premium",
+      active: true,
+      source: "store",
+      last_synced_at: ~U[2026-01-01 00:00:00Z]
+    })
+
+    assert PidroServer.ClassicPremium.Retry.run_once() == {:ok, %{carried: 0, synced: 0}}
+  end
 end

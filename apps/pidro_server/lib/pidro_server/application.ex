@@ -14,6 +14,8 @@ defmodule PidroServer.Application do
       # Idle-guest sweep; needs the Repo and the RoomManager (started below by
       # Games.Supervisor) only when a run fires, never at start
       PidroServer.Accounts.GuestReaper,
+      # Classic Premium carry-over retries and stale entitlement syncs (PID-391)
+      PidroServer.ClassicPremium.Retry,
       PidroServer.Leagues.Closer,
       PidroServer.Push.Receipts,
       {DNSCluster, query: Application.get_env(:pidro_server, :dns_cluster_query) || :ignore},

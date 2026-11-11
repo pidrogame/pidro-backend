@@ -111,6 +111,35 @@ defmodule PidroServer.Accounts.ClassicClientTest do
     assert {:error, :provider_unavailable} = ClassicClient.lookup(:login, "Bengt")
   end
 
+  test "looks a linked account up by its Classic id, once, and keeps its premium" do
+    profile =
+      put_in(@real_classic_profile, ["classic", "premium"], %{
+        "active" => true,
+        "until" => "2027-03-01T00:00:00Z",
+        "product" => "pidro.premium.yearly",
+        "store" => %{"name" => "app_store"}
+      })
+
+    Req.Test.expect(ClassicClient, fn conn ->
+      conn = Plug.Conn.fetch_query_params(conn)
+      assert conn.request_path == "/internal/claims/lookup"
+      assert conn.query_params == %{"id" => "50"}
+      Req.Test.json(conn, profile)
+    end)
+
+    assert {:ok, found} = ClassicClient.lookup(:id, 50)
+    assert found["premium_until"] == "2027-03-01T00:00:00Z"
+    assert found["premium_product"] == "pidro.premium.yearly"
+    assert found["premium_store"] == %{"name" => "app_store"}
+
+    # Down is one try, not Req's three retries.
+    Req.Test.expect(ClassicClient, fn conn ->
+      conn |> Plug.Conn.put_status(503) |> Req.Test.json(%{"error" => "down"})
+    end)
+
+    assert {:error, :provider_unavailable} = ClassicClient.lookup(:id, 50)
+  end
+
   test "an inactive Classic account is reported as such" do
     Req.Test.expect(ClassicClient, fn conn ->
       conn |> Plug.Conn.put_status(403) |> Req.Test.json(%{"error" => "account_inactive"})

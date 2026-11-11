@@ -22,12 +22,13 @@ defmodule PidroServerWeb.API.UserJSON do
       %{data: %{user: user_data}}
   """
   def show(%{user: user, token: token} = assigns) do
-    data = %{user: user(user), token: token}
+    data =
+      for key <- [:linked_friend, :classic_premium],
+          assigns[key] != nil,
+          into: %{user: user(user), token: token},
+          do: {key, assigns[key]}
 
-    case assigns[:linked_friend] do
-      nil -> %{data: data}
-      entry -> %{data: Map.put(data, :linked_friend, entry)}
-    end
+    %{data: data}
   end
 
   def show(%{user: user, seat_invitations: invitations, ads: ads}) do

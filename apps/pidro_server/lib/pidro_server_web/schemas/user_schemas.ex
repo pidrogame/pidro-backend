@@ -330,6 +330,17 @@ defmodule PidroServerWeb.Schemas.UserSchemas do
           properties: %{
             user: User,
             linked_friend: PidroServerWeb.Schemas.FriendSchemas.Player,
+            classic_premium: %Schema{
+              type: :object,
+              description:
+                "Only on a Classic claim that linked the account just now, when there is something to say about the player's Classic Premium (PID-391): `carried` (Premium here now; `until` is Classic's date, or null when a store subscription already covers it), `ended` (Classic Premium ended within the last 12 months, on `until`) or `pending` (Classic Premium was running at claim and is still being carried over; `until` is null). Absent otherwise.",
+              properties: %{
+                state: %Schema{type: :string, enum: ["carried", "ended", "pending"]},
+                until: %Schema{type: :string, format: :"date-time", nullable: true}
+              },
+              required: [:state, :until],
+              example: %{"state" => "carried", "until" => "2027-03-01T00:00:00Z"}
+            },
             token: %Schema{
               type: :string,
               description:

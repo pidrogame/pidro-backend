@@ -102,3 +102,90 @@ defmodule PidroServer.AdminsFixtures do
     |> Repo.insert!()
   end
 end
+
+defmodule PidroServer.ClassicPremiumFixtures do
+  @moduledoc """
+  Stand-ins for Classic's lookup by id and for RevenueCat (PID-391), on
+  `Req.Test`. Each reports what it was asked to the test process.
+  """
+
+  alias PidroServer.Accounts.ClassicClient
+  alias PidroServer.RevenueCat
+
+  @doc """
+  Classic answers every lookup with `premium.until` = `until` (an ISO 8601
+  string or nil), or with `status` when given as `{:status, code}`.
+  """
+  def stub_classic(until, test \\ self()) do
+    Req.Test.stub(ClassicClient, fn conn ->
+      conn = Plug.Conn.fetch_query_params(conn)
+      send(test, {:classic_lookup, conn.query_params})
+
+      case until do
+        {:status, status} ->
+          conn |> Plug.Conn.put_status(status) |> Req.Test.json(%{"error" => "x"})
+
+        until ->
+          Req.Test.json(conn, %{
+            "classic" => %{
+              "id" => String.to_integer(conn.query_params["id"]),
+              "premium" => %{
+                "active" => until != nil,
+                "until" => until,
+                "product" => until && "pidro.premium.yearly"
+              }
+            }
+          })
+      end
+    end)
+  end
+
+  @doc """
+  A RevenueCat that remembers the latest promotional grant and reports it on
+  the next subscriber read, or answers `{:status, code}` to a grant.
+  """
+  def fake_revenuecat(grant_answer \\ :ok, test \\ self()) do
+    {:ok, granted} = Agent.start_link(fn -> nil end)
+
+    Req.Test.stub(RevenueCat, fn conn ->
+      {:ok, body, conn} = Plug.Conn.read_body(conn)
+
+      case {conn.method, grant_answer} do
+        {"POST", {:status, status}} ->
+          conn |> Plug.Conn.put_status(status) |> Req.Test.json(%{})
+
+        {"POST", :ok} ->
+          end_time_ms = Jason.decode!(body)["end_time_ms"]
+          Agent.update(granted, fn _ -> end_time_ms end)
+          send(test, {:revenuecat_grant, conn.request_path, end_time_ms})
+          conn |> Plug.Conn.put_status(201) |> Req.Test.json(%{})
+
+        {"GET", _} ->
+          send(test, {:revenuecat_read, conn.request_path})
+          Req.Test.json(conn, subscriber(Agent.get(granted, & &1)))
+      end
+    end)
+  end
+
+  defp subscriber(nil), do: %{"subscriber" => %{"entitlements" => %{}, "subscriptions" => %{}}}
+
+  defp subscriber(end_time_ms) do
+    expires = end_time_ms |> DateTime.from_unix!(:millisecond) |> DateTime.to_iso8601()
+
+    %{
+      "subscriber" => %{
+        "original_app_user_id" => "$RCAnonymousID:test",
+        "entitlements" => %{
+          "premium" => %{"expires_date" => expires, "product_identifier" => "rc_promo_premium"}
+        },
+        "subscriptions" => %{
+          "rc_promo_premium" => %{"expires_date" => expires, "store" => "promotional"}
+        }
+      }
+    }
+  end
+
+  @doc "The time `days` from now, to the second."
+  def days_from_now(days),
+    do: DateTime.utc_now() |> DateTime.add(days, :day) |> DateTime.truncate(:second)
+end

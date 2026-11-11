@@ -23,6 +23,7 @@ defmodule PidroServer.Accounts.ClassicClaims do
     UserIdentities
   }
 
+  alias PidroServer.ClassicPremium
   alias PidroServer.ClassicSocial
   alias PidroServer.Invites
   alias PidroServer.Profiles
@@ -30,6 +31,7 @@ defmodule PidroServer.Accounts.ClassicClaims do
   alias PidroServer.Repo
 
   @ticket_bytes 32
+  @carry_over_ms 8_000
 
   @doc """
   Stores a verified claim and returns its one-time opaque token.
@@ -151,7 +153,7 @@ defmodule PidroServer.Accounts.ClassicClaims do
 
     result = resolve_social(redeemed, fetch(params, :friend_slug))
     record_upgrade(redeemed)
-    result
+    carry_over_premium(result, redeemed)
   end
 
   def redeem(_token, _current_user, _params), do: {:error, :invalid_claim_ticket}
@@ -210,6 +212,26 @@ defmodule PidroServer.Accounts.ClassicClaims do
     do: Invites.record_upgrade(id)
 
   defp record_upgrade(_result), do: :ok
+
+  # A new link carries Classic Premium over (PID-391), after the commit and for
+  # at most @carry_over_ms: past that, or if it crashes, the claim answers
+  # without it and the retry job finishes it. The claim succeeds either way.
+  defp carry_over_premium({:ok, user}, {:ok, {_user, true, _registered?, _upgraded?}}) do
+    task =
+      Task.Supervisor.async_nolink(PidroServer.TaskSupervisor, ClassicPremium, :carry_over, [
+        user
+      ])
+
+    row =
+      case Task.yield(task, @carry_over_ms) || Task.shutdown(task, :brutal_kill) do
+        {:ok, {:ok, row}} -> row
+        _late_or_crashed -> ClassicPremium.get(user.id)
+      end
+
+    {:ok, %{user | classic_premium: ClassicPremium.answer(row)}}
+  end
+
+  defp carry_over_premium(result, _redeemed), do: result
 
   defp find_ticket(token),
     do: Repo.get_by(ClassicClaimTicket, token_hash: hash_token(token))

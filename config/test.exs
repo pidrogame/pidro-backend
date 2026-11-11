@@ -79,6 +79,7 @@ config :pidro_server, PidroServer.Invites, link_base_url: "http://localhost:4002
 # The reaper never schedules under the SQL sandbox; tests call
 # PidroServer.Accounts.GuestReaper.run_once/0 from their own process.
 config :pidro_server, PidroServer.Accounts.GuestReaper, enabled: false
+config :pidro_server, PidroServer.ClassicPremium.Retry, enabled: false
 
 # Archive maintenance is driven explicitly by database integration tests.
 config :pidro_server, PidroServer.GameArchive.Maintenance, enabled: false

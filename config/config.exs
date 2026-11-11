@@ -300,6 +300,13 @@ config :pidro_server, PidroServer.Accounts.GuestReaper,
   interval_ms: 3_600_000,
   max_idle_days: 30
 
+# Classic Premium retry (PidroServer.ClassicPremium.Retry): once a day it tries
+# pending and granted carry-overs again and syncs stale Premium rows from
+# RevenueCat. config/test.exs disables it.
+config :pidro_server, PidroServer.ClassicPremium.Retry,
+  enabled: true,
+  interval_ms: 86_400_000
+
 # Import environment specific config. This must remain at the bottom
 # of this file so it overrides the configuration defined above.
 import_config "#{config_env()}.exs"
