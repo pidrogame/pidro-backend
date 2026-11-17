@@ -16,6 +16,7 @@ defmodule PidroServer.Emails do
   alias PidroServer.Repo
 
   @placeholder_regex ~r/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/
+  @unsubscribe_salt "update emails unsubscribe"
   @contact_headers [
     "email",
     "username",
@@ -92,6 +93,7 @@ defmodule PidroServer.Emails do
     |> select([u], %{
       email: u.email,
       username: u.username,
+      subscribed: is_nil(u.update_emails_off_at),
       guest: u.guest,
       inserted_at: u.inserted_at,
       updated_at: u.updated_at
@@ -108,7 +110,7 @@ defmodule PidroServer.Emails do
           row.username,
           nil,
           nil,
-          true,
+          row.subscribed,
           row.guest,
           row.inserted_at,
           row.updated_at,
@@ -118,6 +120,109 @@ defmodule PidroServer.Emails do
 
     [csv_row(@contact_headers) | Enum.map(rows, &csv_row/1)]
     |> IO.iodata_to_binary()
+  end
+
+  @doc """
+  Registered players a mailing goes to: an address the SMTP encoder accepts,
+  and update emails not turned off. Transactional mail never asks this.
+  """
+  def campaign_recipients do
+    from(u in exportable_contacts_query(),
+      where: u.guest == false and is_nil(u.update_emails_off_at),
+      order_by: [asc: u.inserted_at, asc: u.id]
+    )
+    |> Repo.all()
+    |> Enum.filter(&Mailer.sendable?(&1.email))
+  end
+
+  @doc "The player's own link to turn update emails off, signed for their id alone."
+  def unsubscribe_url(user_id) do
+    token = Phoenix.Token.sign(PidroServerWeb.Endpoint, @unsubscribe_salt, user_id)
+    PidroServerWeb.Endpoint.url() <> "/unsubscribe/" <> token
+  end
+
+  @doc "The player an unsubscribe token was signed for. Old mails' links never expire."
+  def user_for_unsubscribe_token(token) when is_binary(token) do
+    with {:ok, user_id} when is_binary(user_id) <-
+           Phoenix.Token.verify(PidroServerWeb.Endpoint, @unsubscribe_salt, token,
+             max_age: :infinity
+           ),
+         {:ok, user_id} <- Ecto.UUID.cast(user_id),
+         %User{} = user <- Repo.get(User, user_id) do
+      {:ok, user}
+    else
+      _invalid -> :error
+    end
+  end
+
+  @doc """
+  Turns a player's update emails `:off` or back `:on`. Both are idempotent:
+  turning them off again keeps the first time.
+  """
+  def set_update_emails(%User{id: user_id}, choice) when choice in [:off, :on] do
+    query =
+      case choice do
+        :off -> from(u in User, where: u.id == ^user_id and is_nil(u.update_emails_off_at))
+        :on -> from(u in User, where: u.id == ^user_id)
+      end
+
+    Repo.update_all(query,
+      set: [update_emails_off_at: if(choice == :off, do: DateTime.utc_now(:second))]
+    )
+
+    case Repo.get(User, user_id) do
+      %User{} = user -> {:ok, user}
+      nil -> {:error, :not_found}
+    end
+  end
+
+  @doc "The variables a mailing fills for one player."
+  def campaign_variables(%User{} = user) do
+    %{
+      "username" => user.username,
+      "first_name" => User.public_name(user),
+      "last_played_at" => user.last_seen_at && DateTime.to_date(user.last_seen_at),
+      "unsubscribe_url" => unsubscribe_url(user.id),
+      "offer_url" => "https://play.pidro.online",
+      "support_email" => delivery_setup().reply_to
+    }
+  end
+
+  @doc "Why `template` cannot go out as a mailing yet, or nil."
+  def campaign_send_blocker(%EmailTemplate{kind: :campaign} = template) do
+    player = %User{id: Ecto.UUID.generate(), username: "player"}
+    unknown = placeholder_warnings(template).unknown
+
+    cond do
+      not Regex.match?(~r/\{\{\s*unsubscribe_url\s*\}\}/, template.html_body || "") ->
+        "Add {{unsubscribe_url}} to the body first."
+
+      unknown != [] ->
+        "Declare or fix #{Enum.join(unknown, ", ")} first."
+
+      true ->
+        case render_template(template, campaign_variables(player)) do
+          {:ok, _rendered} ->
+            nil
+
+          {:error, {:missing_variables, names}} ->
+            "A mailing cannot fill #{Enum.join(names, ", ")}."
+        end
+    end
+  end
+
+  def campaign_send_blocker(%EmailTemplate{}), do: "Only campaigns go to every player."
+
+  @doc "One player's mailing, with their own unsubscribe link in the body and headers."
+  def campaign_email(%EmailTemplate{kind: :campaign} = template, %User{} = user) do
+    variables = campaign_variables(user)
+
+    with {:ok, email} <- template_email(template, user, variables) do
+      {:ok,
+       email
+       |> header("List-Unsubscribe", "<#{variables["unsubscribe_url"]}>")
+       |> header("List-Unsubscribe-Post", "List-Unsubscribe=One-Click")}
+    end
   end
 
   def contact_export_filename do
@@ -381,7 +486,7 @@ defmodule PidroServer.Emails do
       "last_played_at" => "2026-10-23",
       "code" => "028641",
       "reset_url" => "https://play.pidro.online/reset-password?token=sample-only",
-      "unsubscribe_url" => "https://play.pidro.online/unsubscribe?token=sample-only",
+      "unsubscribe_url" => PidroServerWeb.Endpoint.url() <> "/unsubscribe/sample-only",
       "offer_url" => "https://play.pidro.online",
       "support_email" => delivery_setup().reply_to,
       "purchase_platform" => "Apple App Store",
@@ -470,7 +575,7 @@ defmodule PidroServer.Emails do
       html_body: """
       <p>Hi {{first_name}},</p>
       <p>Write the campaign body here.</p>
-      <p><a href="{{unsubscribe_url}}">Unsubscribe</a></p>
+      <p style="font-size:13px;color:#7a5a36;">You get this because you have a Pidro account. <a href="{{unsubscribe_url}}">Stop update emails</a><br>Du får det här för att du har ett Pidro-konto. <a href="{{unsubscribe_url}}">Sluta få uppdateringar</a></p>
       """,
       variables_text: "{{first_name}}\n{{unsubscribe_url}}\n{{support_email}}"
     }

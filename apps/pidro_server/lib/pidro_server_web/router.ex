@@ -27,6 +27,15 @@ defmodule PidroServerWeb.Router do
     plug PidroServerWeb.Plugs.RateLimit
   end
 
+  # The update-email unsubscribe link (PID-448). No session and no CSRF check:
+  # mail apps' one-click POST carries neither, so the signed token in the path
+  # is the only credential. No `accepts` either, so any Accept header gets HTML.
+  pipeline :unsubscribe_page do
+    plug :put_format, "html"
+    plug :put_secure_browser_headers
+    plug PidroServerWeb.Plugs.RateLimit
+  end
+
   pipeline :dev_layout do
     plug :put_root_layout, html: {PidroServerWeb.Layouts, :dev_root}
   end
@@ -103,6 +112,16 @@ defmodule PidroServerWeb.Router do
 
     post "/play/:slug/deferred", DeferredInviteCaptureController, :create,
       private: %{rate_limit: [:invite_capture, :friend_capture_slug]}
+  end
+
+  scope "/", PidroServerWeb do
+    pipe_through :unsubscribe_page
+
+    get "/unsubscribe/:token", UnsubscribeController, :show,
+      private: %{rate_limit: [:unsubscribe]}
+
+    post "/unsubscribe/:token", UnsubscribeController, :update,
+      private: %{rate_limit: [:unsubscribe_post]}
   end
 
   scope "/webhooks", PidroServerWeb do

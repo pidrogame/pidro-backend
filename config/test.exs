@@ -69,6 +69,7 @@ config :pidro_server, PidroServerWeb.Endpoint,
 
 # In test we don't send emails
 config :pidro_server, PidroServer.Mailer, adapter: Swoosh.Adapters.Test
+config :pidro_server, PidroServer.Emails.Mailing, interval_ms: 0
 
 config :pidro_server, :password_reset,
   debug_tokens: true,
@@ -180,7 +181,9 @@ config :pidro_server, PidroServerWeb.Plugs.RateLimit,
   feedback_answer: %{limit: 1_000_000, scale_ms: 3_600_000, key: :ip},
   avatar_upload: %{limit: 1_000_000, scale_ms: 600_000, key: :user},
   avatar_read: %{limit: 1_000_000, scale_ms: 60_000, key: :ip},
-  push_token: %{limit: 1_000_000, scale_ms: 3_600_000, key: :user}
+  push_token: %{limit: 1_000_000, scale_ms: 3_600_000, key: :user},
+  unsubscribe: %{limit: 1_000_000, scale_ms: 60_000, key: :ip},
+  unsubscribe_post: %{limit: 1_000_000, scale_ms: 60_000, key: :ip}
 
 # Ops routes require a real admin session in tests. Only local development bypasses auth.
 config :pidro_server, dev_routes: false

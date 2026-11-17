@@ -399,6 +399,18 @@ defmodule PidroServer.EmailMigrationTest do
     assert csv =~ "pidro_server"
   end
 
+  test "the export's subscribed column is false for players who turned update emails off" do
+    AccountsFixtures.user_fixture(%{username: "still_in", email: "in@example.com"})
+    out = AccountsFixtures.user_fixture(%{username: "opted_out", email: "out@example.com"})
+    {:ok, _user} = Emails.set_update_emails(out, :off)
+
+    lines = Emails.export_contacts_csv() |> String.split("\n")
+    assert Enum.find(lines, &(&1 =~ "in@example.com")) =~ "in@example.com,still_in,,,true,false,"
+
+    assert Enum.find(lines, &(&1 =~ "out@example.com")) =~
+             "out@example.com,opted_out,,,false,false,"
+  end
+
   test "creates and updates email templates in the database" do
     {:ok, template} = Emails.create_template(:transactional)
 

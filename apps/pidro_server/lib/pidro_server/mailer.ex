@@ -42,12 +42,13 @@ defmodule PidroServer.Mailer do
     {:error, reason}
   end
 
-  defp summary(exception) when is_exception(exception), do: exception.__struct__
+  @doc "A delivery failure reduced to what is safe to log or keep: never the mail or its address."
+  def summary(exception) when is_exception(exception), do: exception.__struct__
 
-  defp summary({kind, reason}) when kind in [:error, :exit, :throw],
+  def summary({kind, reason}) when kind in [:error, :exit, :throw],
     do: {kind, summary(reason)}
 
-  defp summary({reason, {_module, _function, _args}}), do: summary(reason)
-  defp summary(reason) when is_atom(reason), do: reason
-  defp summary(_reason), do: :unknown
+  def summary({reason, {_module, _function, _args}}), do: summary(reason)
+  def summary(reason) when is_atom(reason), do: reason
+  def summary(_reason), do: :unknown
 end

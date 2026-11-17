@@ -214,7 +214,11 @@ rate_limit_overrides =
     {:avatar_read, :limit, "RATE_LIMIT_AVATAR_READ_LIMIT"},
     {:avatar_read, :scale_ms, "RATE_LIMIT_AVATAR_READ_SCALE_MS"},
     {:push_token, :limit, "RATE_LIMIT_PUSH_TOKEN_LIMIT"},
-    {:push_token, :scale_ms, "RATE_LIMIT_PUSH_TOKEN_SCALE_MS"}
+    {:push_token, :scale_ms, "RATE_LIMIT_PUSH_TOKEN_SCALE_MS"},
+    {:unsubscribe, :limit, "RATE_LIMIT_UNSUBSCRIBE_LIMIT"},
+    {:unsubscribe, :scale_ms, "RATE_LIMIT_UNSUBSCRIBE_SCALE_MS"},
+    {:unsubscribe_post, :limit, "RATE_LIMIT_UNSUBSCRIBE_POST_LIMIT"},
+    {:unsubscribe_post, :scale_ms, "RATE_LIMIT_UNSUBSCRIBE_POST_SCALE_MS"}
   ]
   |> Enum.reduce([], fn {policy, field, env_var}, acc ->
     case System.get_env(env_var) do

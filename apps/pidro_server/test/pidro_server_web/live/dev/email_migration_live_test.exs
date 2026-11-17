@@ -7,6 +7,7 @@ defmodule PidroServerWeb.Dev.EmailMigrationLiveTest do
 
   alias PidroServer.AccountsFixtures
   alias PidroServer.Emails
+  alias PidroServer.Emails.Mailing
 
   setup :register_and_log_in_admin
   setup :set_swoosh_global
@@ -299,6 +300,216 @@ defmodule PidroServerWeb.Dev.EmailMigrationLiveTest do
     assert ["text/csv; charset=utf-8"] = get_resp_header(conn, "content-type")
     assert [disposition] = get_resp_header(conn, "content-disposition")
     assert disposition =~ "pidro-keila-contacts-"
+  end
+
+  describe "send to players" do
+    defmodule FailingMailer do
+      use Swoosh.Adapter
+      def deliver(_email, _config), do: {:error, {:permanent_failure, "550 refused"}}
+    end
+
+    setup do
+      on_exit(fn ->
+        if pid = Process.whereis(Mailing), do: Process.exit(pid, :kill)
+      end)
+    end
+
+    defp use_mailer(opts) do
+      mailer_env = Application.fetch_env!(:pidro_server, PidroServer.Mailer)
+      Application.put_env(:pidro_server, PidroServer.Mailer, opts)
+      on_exit(fn -> Application.put_env(:pidro_server, PidroServer.Mailer, mailer_env) end)
+    end
+
+    defp await_mailing do
+      case Process.whereis(Mailing) do
+        nil ->
+          :ok
+
+        pid ->
+          ref = Process.monitor(pid)
+          assert_receive {:DOWN, ^ref, :process, ^pid, _reason}, 5_000
+      end
+    end
+
+    defp campaign_view(conn) do
+      {:ok, template} = Emails.create_template(:campaign)
+      {:ok, view, _html} = live(conn, ~p"/admin/emails")
+      render_click(view, "select_template", %{"id" => template.id})
+      {template, view}
+    end
+
+    defp players(count) do
+      for i <- 1..count, do: AccountsFixtures.user_fixture(%{email: "player#{i}@example.com"})
+    end
+
+    test "the button is off, with its reason, for unsaved edits, a missing link, an unknown placeholder and a running send",
+         %{conn: conn} do
+      players(1)
+      {:ok, transactional} = Emails.create_template(:transactional)
+      {template, view} = campaign_view(conn)
+      id = template.id
+
+      assert has_element?(view, "#send-to-players:not([disabled])")
+      refute has_element?(view, "#send-blocker")
+
+      render_change(view, "preview_template", %{
+        "template_id" => id,
+        "template" => %{"subject" => "Edited, not saved"}
+      })
+
+      assert has_element?(view, "#send-to-players[disabled]")
+      assert has_element?(view, "#send-blocker", "save your edits first.")
+      render_click(view, "open_send")
+      refute has_element?(view, "#send-confirm")
+
+      render_submit(view, "save_template", %{
+        "template_id" => id,
+        "template" => %{"html_body" => "<p>Hi {{first_name}}</p>"}
+      })
+
+      assert has_element?(view, "#send-to-players[disabled]")
+      assert has_element?(view, "#send-blocker", "Add {{unsubscribe_url}} to the body first.")
+
+      render_submit(view, "save_template", %{
+        "template_id" => id,
+        "template" => %{"html_body" => ~s(<p>{{typo}}</p><a href="{{unsubscribe_url}}">Stop</a>)}
+      })
+
+      assert has_element?(view, "#send-blocker", "Declare or fix typo first.")
+
+      render_submit(view, "save_template", %{
+        "template_id" => id,
+        "template" => %{
+          "html_body" => ~s(<p>Hi {{first_name}}</p><a href="{{unsubscribe_url}}">Stop</a>)
+        }
+      })
+
+      assert has_element?(view, "#send-to-players:not([disabled])")
+
+      use_mailer(adapter: BlockingMailer, test_pid: self())
+      {:ok, _send} = Mailing.start(Emails.get_template!(id), "other@example.com")
+      assert_receive {:mail_waiting, sender, _email}
+
+      assert has_element?(view, "#send-to-players[disabled]")
+      assert has_element?(view, "#send-blocker", "another send is running.")
+      assert has_element?(view, "#email-sends", "Sending")
+
+      # A deploy kills it with the mail in the mailer: shown unconfirmed, and resumable.
+      Process.exit(sender, :kill)
+      await_mailing()
+      render(view)
+      refute has_element?(view, "#send-blocker")
+      assert has_element?(view, "#send-to-players:not([disabled])")
+      assert has_element?(view, "#email-sends", "Stopped")
+
+      assert has_element?(
+               view,
+               "[data-send-progress]",
+               "0 sent · 0 failed · 1 unconfirmed · 0 pending"
+             )
+
+      assert has_element?(view, "[phx-click='resume_send']")
+
+      render_click(view, "select_template", %{"id" => transactional.id})
+      refute has_element?(view, "#send-to-players")
+    end
+
+    test "the confirm step wants the count typed, then the send shows its progress and is mentioned next time",
+         %{conn: conn} do
+      players(2)
+      AccountsFixtures.user_fixture(%{email: "guest@example.com", guest: true})
+      {template, view} = campaign_view(conn)
+
+      assert has_element?(view, "#email-sends", "Not sent yet.")
+      render_click(view, "open_send")
+      assert has_element?(view, "#send-confirm h2", template.subject)
+      assert has_element?(view, "#send-confirm", "This sends to 2 players")
+      refute has_element?(view, "#sent-before")
+      assert has_element?(view, "#confirm-send[disabled]")
+
+      view |> form("#send-confirm-form", %{"count" => "3"}) |> render_change()
+      assert has_element?(view, "#confirm-send[disabled]")
+      view |> form("#send-confirm-form", %{"count" => "3"}) |> render_submit()
+      assert PidroServer.Repo.aggregate(PidroServer.Emails.EmailSend, :count) == 0
+      assert_no_email_sent()
+
+      view |> form("#send-confirm-form", %{"count" => "2"}) |> render_change()
+      assert has_element?(view, "#confirm-send:not([disabled])")
+
+      assert view |> form("#send-confirm-form", %{"count" => "2"}) |> render_submit() =~
+               "Sending #{template.name}."
+
+      await_mailing()
+
+      for _ <- 1..2 do
+        assert_receive {:email, email}
+        assert email.subject == template.subject
+      end
+
+      refute_received {:email, _}
+      render(view)
+      refute has_element?(view, "#send-confirm")
+      assert has_element?(view, "#email-sends", "Finished")
+
+      assert has_element?(
+               view,
+               "[data-send-progress]",
+               "2 sent · 0 failed · 0 unconfirmed · 0 pending"
+             )
+
+      render_click(view, "open_send")
+
+      assert has_element?(
+               view,
+               "#sent-before",
+               ~r/Sent before on \d{4}-\d\d-\d\d \d\d:\d\d UTC, to 2 players\./
+             )
+    end
+
+    test "a paused send shows why, and Resume sends only what is pending", %{conn: conn} do
+      users = players(6)
+      use_mailer(adapter: FailingMailer)
+      {template, view} = campaign_view(conn)
+
+      render_click(view, "open_send")
+      view |> form("#send-confirm-form", %{"count" => "6"}) |> render_submit()
+      ExUnit.CaptureLog.capture_log(&await_mailing/0)
+      render(view)
+
+      assert has_element?(view, "#email-sends", "Paused")
+
+      assert has_element?(
+               view,
+               "[data-send-paused]",
+               "5 failures in a row, the last :permanent_failure"
+             )
+
+      assert has_element?(
+               view,
+               "[data-send-progress]",
+               "0 sent · 5 failed · 0 unconfirmed · 1 pending"
+             )
+
+      refute has_element?(view, "#send-blocker")
+
+      use_mailer(adapter: Swoosh.Adapters.Test)
+      [send] = Mailing.list_sends(template.id)
+      render_click(view, "resume_send", %{"id" => send.id})
+      await_mailing()
+      render(view)
+
+      assert has_element?(
+               view,
+               "[data-send-progress]",
+               "1 sent · 5 failed · 0 unconfirmed · 0 pending"
+             )
+
+      assert has_element?(view, "#email-sends", "Finished")
+      refute has_element?(view, "[data-send-paused]")
+      assert_receive {:email, %{to: [{_name, address}]}}
+      refute_received {:email, _}
+      assert address in Enum.map(users, & &1.email)
+    end
   end
 
   defp preview_html(view) do

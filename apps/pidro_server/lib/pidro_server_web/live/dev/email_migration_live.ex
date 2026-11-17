@@ -8,11 +8,13 @@ defmodule PidroServerWeb.Dev.EmailMigrationLive do
   import PidroServerWeb.Dev.AdminComponents
 
   alias PidroServer.Emails
+  alias PidroServer.Emails.Mailing
 
   @impl true
   def mount(_params, _session, socket) do
     kind = :transactional
     selected = Emails.first_template(kind)
+    if connected?(socket), do: Mailing.subscribe()
 
     {:ok,
      socket
@@ -25,6 +27,10 @@ defmodule PidroServerWeb.Dev.EmailMigrationLive do
      |> assign(:test_sending, false)
      |> assign(:test_result, nil)
      |> assign(:test_target, nil)
+     |> assign(:send_modal, false)
+     |> assign(:send_confirm, "")
+     |> assign(:mailing_running, false)
+     |> assign(:mailing_monitor, nil)
      |> assign_selected(selected)
      |> load_email_ops()}
   end
@@ -189,10 +195,73 @@ defmodule PidroServerWeb.Dev.EmailMigrationLive do
     end
   end
 
+  def handle_event("open_send", _params, %{assigns: %{send_blocker: nil}} = socket) do
+    {:noreply,
+     socket
+     |> assign(:send_modal, true)
+     |> assign(:send_confirm, "")
+     |> assign_recipient_count()}
+  end
+
+  def handle_event("open_send", _params, socket), do: {:noreply, socket}
+
+  def handle_event("cancel_send", _params, socket) do
+    {:noreply, assign(socket, :send_modal, false)}
+  end
+
+  def handle_event("send_confirm_input", %{"count" => count}, socket) do
+    {:noreply, assign(socket, :send_confirm, count)}
+  end
+
+  def handle_event("confirm_send", %{"count" => count}, socket) do
+    %{selected_template: template, send_blocker: blocker, recipient_count: expected} =
+      socket.assigns
+
+    with true <- String.trim(count) == Integer.to_string(expected) and is_nil(blocker),
+         {:ok, _send} <- Mailing.start(template, admin_label(socket)) do
+      {:noreply,
+       socket
+       |> assign(:send_modal, false)
+       |> assign_sends()
+       |> put_flash(:info, "Sending #{template.name}.")}
+    else
+      false ->
+        {:noreply, socket}
+
+      {:error, reason} ->
+        {:noreply,
+         socket
+         |> assign(:send_modal, false)
+         |> assign_sends()
+         |> put_flash(:error, send_error(reason))}
+    end
+  end
+
+  def handle_event("resume_send", %{"id" => id}, socket) do
+    socket =
+      case Mailing.resume(id) do
+        {:ok, _send} -> put_flash(socket, :info, "Resumed the send.")
+        {:error, reason} -> put_flash(socket, :error, send_error(reason))
+      end
+
+    {:noreply, assign_sends(socket)}
+  end
+
   # A previous editor can still emit events while a selection patch is in flight.
   def handle_event(event, _params, socket)
       when event in ["preview_template", "save_template", "send_test_email"] do
     {:noreply, socket}
+  end
+
+  @impl true
+  def handle_info(:email_sends_changed, socket), do: {:noreply, assign_sends(socket)}
+
+  # The mailing process ended: finished, paused, or killed by a crash or a deploy.
+  def handle_info(
+        {:DOWN, ref, :process, _pid, _reason},
+        %{assigns: %{mailing_monitor: ref}} = socket
+      ) do
+    {:noreply, socket |> assign(:mailing_monitor, nil) |> assign_sends()}
   end
 
   @impl true
@@ -344,244 +413,316 @@ defmodule PidroServerWeb.Dev.EmailMigrationLive do
             class="grid min-w-0 gap-4 2xl:grid-cols-[minmax(0,1fr)_minmax(0,640px)]"
           >
             <input type="hidden" name="template_id" value={@selected_template.id} />
-            <div class={panel_class(["min-w-0"])}>
-              <div class="flex flex-col gap-3 border-b border-stone-200 px-4 py-3 2xl:flex-row 2xl:items-start 2xl:justify-between">
-                <div>
-                  <div class="flex flex-wrap items-center gap-2">
-                    <span class={kind_badge_class(@selected_template.kind)}>
-                      {kind_label(@selected_template.kind)}
-                    </span>
-                    <span class={subtle_badge_class()}>
-                      Saved in database
-                    </span>
-                    <span class="rounded-md border border-stone-200 bg-white px-2 py-1 font-mono text-xs font-medium text-stone-600">
-                      :{@selected_template.key}
-                    </span>
-                    <span
-                      data-editor-dirty
-                      class="hidden rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-xs font-medium text-amber-800"
+            <div class="grid min-w-0 content-start gap-4">
+              <div class={panel_class(["min-w-0"])}>
+                <div class="flex flex-col gap-3 border-b border-stone-200 px-4 py-3 2xl:flex-row 2xl:items-start 2xl:justify-between">
+                  <div>
+                    <div class="flex flex-wrap items-center gap-2">
+                      <span class={kind_badge_class(@selected_template.kind)}>
+                        {kind_label(@selected_template.kind)}
+                      </span>
+                      <span class={subtle_badge_class()}>
+                        Saved in database
+                      </span>
+                      <span class="rounded-md border border-stone-200 bg-white px-2 py-1 font-mono text-xs font-medium text-stone-600">
+                        :{@selected_template.key}
+                      </span>
+                      <span
+                        data-editor-dirty
+                        class="hidden rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-xs font-medium text-amber-800"
+                      >
+                        Unsaved changes
+                      </span>
+                    </div>
+                    <h2 class="mt-2 text-lg font-semibold text-stone-950">
+                      {@selected_template.name}
+                    </h2>
+                    <p
+                      :if={@selected_template.kind == :campaign and @send_blocker}
+                      id="send-blocker"
+                      role="status"
+                      class="mt-1 text-xs text-amber-800"
                     >
-                      Unsaved changes
-                    </span>
+                      Send to players is off: {@send_blocker}
+                    </p>
                   </div>
-                  <h2 class="mt-2 text-lg font-semibold text-stone-950">
-                    {@selected_template.name}
-                  </h2>
+                  <div class="flex flex-wrap gap-2">
+                    <button
+                      type="submit"
+                      class={primary_button_class()}
+                    >
+                      <.icon name="hero-check" class="size-4" /> Save email
+                    </button>
+                    <button
+                      :if={@selected_template.kind == :campaign}
+                      id="send-to-players"
+                      type="button"
+                      phx-click="open_send"
+                      disabled={!is_nil(@send_blocker)}
+                      class={
+                        secondary_button_class(["disabled:opacity-50", "disabled:cursor-not-allowed"])
+                      }
+                    >
+                      <.icon name="hero-paper-airplane" class="size-4" /> Send to players
+                    </button>
+                    <button
+                      type="button"
+                      data-editor-action="copy-html"
+                      disabled={is_nil(@preview)}
+                      class={secondary_button_class()}
+                    >
+                      <.icon name="hero-clipboard-document" class="size-4" /> Copy HTML
+                    </button>
+                    <button
+                      type="button"
+                      data-editor-action="download-html"
+                      disabled={is_nil(@preview)}
+                      class={secondary_button_class()}
+                    >
+                      <.icon name="hero-arrow-down-tray" class="size-4" /> Download
+                    </button>
+                    <button
+                      type="button"
+                      phx-click="request_delete"
+                      phx-value-id={@selected_template.id}
+                      class={danger_button_class()}
+                    >
+                      <.icon name="hero-trash" class="size-4" /> Delete
+                    </button>
+                  </div>
                 </div>
-                <div class="flex flex-wrap gap-2">
-                  <button
-                    type="submit"
-                    class={primary_button_class()}
-                  >
-                    <.icon name="hero-check" class="size-4" /> Save email
-                  </button>
-                  <button
-                    type="button"
-                    data-editor-action="copy-html"
-                    disabled={is_nil(@preview)}
-                    class={secondary_button_class()}
-                  >
-                    <.icon name="hero-clipboard-document" class="size-4" /> Copy HTML
-                  </button>
-                  <button
-                    type="button"
-                    data-editor-action="download-html"
-                    disabled={is_nil(@preview)}
-                    class={secondary_button_class()}
-                  >
-                    <.icon name="hero-arrow-down-tray" class="size-4" /> Download
-                  </button>
-                  <button
-                    type="button"
-                    phx-click="request_delete"
-                    phx-value-id={@selected_template.id}
-                    class={danger_button_class()}
-                  >
-                    <.icon name="hero-trash" class="size-4" /> Delete
-                  </button>
+
+                <div class="grid gap-px bg-stone-100 lg:grid-cols-2">
+                  <label class="block bg-white px-4 py-3">
+                    <span class={field_label_class()}>
+                      Internal name
+                    </span>
+                    <input
+                      name={@form[:name].name}
+                      data-email-field="name"
+                      value={field_value(@form, :name)}
+                      class={text_input_class(["font-medium"])}
+                    />
+                  </label>
+                  <label class="block bg-white px-4 py-3">
+                    <span class={field_label_class()}>
+                      Code key
+                    </span>
+                    <input
+                      name={@form[:key].name}
+                      data-email-field="key"
+                      value={field_value(@form, :key)}
+                      class={text_input_class(["font-mono"])}
+                    />
+                    <p class="mt-1 truncate text-xs text-stone-600">
+                      Use
+                      <code class="font-mono">
+                        Emails.deliver_transactional(:{field_value(
+                          @form,
+                          :key
+                        )}, ...)
+                      </code>
+                    </p>
+                  </label>
+                  <label class="block bg-white px-4 py-3">
+                    <span class={field_label_class()}>
+                      Subject
+                    </span>
+                    <input
+                      name={@form[:subject].name}
+                      data-email-field="subject"
+                      value={field_value(@form, :subject)}
+                      class={text_input_class(["font-medium"])}
+                    />
+                  </label>
+                  <label class="block bg-white px-4 py-3">
+                    <span class={field_label_class()}>
+                      Preview text
+                    </span>
+                    <input
+                      name={@form[:preview_text].name}
+                      data-email-field="preview"
+                      value={field_value(@form, :preview_text)}
+                      class={text_input_class()}
+                    />
+                  </label>
+                  <div class="grid gap-px bg-stone-100 sm:grid-cols-3 lg:col-span-2">
+                    <label class="block bg-white px-4 py-3">
+                      <span class={field_label_class()}>
+                        From name
+                      </span>
+                      <input
+                        name={@form[:from_name].name}
+                        data-email-field="fromName"
+                        value={field_value(@form, :from_name)}
+                        class={text_input_class()}
+                      />
+                    </label>
+                    <label class="block bg-white px-4 py-3">
+                      <span class={field_label_class()}>
+                        From email
+                      </span>
+                      <input
+                        name={@form[:from_email].name}
+                        data-email-field="fromEmail"
+                        value={field_value(@form, :from_email)}
+                        class={text_input_class()}
+                      />
+                    </label>
+                    <label class="block bg-white px-4 py-3">
+                      <span class={field_label_class()}>
+                        Reply-to
+                      </span>
+                      <input
+                        name={@form[:reply_to].name}
+                        data-email-field="replyTo"
+                        value={field_value(@form, :reply_to)}
+                        class={text_input_class()}
+                      />
+                    </label>
+                  </div>
+                </div>
+
+                <textarea
+                  name={@form[:html_body].name}
+                  data-email-hidden-html
+                  class="hidden"
+                >{field_value(@form, :html_body)}</textarea>
+
+                <div class="border-t border-stone-200">
+                  <div class="flex flex-wrap items-center gap-1 border-b border-stone-200 bg-stone-50 px-3 py-2">
+                    <button
+                      type="button"
+                      data-editor-command="bold"
+                      class="editor-tool-button"
+                      title="Bold"
+                    >
+                      B
+                    </button>
+                    <button
+                      type="button"
+                      data-editor-command="italic"
+                      class="editor-tool-button italic"
+                      title="Italic"
+                    >
+                      I
+                    </button>
+                    <button
+                      type="button"
+                      data-editor-command="formatBlock"
+                      data-editor-value="h2"
+                      class="editor-tool-button"
+                      title="Heading"
+                    >
+                      H2
+                    </button>
+                    <button
+                      type="button"
+                      data-editor-command="insertUnorderedList"
+                      class="editor-tool-button"
+                      title="Bulleted list"
+                    >
+                      <.icon name="hero-list-bullet" class="size-4" />
+                    </button>
+                    <button
+                      type="button"
+                      data-editor-command="insertOrderedList"
+                      class="editor-tool-button"
+                      title="Numbered list"
+                    >
+                      1.
+                    </button>
+                    <button
+                      type="button"
+                      data-editor-action="create-link"
+                      class="editor-tool-button"
+                      title="Insert link"
+                    >
+                      <.icon name="hero-link" class="size-4" />
+                    </button>
+                    <button
+                      type="button"
+                      data-editor-command="removeFormat"
+                      class="editor-tool-button"
+                      title="Clear formatting"
+                    >
+                      <.icon name="hero-eraser" class="size-4" />
+                    </button>
+                    <div class="mx-2 hidden h-6 w-px bg-stone-300 sm:block"></div>
+                    <span class="px-2 text-xs font-medium text-stone-600">
+                      Variables
+                    </span>
+                    <button
+                      :for={variable <- @selected_template.variables}
+                      type="button"
+                      data-editor-variable={variable}
+                      class="rounded-md border border-stone-200 bg-white px-2 py-1 font-mono text-xs font-medium text-stone-600 hover:border-stone-300 hover:text-stone-950"
+                    >
+                      {variable}
+                    </button>
+                  </div>
+
+                  <div class="bg-stone-50 p-4">
+                    <div
+                      id={"email-body-#{@selected_template.id}"}
+                      phx-update="ignore"
+                      data-email-body
+                      contenteditable="true"
+                      class="email-editor-body mx-auto min-h-[28rem] w-full max-w-[42rem] rounded-lg border border-stone-200 bg-white px-8 py-7 text-base leading-7 text-stone-950 focus:border-stone-400 focus:outline-none focus:ring-2 focus:ring-stone-200"
+                    ><%= raw(field_value(@form, :html_body)) %></div>
+                  </div>
                 </div>
               </div>
 
-              <div class="grid gap-px bg-stone-100 lg:grid-cols-2">
-                <label class="block bg-white px-4 py-3">
-                  <span class={field_label_class()}>
-                    Internal name
-                  </span>
-                  <input
-                    name={@form[:name].name}
-                    data-email-field="name"
-                    value={field_value(@form, :name)}
-                    class={text_input_class(["font-medium"])}
-                  />
-                </label>
-                <label class="block bg-white px-4 py-3">
-                  <span class={field_label_class()}>
-                    Code key
-                  </span>
-                  <input
-                    name={@form[:key].name}
-                    data-email-field="key"
-                    value={field_value(@form, :key)}
-                    class={text_input_class(["font-mono"])}
-                  />
-                  <p class="mt-1 truncate text-xs text-stone-600">
-                    Use
-                    <code class="font-mono">
-                      Emails.deliver_transactional(:{field_value(
-                        @form,
-                        :key
-                      )}, ...)
-                    </code>
+              <section
+                :if={@selected_template.kind == :campaign}
+                id="email-sends"
+                class={panel_class(["min-w-0"])}
+              >
+                <div class="flex flex-wrap items-center justify-between gap-2 border-b border-stone-200 px-4 py-3">
+                  <h2 class={section_heading_class()}>Sends to players</h2>
+                  <p class="text-xs text-stone-600">
+                    {format_number(@recipient_count)} players get update emails
                   </p>
-                </label>
-                <label class="block bg-white px-4 py-3">
-                  <span class={field_label_class()}>
-                    Subject
-                  </span>
-                  <input
-                    name={@form[:subject].name}
-                    data-email-field="subject"
-                    value={field_value(@form, :subject)}
-                    class={text_input_class(["font-medium"])}
-                  />
-                </label>
-                <label class="block bg-white px-4 py-3">
-                  <span class={field_label_class()}>
-                    Preview text
-                  </span>
-                  <input
-                    name={@form[:preview_text].name}
-                    data-email-field="preview"
-                    value={field_value(@form, :preview_text)}
-                    class={text_input_class()}
-                  />
-                </label>
-                <div class="grid gap-px bg-stone-100 sm:grid-cols-3 lg:col-span-2">
-                  <label class="block bg-white px-4 py-3">
-                    <span class={field_label_class()}>
-                      From name
-                    </span>
-                    <input
-                      name={@form[:from_name].name}
-                      data-email-field="fromName"
-                      value={field_value(@form, :from_name)}
-                      class={text_input_class()}
-                    />
-                  </label>
-                  <label class="block bg-white px-4 py-3">
-                    <span class={field_label_class()}>
-                      From email
-                    </span>
-                    <input
-                      name={@form[:from_email].name}
-                      data-email-field="fromEmail"
-                      value={field_value(@form, :from_email)}
-                      class={text_input_class()}
-                    />
-                  </label>
-                  <label class="block bg-white px-4 py-3">
-                    <span class={field_label_class()}>
-                      Reply-to
-                    </span>
-                    <input
-                      name={@form[:reply_to].name}
-                      data-email-field="replyTo"
-                      value={field_value(@form, :reply_to)}
-                      class={text_input_class()}
-                    />
-                  </label>
                 </div>
-              </div>
-
-              <textarea
-                name={@form[:html_body].name}
-                data-email-hidden-html
-                class="hidden"
-              >{field_value(@form, :html_body)}</textarea>
-
-              <div class="border-t border-stone-200">
-                <div class="flex flex-wrap items-center gap-1 border-b border-stone-200 bg-stone-50 px-3 py-2">
-                  <button
-                    type="button"
-                    data-editor-command="bold"
-                    class="editor-tool-button"
-                    title="Bold"
-                  >
-                    B
-                  </button>
-                  <button
-                    type="button"
-                    data-editor-command="italic"
-                    class="editor-tool-button italic"
-                    title="Italic"
-                  >
-                    I
-                  </button>
-                  <button
-                    type="button"
-                    data-editor-command="formatBlock"
-                    data-editor-value="h2"
-                    class="editor-tool-button"
-                    title="Heading"
-                  >
-                    H2
-                  </button>
-                  <button
-                    type="button"
-                    data-editor-command="insertUnorderedList"
-                    class="editor-tool-button"
-                    title="Bulleted list"
-                  >
-                    <.icon name="hero-list-bullet" class="size-4" />
-                  </button>
-                  <button
-                    type="button"
-                    data-editor-command="insertOrderedList"
-                    class="editor-tool-button"
-                    title="Numbered list"
-                  >
-                    1.
-                  </button>
-                  <button
-                    type="button"
-                    data-editor-action="create-link"
-                    class="editor-tool-button"
-                    title="Insert link"
-                  >
-                    <.icon name="hero-link" class="size-4" />
-                  </button>
-                  <button
-                    type="button"
-                    data-editor-command="removeFormat"
-                    class="editor-tool-button"
-                    title="Clear formatting"
-                  >
-                    <.icon name="hero-eraser" class="size-4" />
-                  </button>
-                  <div class="mx-2 hidden h-6 w-px bg-stone-300 sm:block"></div>
-                  <span class="px-2 text-xs font-medium text-stone-600">
-                    Variables
-                  </span>
-                  <button
-                    :for={variable <- @selected_template.variables}
-                    type="button"
-                    data-editor-variable={variable}
-                    class="rounded-md border border-stone-200 bg-white px-2 py-1 font-mono text-xs font-medium text-stone-600 hover:border-stone-300 hover:text-stone-950"
-                  >
-                    {variable}
-                  </button>
-                </div>
-
-                <div class="bg-stone-50 p-4">
+                <p :if={@sends == []} class="px-4 py-3 text-sm text-stone-600">Not sent yet.</p>
+                <div class="divide-y divide-stone-100">
                   <div
-                    id={"email-body-#{@selected_template.id}"}
-                    phx-update="ignore"
-                    data-email-body
-                    contenteditable="true"
-                    class="email-editor-body mx-auto min-h-[28rem] w-full max-w-[42rem] rounded-lg border border-stone-200 bg-white px-8 py-7 text-base leading-7 text-stone-950 focus:border-stone-400 focus:outline-none focus:ring-2 focus:ring-stone-200"
-                  ><%= raw(field_value(@form, :html_body)) %></div>
+                    :for={send <- @sends}
+                    id={"email-send-#{send.id}"}
+                    class="flex flex-col gap-2 px-4 py-3 sm:flex-row sm:items-center sm:justify-between"
+                  >
+                    <div class="min-w-0 text-sm">
+                      <p class="flex flex-wrap items-center gap-2 font-medium text-stone-950">
+                        {format_time(send.inserted_at)} · {send.started_by}
+                        <span class={subtle_badge_class()}>
+                          {status_label(send_status(send, @mailing_running))}
+                        </span>
+                      </p>
+                      <p data-send-progress class="mt-1 text-stone-600">{progress_line(send)}</p>
+                      <p
+                        :if={send.state == :paused and send.paused_reason}
+                        data-send-paused
+                        class="mt-1 text-amber-800"
+                      >
+                        Paused: {send.paused_reason}
+                      </p>
+                    </div>
+                    <button
+                      :if={send_status(send, @mailing_running) in [:paused, :stopped]}
+                      type="button"
+                      phx-click="resume_send"
+                      phx-value-id={send.id}
+                      disabled={@mailing_running}
+                      class={
+                        secondary_button_class(["disabled:opacity-50", "disabled:cursor-not-allowed"])
+                      }
+                    >
+                      <.icon name="hero-play" class="size-4" /> Resume
+                    </button>
+                  </div>
                 </div>
-              </div>
+              </section>
             </div>
 
             <aside class="grid min-w-0 gap-4">
@@ -756,6 +897,73 @@ defmodule PidroServerWeb.Dev.EmailMigrationLive do
         <% end %>
       </section>
 
+      <%= if @send_modal and @selected_template do %>
+        <div
+          id="send-confirm"
+          class="fixed inset-0 z-50 flex items-end justify-center bg-stone-950/45 p-4 sm:items-center"
+        >
+          <div class="w-full max-w-lg rounded-lg border border-stone-200 bg-white p-6 shadow-xl animate-deal-in">
+            <div class="flex gap-4">
+              <div class="flex size-11 shrink-0 items-center justify-center rounded-md bg-sky-50 text-sky-700">
+                <.icon name="hero-paper-airplane" class="size-6" />
+              </div>
+              <div class="min-w-0">
+                <h2 class="text-base font-semibold text-stone-950">
+                  {@selected_template.subject}
+                </h2>
+                <p class="mt-2 text-sm leading-6 text-stone-600">
+                  This sends to <strong class="text-stone-950">{format_number(@recipient_count)} players</strong>, one mail at a time.
+                  Each mail carries the player's own link to stop update emails.
+                </p>
+                <p :if={@sends != []} id="sent-before" class="mt-2 text-sm leading-6 text-amber-800">
+                  {sent_before(hd(@sends))}
+                </p>
+              </div>
+            </div>
+            <form
+              id="send-confirm-form"
+              phx-change="send_confirm_input"
+              phx-submit="confirm_send"
+              class="mt-5"
+            >
+              <label class="block text-sm font-medium text-stone-700">
+                Type {@recipient_count} to send
+                <input
+                  name="count"
+                  value={@send_confirm}
+                  inputmode="numeric"
+                  autocomplete="off"
+                  class={text_input_class()}
+                />
+              </label>
+              <div class="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+                <button
+                  type="button"
+                  phx-click="cancel_send"
+                  class="rounded-md border border-stone-200 bg-white px-4 py-2 text-sm font-medium text-stone-700 hover:bg-stone-50"
+                >
+                  Keep editing
+                </button>
+                <button
+                  id="confirm-send"
+                  type="submit"
+                  disabled={String.trim(@send_confirm) != Integer.to_string(@recipient_count)}
+                  class={
+                    primary_button_class([
+                      "justify-center",
+                      "disabled:opacity-50",
+                      "disabled:cursor-not-allowed"
+                    ])
+                  }
+                >
+                  Send to {format_number(@recipient_count)} players
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      <% end %>
+
       <%= if @show_delete_modal and @template_to_delete do %>
         <div class="fixed inset-0 z-50 flex items-end justify-center bg-stone-950/45 p-4 sm:items-center">
           <div class="w-full max-w-lg rounded-lg border border-stone-200 bg-white p-6 shadow-xl animate-deal-in">
@@ -801,6 +1009,8 @@ defmodule PidroServerWeb.Dev.EmailMigrationLive do
     |> assign(:selected_template, nil)
     |> assign(:draft_template, nil)
     |> assign(:form, nil)
+    |> assign(:sends, [])
+    |> assign(:send_blocker, nil)
   end
 
   defp assign_selected(socket, template) do
@@ -808,7 +1018,52 @@ defmodule PidroServerWeb.Dev.EmailMigrationLive do
     |> assign(:selected_template, template)
     |> assign(:form, to_form(Emails.change_template(template), as: :template))
     |> assign_preview(template)
+    |> assign_sends()
+    |> assign_recipient_count()
   end
+
+  # Loads every player with an address, so only for a campaign and the confirm step.
+  defp assign_recipient_count(%{assigns: %{selected_template: %{kind: :campaign}}} = socket),
+    do: assign(socket, :recipient_count, length(Emails.campaign_recipients()))
+
+  defp assign_recipient_count(socket), do: assign(socket, :recipient_count, 0)
+
+  defp assign_sends(socket) do
+    sends =
+      case socket.assigns.selected_template do
+        %{kind: :campaign, id: id} -> Mailing.list_sends(id)
+        _other -> []
+      end
+
+    socket
+    |> assign(:sends, sends)
+    |> watch_mailing()
+    |> assign_send_blocker()
+  end
+
+  defp watch_mailing(socket) do
+    case {Process.whereis(Mailing), socket.assigns.mailing_monitor} do
+      {nil, _monitor} -> assign(socket, :mailing_running, false)
+      {_pid, ref} when is_reference(ref) -> assign(socket, :mailing_running, true)
+      {pid, nil} -> assign(socket, mailing_running: true, mailing_monitor: Process.monitor(pid))
+    end
+  end
+
+  defp assign_send_blocker(
+         %{assigns: %{selected_template: %{kind: :campaign} = saved, draft_template: draft}} =
+           socket
+       ) do
+    blocker =
+      cond do
+        socket.assigns.mailing_running -> "another send is running."
+        Mailing.snapshot(draft) != Mailing.snapshot(saved) -> "save your edits first."
+        true -> Emails.campaign_send_blocker(saved)
+      end
+
+    assign(socket, :send_blocker, blocker)
+  end
+
+  defp assign_send_blocker(socket), do: assign(socket, :send_blocker, nil)
 
   defp assign_preview(socket, template) do
     {preview, error} =
@@ -826,7 +1081,42 @@ defmodule PidroServerWeb.Dev.EmailMigrationLive do
     |> assign(:preview, preview)
     |> assign(:preview_error, error)
     |> assign(:warnings, Emails.placeholder_warnings(template))
+    |> assign_send_blocker()
   end
+
+  defp admin_label(%{assigns: %{current_admin: %{email: email}}}), do: email
+  defp admin_label(_socket), do: "local development"
+
+  defp send_error(:already_running), do: "Another send is running. Wait for it to finish."
+  defp send_error({:blocked, reason}), do: "Not sent: #{reason}"
+  defp send_error(_reason), do: "The send could not start. Try again."
+
+  defp send_status(%{state: :running}, true), do: :sending
+  defp send_status(%{state: :running}, false), do: :stopped
+  defp send_status(%{state: state}, _running), do: state
+
+  defp status_label(:sending), do: "Sending"
+  defp status_label(:stopped), do: "Stopped"
+  defp status_label(:paused), do: "Paused"
+  defp status_label(:finished), do: "Finished"
+
+  defp progress_line(%{counts: counts}) do
+    [
+      "#{counts.sent} sent",
+      "#{counts.failed} failed",
+      "#{counts.claimed} unconfirmed",
+      "#{counts.pending} pending",
+      counts.skipped > 0 && "#{counts.skipped} turned emails off"
+    ]
+    |> Enum.filter(& &1)
+    |> Enum.join(" · ")
+  end
+
+  defp sent_before(send) do
+    "Sent before on #{format_time(send.inserted_at)}, to #{format_number(send.counts.sent)} players."
+  end
+
+  defp format_time(datetime), do: Calendar.strftime(datetime, "%Y-%m-%d %H:%M UTC")
 
   defp test_error({:rate_limited, retry_after}),
     do: "Five-test limit reached. Try again in #{ceil(retry_after / 60_000)} minutes."

@@ -40,7 +40,8 @@ defmodule PidroServer.Accounts.User do
   freshly inserted struct signs a valid token without a reload.
   `last_seen_at` is written only by `PidroServer.Accounts.Auth.touch_last_seen/1`;
   `install_id` and `guest_creation_token_hash` are stored at guest creation.
-  None is logged or exposed by the API.
+  None is logged or exposed by the API. `update_emails_off_at` is written only
+  by `PidroServer.Emails.set_update_emails/2`, from the unsubscribe link.
   """
 
   use Ecto.Schema
@@ -103,6 +104,7 @@ defmodule PidroServer.Accounts.User do
     field(:terms_version, :string)
     field(:terms_accepted_at, :utc_datetime_usec)
     field(:news_seen_at, :utc_datetime)
+    field(:update_emails_off_at, :utc_datetime)
     field(:avatar_face, :string)
     field(:avatar_url, :string, virtual: true)
     field(:linked_friend, :map, virtual: true)

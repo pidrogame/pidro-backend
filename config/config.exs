@@ -103,7 +103,11 @@ config :pidro_server, PidroServerWeb.Plugs.RateLimit,
   avatar_upload: %{limit: 10, scale_ms: 600_000, key: :user},
   avatar_read: %{limit: 300, scale_ms: 60_000, key: :ip},
   # The app registers its push token on start and after sign-in (PID-392).
-  push_token: %{limit: 30, scale_ms: 3_600_000, key: :user}
+  push_token: %{limit: 30, scale_ms: 3_600_000, key: :user},
+  # The update-email unsubscribe page, and its POST apart, since mail apps'
+  # one-click POSTs share provider addresses with link scanners (PID-448).
+  unsubscribe: %{limit: 60, scale_ms: 60_000, key: :ip},
+  unsubscribe_post: %{limit: 300, scale_ms: 60_000, key: :ip}
 
 # PidroServerWeb.Plugs.TrustedProxy honours X-Forwarded-For / X-Forwarded-Proto
 # only when this is true and the TCP peer is proxy-side. config/runtime.exs sets
@@ -196,6 +200,9 @@ config :pidro_server, PidroServerWeb.Endpoint,
 # For production it's recommended to configure a different adapter
 # at the `config/runtime.exs`.
 config :pidro_server, PidroServer.Mailer, adapter: Swoosh.Adapters.Local
+
+# A mailing to every player hands the relay one mail per `interval_ms` (PID-448).
+config :pidro_server, PidroServer.Emails.Mailing, interval_ms: 1_000
 
 # Configure esbuild (the version is required)
 config :esbuild,
