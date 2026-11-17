@@ -324,12 +324,19 @@ defmodule PidroServer.Emails do
                }),
              else: html_body
            ),
-         text_body: html_to_text(html_body)
+         text_body: html_to_text(html_body) <> unsubscribe_line(template, variables)
        }}
     else
       {:error, {:missing_variables, missing_variables}}
     end
   end
+
+  # `html_to_text/1` drops link targets, so a campaign's text part spells out
+  # the player's own unsubscribe link for plain-text mail clients.
+  defp unsubscribe_line(%EmailTemplate{kind: :campaign}, %{"unsubscribe_url" => url}),
+    do: "\n\nStop update emails / Sluta få uppdateringsmejl:\n#{url}"
+
+  defp unsubscribe_line(_template, _variables), do: ""
 
   @doc "Builds a player mail from its template, falling back to the original mail on failure."
   def transactional_email(key, recipient, variables) do

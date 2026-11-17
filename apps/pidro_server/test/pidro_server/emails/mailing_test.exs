@@ -220,6 +220,41 @@ defmodule PidroServer.Emails.MailingTest do
       assert [%{counts: %{sent: 2}}] = Mailing.list_sends(template.id)
     end
 
+    test "the text part carries the recipient's own unsubscribe URL, written out, and no one else's",
+         %{template: template} do
+      users = players(3)
+      {:ok, _send} = Mailing.start(template, "admin@example.com")
+      await_mailing()
+      emails = collect_emails()
+      assert length(emails) == 3
+
+      header_urls =
+        Map.new(emails, fn email ->
+          "<" <> rest = email.headers["List-Unsubscribe"]
+          {email.to, String.trim_trailing(rest, ">")}
+        end)
+
+      for user <- users do
+        email = Enum.find(emails, &(&1.to == [{user.username, user.email}]))
+        own_url = header_urls[email.to]
+
+        assert [_ | _] =
+                 text_urls = Regex.scan(~r{https?://\S+/unsubscribe/\S+}, email.text_body)
+
+        assert Enum.uniq(List.flatten(text_urls)) == [own_url]
+
+        token =
+          String.replace_prefix(own_url, PidroServerWeb.Endpoint.url() <> "/unsubscribe/", "")
+
+        assert {:ok, %User{id: id}} = Emails.user_for_unsubscribe_token(token)
+        assert id == user.id
+
+        for {to, other_url} <- header_urls, to != email.to do
+          refute email.text_body =~ other_url
+        end
+      end
+    end
+
     test "a bad address is a failed row and the send goes on", %{template: template} do
       use_mailer(FailingMailer)
       [p1, p2] = players(2)
