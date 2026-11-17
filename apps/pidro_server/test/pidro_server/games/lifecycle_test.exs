@@ -30,7 +30,8 @@ defmodule PidroServer.Games.LifecycleTest do
     :hand_transition_delay_ms,
     :settle_presentation_ms,
     :second_deal_transition_delay_ms,
-    :deal_transition_delay_ms
+    :deal_transition_delay_ms,
+    :bots_offer_delay_ms
   ]
 
   @expected_defaults %{
@@ -60,7 +61,8 @@ defmodule PidroServer.Games.LifecycleTest do
     hand_transition_delay_ms: 6_000,
     settle_presentation_ms: 2_500,
     second_deal_transition_delay_ms: 11_500,
-    deal_transition_delay_ms: 5_000
+    deal_transition_delay_ms: 5_000,
+    bots_offer_delay_ms: 120_000
   }
 
   describe "config/1" do

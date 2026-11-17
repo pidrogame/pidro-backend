@@ -168,6 +168,10 @@ only the key it names, and defaults live in `config/config.exs`.
   grace period. This is the knob for "the host left the app to paste the link
   and came back to a dead table": raise it, redeploy, and the running rooms pick
   up the new value on the next sweep.
+- `LIFECYCLE_BOTS_OFFER_DELAY_MS` (default `120000`, two minutes) is how long
+  after the last change at a waiting table with an open seat its host is
+  offered bots (PID-457); `0` turns the offer off. "Bots Offer Delay" on the
+  admin game settings page changes it until the next restart.
 
 The invite cutover is deliberately backend-first: deploy Phoenix, verify
 `https://app.pidro.online/j/<OPEN_CODE>`, then deploy the marketing-site rewrites
