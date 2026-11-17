@@ -118,7 +118,8 @@ lifecycle_overrides =
     {:hand_transition_delay_ms, "LIFECYCLE_HAND_TRANSITION_DELAY_MS"},
     {:settle_presentation_ms, "LIFECYCLE_SETTLE_PRESENTATION_MS"},
     {:second_deal_transition_delay_ms, "LIFECYCLE_SECOND_DEAL_TRANSITION_DELAY_MS"},
-    {:deal_transition_delay_ms, "LIFECYCLE_DEAL_TRANSITION_DELAY_MS"}
+    {:deal_transition_delay_ms, "LIFECYCLE_DEAL_TRANSITION_DELAY_MS"},
+    {:bots_offer_delay_ms, "LIFECYCLE_BOTS_OFFER_DELAY_MS"}
   ]
   |> Enum.reduce([], fn {key, env_var}, acc ->
     case System.get_env(env_var) do

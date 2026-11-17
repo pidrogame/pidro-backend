@@ -450,6 +450,13 @@ defmodule PidroServerWeb.Schemas.RoomSchemas do
           format: :"date-time",
           description: "ISO8601 timestamp when the room was created",
           example: "2024-11-02T10:30:00Z"
+        },
+        bots_offer_in_ms: %Schema{
+          type: :integer,
+          nullable: true,
+          description:
+            "Milliseconds from now until the host may be offered bots for the open seats, counted from the last change at the table; 0 when due. Null when the offer is off, no seat can take a bot, or the room is not waiting",
+          example: 120_000
         }
       },
       required: [

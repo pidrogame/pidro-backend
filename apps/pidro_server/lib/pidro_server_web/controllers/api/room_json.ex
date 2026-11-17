@@ -175,6 +175,7 @@ defmodule PidroServerWeb.API.RoomJSON do
       max_players: room.max_players,
       max_spectators: room.max_spectators,
       created_at: DateTime.to_iso8601(room.created_at),
+      bots_offer_in_ms: PidroServer.Games.RoomManager.bots_offer_in_ms(room),
       config: serialize_config(Map.get(room, :config)),
       seats:
         serialize_room_seats(Map.get(room, :seats, %{}), Map.get(room, :config, %Config{}), users)

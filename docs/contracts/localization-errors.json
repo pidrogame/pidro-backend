@@ -98,6 +98,7 @@
     {"code":"already_seated","params":{},"sources":["rooms","lobby"],"meaning":"You are already seated in this room."},
     {"code":"invitation_gone","params":{},"sources":["rooms"],"meaning":"That seat is no longer held for you."},
     {"code":"no_vacant_seat","params":{},"sources":["rooms","lobby"],"meaning":"No vacant seat is available."},
+    {"code":"no_seats_to_fill","params":{},"sources":["rooms"],"meaning":"Every seat is taken or held for a friend, so there is no seat for a bot."},
     {"code":"no_seat_for_you","params":{},"sources":["friends"],"meaning":"Your friend's table has no open seat you can take."},
     {"code":"table_full","params":{},"sources":["invites"],"meaning":"Every seat at this table is taken."},
     {"code":"room_not_waiting","params":{},"sources":["rooms","invites","readiness"],"meaning":"The room is no longer waiting for players."},

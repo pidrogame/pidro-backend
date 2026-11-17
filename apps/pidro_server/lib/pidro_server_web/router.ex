@@ -286,6 +286,7 @@ defmodule PidroServerWeb.Router do
     post "/rooms/:code/lock", RoomController, :lock
     post "/rooms/:code/kick", RoomController, :kick
     post "/rooms/:code/bot", RoomController, :seat_bot
+    post "/rooms/:code/fill-with-bots", RoomController, :fill_with_bots
     put "/rooms/:code/seats/:position/hold", RoomController, :hold
     delete "/rooms/:code/seats/:position/hold", RoomController, :release_hold
     post "/rooms/:code/seats/:position/decline", RoomController, :decline_hold

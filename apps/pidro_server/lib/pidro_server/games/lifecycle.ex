@@ -48,6 +48,7 @@ defmodule PidroServer.Games.Lifecycle do
           | :settle_presentation_ms
           | :second_deal_transition_delay_ms
           | :deal_transition_delay_ms
+          | :bots_offer_delay_ms
 
   @defaults %{
     hiccup_timeout_ms: 20_000,
@@ -89,7 +90,10 @@ defmodule PidroServer.Games.Lifecycle do
     second_deal_transition_delay_ms: 11_500,
     # As long as the client deals every hand's nine cards (12 packets 260 ms
     # apart, the 588 ms pause, the 560 ms sort: ~4.3 s), plus a breath.
-    deal_transition_delay_ms: 5_000
+    deal_transition_delay_ms: 5_000,
+    # A waiting table with an open seat offers its host bots this long after
+    # the last change at the table; 0 never offers (PID-457).
+    bots_offer_delay_ms: 120_000
   }
 
   @doc """

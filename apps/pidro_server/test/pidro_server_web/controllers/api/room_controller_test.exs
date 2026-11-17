@@ -2329,6 +2329,217 @@ defmodule PidroServerWeb.API.RoomControllerTest do
     end
   end
 
+  describe "PID-457 fill_with_bots/2" do
+    test "the host fills two open seats with one readiness reset and one broadcast", %{
+      conn: conn
+    } do
+      host = AccountsFixtures.user_fixture()
+      guest = AccountsFixtures.user_fixture()
+      {:ok, room} = RoomManager.create_room(host.id)
+      {:ok, _, :east} = RoomManager.join_room(room.code, guest.id, :east)
+      {:ok, before} = RoomManager.readiness(room.code)
+      Phoenix.PubSub.subscribe(PidroServer.PubSub, "game:#{room.code}")
+
+      filled =
+        as_user(conn, host) |> post(~p"/api/v1/rooms/#{room.code}/fill-with-bots") |> data(200)
+
+      assert filled["room"]["positions"]["south"] == "bot_#{room.code}_south"
+      assert filled["room"]["positions"]["west"] == "bot_#{room.code}_west"
+      assert filled["room"]["status"] == "waiting"
+      assert filled["room"]["bots_offer_in_ms"] == nil
+
+      epoch = before.ready_epoch + 1
+      assert_receive {:readiness_updated, %{ready_epoch: ^epoch, ready_players: [:south, :west]}}
+      refute_receive {:readiness_updated, _}, 200
+
+      {:ok, seated} = RoomManager.get_room(room.code)
+      assert seated.ready_epoch == epoch
+
+      for position <- [:south, :west] do
+        assert %{occupant_type: :bot, status: :connected, bot_pid: pid} = seated.seats[position]
+        assert Process.alive?(pid)
+      end
+
+      assert seated.seats.south.bot_persona != seated.seats.west.bot_persona
+    end
+
+    test "a seat held for a friend is skipped and the table keeps waiting", %{conn: conn} do
+      host = AccountsFixtures.user_fixture()
+      friend = AccountsFixtures.user_fixture()
+      {:ok, room} = RoomManager.create_room(host.id, %{seat_holds: %{east: friend.id}})
+
+      filled =
+        as_user(conn, host) |> post(~p"/api/v1/rooms/#{room.code}/fill-with-bots") |> data(200)
+
+      assert filled["room"]["positions"]["east"] == nil
+      assert filled["room"]["seats"]["east"]["held_for"]["user_id"] == friend.id
+      assert "bot_" <> _ = filled["room"]["positions"]["south"]
+      assert "bot_" <> _ = filled["room"]["positions"]["west"]
+
+      RoomManager.register_game_channel(room.code, host.id, self())
+      {:ok, snapshot} = RoomManager.readiness(room.code)
+      assert snapshot.bots_offer_in_ms == nil
+
+      assert {:error, :table_not_full, _} =
+               RoomManager.confirm_ready(
+                 room.code,
+                 room.id,
+                 host.id,
+                 self(),
+                 snapshot.ready_epoch
+               )
+
+      assert {:ok, %{status: :waiting, config: %{seat_holds: %{east: friend_id}}}} =
+               RoomManager.get_room(room.code)
+
+      assert friend_id == friend.id
+    end
+
+    test "a non-host gets 403, a playing room 409, no seat to fill 422 NO_SEATS_TO_FILL", %{
+      conn: conn
+    } do
+      host = AccountsFixtures.user_fixture()
+      other = AccountsFixtures.user_fixture()
+      {:ok, room} = RoomManager.create_room(host.id)
+      {:ok, _, :east} = RoomManager.join_room(room.code, other.id, :east)
+
+      assert %{"errors" => [%{"code" => "NOT_OWNER"}]} =
+               as_user(conn, other)
+               |> post(~p"/api/v1/rooms/#{room.code}/fill-with-bots")
+               |> json_response(403)
+
+      assert {:ok, %{positions: %{south: nil, west: nil}}} = RoomManager.get_room(room.code)
+
+      assert as_user(build_conn(), host)
+             |> post(~p"/api/v1/rooms/#{room.code}/fill-with-bots")
+             |> data(200)
+
+      {:ok, full} = RoomManager.get_room(room.code)
+
+      assert %{"errors" => [%{"code" => "NO_SEATS_TO_FILL"}], "error_code" => "no_seats_to_fill"} =
+               as_user(build_conn(), host)
+               |> post(~p"/api/v1/rooms/#{room.code}/fill-with-bots")
+               |> json_response(422)
+
+      assert {:ok, ^full} = RoomManager.get_room(room.code)
+
+      playing_host = AccountsFixtures.user_fixture()
+      {:ok, playing} = RoomManager.create_room(playing_host.id)
+      :ok = RoomManager.update_room_status(playing.code, :playing)
+
+      assert %{"errors" => [%{"code" => "ROOM_NOT_WAITING"}]} =
+               as_user(build_conn(), playing_host)
+               |> post(~p"/api/v1/rooms/#{playing.code}/fill-with-bots")
+               |> json_response(409)
+
+      assert {:ok, %{positions: %{east: nil, south: nil, west: nil}}} =
+               RoomManager.get_room(playing.code)
+    end
+
+    test "alone, the host fills three seats, confirms once and the game starts as a quick game",
+         %{conn: conn} do
+      host = AccountsFixtures.user_fixture()
+      {:ok, room} = RoomManager.create_room(host.id)
+      refute room.config.solo
+      RoomManager.register_game_channel(room.code, host.id, self())
+
+      as_user(conn, host) |> post(~p"/api/v1/rooms/#{room.code}/fill-with-bots") |> data(200)
+      {:ok, snapshot} = RoomManager.readiness(room.code)
+      assert snapshot.ready_players == [:east, :south, :west]
+
+      assert {:ok, %{status: :playing}} =
+               RoomManager.confirm_ready(
+                 room.code,
+                 room.id,
+                 host.id,
+                 self(),
+                 snapshot.ready_epoch
+               )
+
+      assert {:ok, _game} = PidroServer.Games.GameSupervisor.get_game(room.code)
+      assert solo_starts(host) == 1
+    end
+
+    test "two people and two bots start once both confirm, and it is no quick game", %{
+      conn: conn
+    } do
+      host = AccountsFixtures.user_fixture()
+      guest = AccountsFixtures.user_fixture()
+      {:ok, room} = RoomManager.create_room(host.id)
+      {:ok, _, :east} = RoomManager.join_room(room.code, guest.id, :east)
+      for user <- [host, guest], do: RoomManager.register_game_channel(room.code, user.id, self())
+
+      as_user(conn, host) |> post(~p"/api/v1/rooms/#{room.code}/fill-with-bots") |> data(200)
+      {:ok, %{ready_epoch: epoch}} = RoomManager.readiness(room.code)
+
+      assert {:ok, %{status: :waiting}} =
+               RoomManager.confirm_ready(room.code, room.id, host.id, self(), epoch)
+
+      assert {:ok, %{status: :playing}} =
+               RoomManager.confirm_ready(room.code, room.id, guest.id, self(), epoch)
+
+      assert Enum.map([host, guest], &solo_starts/1) == [0, 0]
+    end
+  end
+
+  describe "PID-457 bots_offer_in_ms" do
+    test "counts down from the delay after a change and restarts when someone sits or leaves",
+         %{conn: conn} do
+      host = AccountsFixtures.user_fixture()
+      guest = AccountsFixtures.user_fixture()
+      {:ok, room} = RoomManager.create_room(host.id)
+      Phoenix.PubSub.subscribe(PidroServer.PubSub, "game:#{room.code}")
+
+      assert offer(conn, host, room) in 119_000..120_000
+
+      table_changed(room, -30)
+      assert offer(conn, host, room) in 89_000..90_000
+
+      {:ok, _, :east} = RoomManager.join_room(room.code, guest.id, :east)
+      assert_receive {:readiness_updated, %{bots_offer_in_ms: on_sit}}
+      assert on_sit in 119_000..120_000
+      assert offer(conn, host, room) in 119_000..120_000
+
+      table_changed(room, -180)
+      assert offer(conn, host, room) == 0
+
+      :ok = RoomManager.leave_room(room.code, guest.id)
+      assert_receive {:readiness_updated, %{bots_offer_in_ms: on_leave}}
+      assert on_leave in 119_000..120_000
+    end
+
+    test "is null when off, when nothing can be filled and when the room is not waiting", %{
+      conn: conn
+    } do
+      host = AccountsFixtures.user_fixture()
+      friend = AccountsFixtures.user_fixture()
+      {:ok, room} = RoomManager.create_room(host.id)
+
+      original = Application.get_env(:pidro_server, PidroServer.Games.Lifecycle, [])
+      on_exit(fn -> Application.put_env(:pidro_server, PidroServer.Games.Lifecycle, original) end)
+
+      PidroServer.Games.PacingSettings.save(%{bots_offer_delay_ms: 0})
+      assert offer(conn, host, room) == nil
+
+      {:ok, values} = PidroServer.Games.PacingSettings.validate(%{"bots_offer_delay_ms" => ""})
+      assert values.bots_offer_delay_ms == 0
+      PidroServer.Games.PacingSettings.save(%{bots_offer_delay_ms: 120_000})
+      assert offer(conn, host, room) in 119_000..120_000
+
+      # Every open seat held or taken by a bot: nothing to fill.
+      {:ok, _} = RoomManager.set_seat_hold(room.code, host.id, :east, friend.id)
+      {:ok, _} = RoomManager.set_seat(room.code, host.id, :south, :bot)
+      {:ok, _} = RoomManager.set_seat(room.code, host.id, :west, :bot)
+      assert offer(conn, host, room) == nil
+
+      {:ok, _} = RoomManager.set_seat_hold(room.code, host.id, :east, nil)
+      assert offer(conn, host, room) in 119_000..120_000
+
+      :ok = RoomManager.update_room_status(room.code, :playing)
+      assert offer(conn, host, room) == nil
+    end
+  end
+
   describe "join/2 contract" do
     test "an already seated guest keeps the existing error", %{conn: conn} do
       guest = AccountsFixtures.guest_fixture()
@@ -2383,6 +2594,33 @@ defmodule PidroServerWeb.API.RoomControllerTest do
   end
 
   defp data(conn, status), do: json_response(conn, status)["data"]
+
+  # The offer as the room payload and the readiness snapshot both carry it.
+  defp offer(conn, user, room) do
+    from_room = as_user(conn, user) |> get(~p"/api/v1/rooms/#{room.code}") |> data(200)
+    {:ok, snapshot} = RoomManager.readiness(room.code)
+
+    assert_in_delta from_room["room"]["bots_offer_in_ms"] || -1,
+                    snapshot.bots_offer_in_ms || -1,
+                    50
+
+    snapshot.bots_offer_in_ms
+  end
+
+  # Moves the last change at the table `seconds` from now.
+  defp table_changed(room, seconds) do
+    :sys.replace_state(RoomManager, fn state ->
+      update_in(state.rooms[room.code], fn room ->
+        %{room | table_changed_at: DateTime.add(DateTime.utc_now(), seconds)}
+      end)
+    end)
+  end
+
+  defp solo_starts(user) do
+    PidroServer.DataCase.await_tasks()
+    profile = PidroServer.Repo.get_by(PidroServer.Profiles.PlayerProfile, user_id: user.id)
+    (profile || %PidroServer.Profiles.PlayerProfile{}).solo_games_started
+  end
 
   # The room code RoomManager tracks the user in, or nil.
   defp mapped_room_code(user), do: :sys.get_state(RoomManager).player_rooms[user.id]

@@ -699,6 +699,25 @@ defmodule PidroServerWeb.API.RoomController do
   end
 
   @doc false
+  def open_api_operation(:fill_with_bots) do
+    %Operation{
+      summary: "Seat a bot in every open seat",
+      description: """
+      Host only, while waiting or ready, refused as `PUT /rooms/:code/seats/:position`
+      is. Every vacant seat not held for a friend gets the bot the seat picker's
+      "Bot" seats, no character twice; a held seat stays held, and a table it
+      leaves short keeps waiting. Readiness resets once for the whole call. No
+      seat to fill answers 422 `NO_SEATS_TO_FILL`. The response is the host's room.
+      """,
+      operationId: "RoomController.fill_with_bots",
+      tags: ["Rooms"],
+      security: [%{"bearer_auth" => []}],
+      parameters: [room_code_parameter()],
+      responses: host_control_responses()
+    }
+  end
+
+  @doc false
   def open_api_operation(:watch) do
     %Operation{
       summary: "Watch a room as a spectator",
@@ -1705,6 +1724,18 @@ defmodule PidroServerWeb.API.RoomController do
   end
 
   defp seat_bot_for(room, _position, _entry), do: {:ok, room}
+
+  @doc "Seats a bot in every open seat (host only). See `open_api_operation(:fill_with_bots)`."
+  def fill_with_bots(conn, %{"code" => code}) do
+    with {:ok, room, positions} <-
+           RoomManager.fill_with_bots(code, conn.assigns.current_user.id),
+         {:ok, room} <-
+           Enum.reduce(positions, {:ok, room}, fn position, seated ->
+             with {:ok, room} <- seated, do: seat_bot_for(room, position, :bot)
+           end) do
+      render(conn, :show, room: room)
+    end
+  end
 
   @doc "Releases a waiting-room hold without changing any other seat."
   def release_hold(conn, %{"code" => code, "position" => position}) do

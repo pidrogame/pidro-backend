@@ -77,6 +77,16 @@ defmodule PidroServer.Games.PacingSettings do
       min: 0,
       max: 15_000,
       step: 50
+    },
+    %{
+      key: :bots_offer_delay_ms,
+      label: "Bots Offer Delay",
+      description:
+        "How long after the last change a waiting table with an open seat offers its host bots. Blank or 0 turns the offer off.",
+      min: 0,
+      max: 600_000,
+      step: 1_000,
+      blank: 0
     }
   ]
 
@@ -199,6 +209,7 @@ defmodule PidroServer.Games.PacingSettings do
     end)
   end
 
+  defp parse_field(value, %{blank: blank}) when value in [nil, ""], do: {:ok, blank}
   defp parse_field(nil, spec), do: {:error, range_message(spec)}
   defp parse_field("", spec), do: {:error, range_message(spec)}
 

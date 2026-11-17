@@ -98,6 +98,7 @@ defmodule PidroServer.Games.RoomManager do
     - `:max_players` - Maximum number of players (default: 4)
     - `:max_spectators` - Maximum number of spectators (default: 10)
     - `:created_at` - DateTime when the room was created
+    - `:table_changed_at` - When someone last sat down or left or a seat was set, held or released: stamped by every readiness reset, nil until the first, when `:created_at` stands in. The bots offer counts from it
     - `:config` - The `Room.Config` set at creation: name, requested bot difficulty and whether the table is solo. Never changes for the life of the room
     - `:phase_timers` - Map of position to timer reference for the disconnect cascade (%{position => reference()})
     - `:post_game_summaries` - The last game's `%{user_id => summary}`, kept while `:finished` so a rejoin sees it
@@ -141,6 +142,7 @@ defmodule PidroServer.Games.RoomManager do
             ready_epoch: non_neg_integer(),
             snapshot_revision: non_neg_integer(),
             ready_player_ids: MapSet.t(String.t()),
+            table_changed_at: DateTime.t() | nil,
             seat_lifecycle_revision: non_neg_integer(),
             game_number: non_neg_integer(),
             game_started_at: DateTime.t() | nil,
@@ -189,6 +191,7 @@ defmodule PidroServer.Games.RoomManager do
       ready_epoch: 0,
       snapshot_revision: 0,
       ready_player_ids: MapSet.new(),
+      table_changed_at: nil,
       seat_lifecycle_revision: 0,
       # Games started in this room. A rematch starts game 2, 3, ... in place.
       game_number: 0,
@@ -382,6 +385,39 @@ defmodule PidroServer.Games.RoomManager do
       {:ok, room}
     end
   end
+
+  @doc """
+  Seats a bot in every open seat of a waiting room, as `set_seat/4` does for
+  `:bot`, in one roster change: one readiness reset, one broadcast. Host only.
+  A seat held for a friend stays held. Answers the positions it filled; the
+  caller starts their bots. No open seat answers `{:error, :no_seats_to_fill}`.
+  """
+  @spec fill_with_bots(String.t(), String.t()) ::
+          {:ok, Room.t(), [Positions.position()]} | {:error, term()}
+  def fill_with_bots(code, host_id) do
+    GenServer.call(__MODULE__, {:fill_with_bots, String.upcase(code), host_id})
+  end
+
+  @doc """
+  Milliseconds until the host of a waiting room may be offered bots for its
+  open seats, counted from the table's last change; `0` once due. `nil` when
+  `bots_offer_delay_ms` is 0, no seat can take a bot, or the room is not
+  waiting.
+  """
+  @spec bots_offer_in_ms(Room.t() | map()) :: non_neg_integer() | nil
+  def bots_offer_in_ms(%Room{status: status} = room) when status in [:waiting, :ready] do
+    with delay when delay > 0 <- Lifecycle.config(:bots_offer_delay_ms),
+         [_ | _] <- open_seats(room) do
+      waited =
+        DateTime.diff(DateTime.utc_now(), room.table_changed_at || room.created_at, :millisecond)
+
+      max(delay - waited, 0)
+    else
+      _ -> nil
+    end
+  end
+
+  def bots_offer_in_ms(_room), do: nil
 
   @doc """
   The invited player answers Not now: releases their hold at `position` like a
@@ -725,14 +761,18 @@ defmodule PidroServer.Games.RoomManager do
 
   @doc "Publicly claimable seats, shared by REST and lobby snapshots. Bots are not vacancies."
   @spec available_positions(Room.t()) :: [Positions.position()]
-  def available_positions(%Room{locked: false, status: status, seats: seats} = room)
-      when status in [:waiting, :ready, :playing] do
+  def available_positions(%Room{locked: false, status: status} = room)
+      when status in [:waiting, :ready, :playing],
+      do: open_seats(room)
+
+  def available_positions(%Room{}), do: []
+
+  # Vacant seats not held for a friend.
+  defp open_seats(%Room{seats: seats} = room) do
     Enum.filter(Positions.available(room), fn position ->
       match?(%Seat{occupant_type: :vacant}, seats[position])
     end)
   end
-
-  def available_positions(%Room{}), do: []
 
   @doc """
   The seat `user_id` takes at `friend_id`'s table, and whether it makes them the
@@ -1567,51 +1607,30 @@ defmodule PidroServer.Games.RoomManager do
     with {:ok, room} <- fetch_room(state, code),
          :ok <- ensure_owner(room, host_id),
          :ok <- ensure_waiting(room),
-         {:ok, cleared, bot} <- clear_seat(room, position, entry),
-         :ok <- ensure_seat_entry(state, cleared, host_id, position, entry),
-         config = Config.put_seat(room.config, position, entry),
-         {:ok, updated, new_bot_id} <-
-           seat_entry_bot(
-             %{
-               cleared
-               | config: config,
-                 seat_hold_started_at:
-                   hold_started_at(room, position, config.seat_holds[position])
-             },
-             position,
-             entry
-           ) do
+         {:ok, updated, bot, new_bot_id} <- put_seat(state, room, host_id, position, entry) do
       if updated == room do
         {:reply, {:ok, room, nil}, state}
       else
-        updated =
-          updated
-          |> reset_readiness()
-          |> maybe_set_ready()
-          |> maybe_bump_seat_lifecycle_revision(bot != nil or new_bot_id != nil)
-          |> touch_last_activity()
-
         {bot_id, bot_seat} = bot || {nil, nil}
-
-        player_rooms =
-          if state.player_rooms[bot_id] == code,
-            do: Map.delete(state.player_rooms, bot_id),
-            else: state.player_rooms
-
-        player_rooms =
-          if new_bot_id, do: Map.put(player_rooms, new_bot_id, code), else: player_rooms
-
         bot_pid = release_bot(bot_seat)
-        state = %{put_room(state, updated) | player_rooms: player_rooms}
-
-        broadcast_seat_invitation_changes(room, updated)
-        broadcast_room(code, updated)
-        broadcast_lobby_event({:room_updated, updated})
-        broadcast_readiness(updated)
-        if bot || new_bot_id, do: broadcast_seat_lifecycle(updated)
+        {updated, state} = commit_seats(state, room, updated, bot_id, List.wrap(new_bot_id))
         {:reply, {:ok, updated, bot_pid}, state}
       end
     else
+      {:error, reason} -> {:reply, {:error, reason}, state}
+    end
+  end
+
+  def handle_call({:fill_with_bots, code, host_id}, _from, state) do
+    with {:ok, room} <- fetch_room(state, code),
+         :ok <- ensure_owner(room, host_id),
+         :ok <- ensure_waiting(room),
+         [_ | _] = positions <- open_seats(room),
+         {:ok, updated, bot_ids} <- put_bots(state, room, host_id, positions) do
+      {updated, state} = commit_seats(state, room, updated, nil, bot_ids)
+      {:reply, {:ok, updated, positions}, state}
+    else
+      [] -> {:reply, {:error, :no_seats_to_fill}, state}
       {:error, reason} -> {:reply, {:error, reason}, state}
     end
   end
@@ -4167,6 +4186,61 @@ defmodule PidroServer.Games.RoomManager do
     end
   end
 
+  # The room with `position` made what the host picked, the bot it emptied out
+  # (`{bot_id, seat}` or nil) and the id of the bot it seated (or nil).
+  defp put_seat(state, room, host_id, position, entry) do
+    with {:ok, cleared, bot} <- clear_seat(room, position, entry),
+         :ok <- ensure_seat_entry(state, cleared, host_id, position, entry),
+         config = Config.put_seat(room.config, position, entry),
+         {:ok, updated, new_bot_id} <-
+           seat_entry_bot(
+             %{
+               cleared
+               | config: config,
+                 seat_hold_started_at:
+                   hold_started_at(room, position, config.seat_holds[position])
+             },
+             position,
+             entry
+           ),
+         do: {:ok, updated, bot, new_bot_id}
+  end
+
+  defp put_bots(state, room, host_id, positions) do
+    Enum.reduce_while(positions, {:ok, room, []}, fn position, {:ok, room, bot_ids} ->
+      case put_seat(state, room, host_id, position, :bot) do
+        {:ok, seated, _bot, bot_id} -> {:cont, {:ok, seated, [bot_id | bot_ids]}}
+        error -> {:halt, error}
+      end
+    end)
+  end
+
+  # Seat changes made in one host call are one roster change: one readiness
+  # reset and one of each broadcast.
+  defp commit_seats(state, room, updated, removed_bot_id, new_bot_ids) do
+    updated =
+      updated
+      |> reset_readiness()
+      |> maybe_set_ready()
+      |> maybe_bump_seat_lifecycle_revision(removed_bot_id != nil or new_bot_ids != [])
+      |> touch_last_activity()
+
+    player_rooms =
+      if state.player_rooms[removed_bot_id] == room.code,
+        do: Map.delete(state.player_rooms, removed_bot_id),
+        else: state.player_rooms
+
+    player_rooms = Enum.reduce(new_bot_ids, player_rooms, &Map.put(&2, &1, room.code))
+    state = %{put_room(state, updated) | player_rooms: player_rooms}
+
+    broadcast_seat_invitation_changes(room, updated)
+    broadcast_room(room.code, updated)
+    broadcast_lobby_event({:room_updated, updated})
+    broadcast_readiness(updated)
+    if removed_bot_id || new_bot_ids != [], do: broadcast_seat_lifecycle(updated)
+    {updated, state}
+  end
+
   # The seat a host is changing, emptied of the bot in it unless it stays a bot.
   defp clear_seat(_room, position, _entry) when position not in [:north, :east, :south, :west],
     do: {:error, :invalid_position}
@@ -4353,7 +4427,8 @@ defmodule PidroServer.Games.RoomManager do
         Map.new(room.seats, fn {position, seat} ->
           {position, Config.serialize_seat(room.config, seat)}
         end),
-      ready_players: ready_players
+      ready_players: ready_players,
+      bots_offer_in_ms: bots_offer_in_ms(room)
     }
     |> Map.merge(Room.game_payload(room))
   end
@@ -4364,6 +4439,7 @@ defmodule PidroServer.Games.RoomManager do
       | ready_player_ids: MapSet.new(),
         ready_epoch: room.ready_epoch + 1,
         snapshot_revision: room.snapshot_revision + 1,
+        table_changed_at: DateTime.utc_now(),
         status: if(room.status == :ready, do: :waiting, else: room.status)
     }
   end
@@ -6049,9 +6125,10 @@ defmodule PidroServer.Games.RoomManager do
     broadcast_seat_lifecycle(updated_room)
     broadcast_initial_game_state(room.code, snapshot)
 
-    # The ad schedule's cadence counts solo games started (PID-123).
+    # The ad schedule's cadence counts solo games started (PID-123): one person
+    # with three bots, however the table began (PID-457).
     for {_position, %Seat{occupant_type: :human, user_id: user_id}} <- room.seats,
-        single_player_room?(room),
+        game_against_bots?(room),
         do: PidroServer.Profiles.count_solo_start(user_id)
 
     # Saved at once: a room that comes back waiting would lose its game.

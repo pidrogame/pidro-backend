@@ -603,6 +603,20 @@ defmodule PidroServerWeb.API.FallbackController do
     })
   end
 
+  def call(conn, {:error, :no_seats_to_fill}) do
+    conn
+    |> put_status(:unprocessable_entity)
+    |> json(%{
+      errors: [
+        %{
+          code: "NO_SEATS_TO_FILL",
+          title: "No seats to fill",
+          detail: "Every seat is taken or held for a friend"
+        }
+      ]
+    })
+  end
+
   def call(conn, {:error, :already_seated}) do
     conn
     |> put_status(:unprocessable_entity)
