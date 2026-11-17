@@ -95,7 +95,9 @@ if ! gem list --installed --exact bundler --version "$required_bundler_version";
 fi
 step "Installing locked Ruby dependencies" bundle install
 
-postgres_conf="/etc/postgresql/15/main/conf.d/amp-orb.conf"
+# The Debian release decides the PostgreSQL version (15 on 12, 17 on 13).
+pg_version="$(pg_lsclusters --no-header | awk '$2 == "main" {print $1; exit}')"
+postgres_conf="/etc/postgresql/${pg_version}/main/conf.d/amp-orb.conf"
 printf '%s\n' \
   "fsync = off" \
   "synchronous_commit = off" \
@@ -105,13 +107,13 @@ printf '%s\n' \
 postgres_started=0
 stop_setup_postgres() {
   if ((postgres_started)); then
-    sudo pg_ctlcluster 15 main stop
+    sudo pg_ctlcluster "$pg_version" main stop
   fi
 }
 trap stop_setup_postgres EXIT
 
 if ! pg_isready --host 127.0.0.1 --port 5432 --quiet; then
-  step "Starting PostgreSQL for database preparation" sudo pg_ctlcluster 15 main start
+  step "Starting PostgreSQL for database preparation" sudo pg_ctlcluster "$pg_version" main start
   postgres_started=1
 fi
 
