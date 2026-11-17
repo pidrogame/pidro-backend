@@ -90,6 +90,7 @@ defmodule PidroServer.Games.RoomStoreTest do
       ready_epoch: 5,
       snapshot_revision: 17,
       ready_player_ids: MapSet.new([host]),
+      table_changed_at: now,
       seat_lifecycle_revision: 9,
       game_number: 2,
       game_started_at: now,
@@ -120,6 +121,7 @@ defmodule PidroServer.Games.RoomStoreTest do
                talk: [],
                last_game_talk: [],
                bot_talk: %{room.bot_talk | seen: nil},
+               table_changed_at: nil,
                game: nil
            }
   end

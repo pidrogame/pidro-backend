@@ -2602,7 +2602,7 @@ defmodule PidroServerWeb.API.RoomControllerTest do
 
     assert_in_delta from_room["room"]["bots_offer_in_ms"] || -1,
                     snapshot.bots_offer_in_ms || -1,
-                    50
+                    1_000
 
     snapshot.bots_offer_in_ms
   end

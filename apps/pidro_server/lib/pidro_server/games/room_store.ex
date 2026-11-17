@@ -218,7 +218,11 @@ defmodule PidroServer.Games.RoomStore do
     end) != false
   end
 
-  @doc "The room as stored: no timers, processes, talk, bot talk cursor or game summary."
+  @doc """
+  The room as stored: no timers, processes, talk, bot talk cursor or game
+  summary, and no `table_changed_at`, which a restore stamps again and an older
+  build could not decode.
+  """
   @spec encode(Room.t()) :: map()
   def encode(%Room{} = room) do
     budget =
@@ -258,6 +262,7 @@ defmodule PidroServer.Games.RoomStore do
         bot_talk: %{room.bot_talk | seen: nil, shown_until: 0, phase: nil, turn: nil},
         game: nil
     })
+    |> Map.delete("table_changed_at")
   end
 
   @doc "A stored room, with the runtime fields at their defaults."

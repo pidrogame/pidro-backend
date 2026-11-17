@@ -1728,12 +1728,14 @@ defmodule PidroServerWeb.API.RoomController do
   @doc "Seats a bot in every open seat (host only). See `open_api_operation(:fill_with_bots)`."
   def fill_with_bots(conn, %{"code" => code}) do
     with {:ok, room, positions} <-
-           RoomManager.fill_with_bots(code, conn.assigns.current_user.id),
-         {:ok, room} <-
-           Enum.reduce(positions, {:ok, room}, fn position, seated ->
-             with {:ok, room} <- seated, do: seat_bot_for(room, position, :bot)
-           end) do
-      render(conn, :show, room: room)
+           RoomManager.fill_with_bots(code, conn.assigns.current_user.id) do
+      # Every seated bot gets its process, even after one fails to start.
+      started = Enum.map(positions, &seat_bot_for(room, &1, :bot))
+
+      case Enum.find(started, &match?({:error, _}, &1)) do
+        nil -> render(conn, :show, room: started |> List.last() |> elem(1))
+        error -> error
+      end
     end
   end
 
