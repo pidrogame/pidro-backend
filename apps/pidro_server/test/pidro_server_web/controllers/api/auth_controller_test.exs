@@ -783,9 +783,8 @@ defmodule PidroServerWeb.API.AuthControllerTest do
       refute_received {:classic_asked, _}
     end
 
-    test "a Classic try counts once against the login limit and not the claim limit", ctx do
+    test "a Classic try counts once against the login limit", ctx do
       with_limit(:login, 2, 60_000)
-      with_limit(:classic_claim, 1, 60_000)
       ctx.classic.({:ok, classic_profile(72_300, "Tiger")})
       params = %{"username" => "Tiger", "password" => "classic-password", "install_id" => "i"}
 
@@ -811,6 +810,70 @@ defmodule PidroServerWeb.API.AuthControllerTest do
                account: %{email: "tiger@example.com", password: "new password!"}
              })
              |> json_response(200)
+    end
+
+    test "Classic tries spend /classic/verify's bucket; the eleventh does not ask Classic", ctx do
+      with_limit(:classic_claim, 10, 600_000)
+      ctx.classic.(401)
+      AccountsFixtures.user_fixture(%{username: "shared_455"})
+
+      send_from = fn path, params ->
+        build_conn() |> from_ip({10, 4, 5, 6}) |> post(path, params)
+      end
+
+      wrong = %{"username" => "Tiger", "password" => "wrong", "install_id" => "i"}
+
+      known = %{
+        "username" => "shared_455",
+        "password" => AccountsFixtures.valid_user_password(),
+        "install_id" => "i"
+      }
+
+      # Right new-Pidro passwords never reach Classic, so they spend nothing.
+      for _try <- 1..12, do: assert(send_from.(~p"/api/v1/auth/login", known).status == 200)
+
+      # A right old-app password counts too: it is what takes an account over.
+      ctx.classic.({:ok, classic_profile(72_400, "Tiger")})
+      assert send_from.(~p"/api/v1/auth/login", wrong) |> json_response(200)
+      assert_received {:classic_asked, _}
+      ctx.classic.(401)
+
+      for _try <- 2..10 do
+        assert send_from.(~p"/api/v1/auth/login", wrong) |> json_response(401) ==
+                 @invalid_credentials
+
+        assert_received {:classic_asked, _}
+      end
+
+      denied = send_from.(~p"/api/v1/auth/login", wrong)
+      refute_received {:classic_asked, _}
+      assert [retry_after] = get_resp_header(denied, "retry-after")
+      assert String.to_integer(retry_after) in 1..600
+
+      verify =
+        send_from.(~p"/api/v1/classic/verify", %{
+          method: "password",
+          login: "Tiger",
+          password: "wrong",
+          install_id: "i"
+        })
+
+      assert %{"errors" => [%{"code" => "RATE_LIMITED"} = error]} =
+               body = json_response(denied, 429)
+
+      assert %{"errors" => [verify_error]} = verify_body = json_response(verify, 429)
+      assert body["error_code"] == verify_body["error_code"]
+      assert Map.keys(body["error_params"]) == Map.keys(verify_body["error_params"])
+      assert Map.take(error, ["code", "title"]) == Map.take(verify_error, ["code", "title"])
+      refute_received {:classic_asked, _}
+
+      # With the bucket spent, right passwords and old builds get today's answers.
+      assert send_from.(~p"/api/v1/auth/login", known).status == 200
+
+      assert send_from.(~p"/api/v1/auth/login", Map.delete(wrong, "install_id"))
+             |> json_response(401) == @invalid_credentials
+
+      refute_received {:classic_asked, _}
     end
   end
 

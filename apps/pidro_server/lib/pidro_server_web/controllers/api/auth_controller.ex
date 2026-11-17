@@ -50,6 +50,7 @@ defmodule PidroServerWeb.API.AuthController do
   alias PidroServer.Invites.{Invite, Redemption}
   alias PidroServer.Mailer
   alias PidroServerWeb.API.{InviteController, UserJSON}
+  alias PidroServerWeb.Plugs.RateLimit
   alias PidroServerWeb.Schemas.{ClassicClaimSchemas, ErrorSchemas, UserSchemas}
 
   action_fallback PidroServerWeb.API.FallbackController
@@ -169,6 +170,8 @@ defmodule PidroServerWeb.API.AuthController do
     with an install-bound ticket, as Apple and Facebook sign-in do. One already
     moved answers `classic_found` with its preview and `already_claimed`
     (`sign_in_method`, `claimed_at`), and no ticket or token.
+    A try that reaches Classic also counts against the `classic_claim` limit
+    shared with `/classic/verify`, and answers its 429 when that is spent.
 
     ## Error Responses
     - Returns 401 Unauthorized if credentials are invalid (a guest without a
@@ -259,20 +262,26 @@ defmodule PidroServerWeb.API.AuthController do
 
   # Only a client that sends `install_id` is asked about Classic; older builds
   # keep today's 401. A Classic failure of any kind answers the same 401, so a
-  # mistyped password never turns into "unavailable".
+  # mistyped password never turns into "unavailable". A Classic password is
+  # guessed no faster than on /classic/verify: the try also counts in its
+  # `classic_claim` bucket, and an empty bucket answers that limiter's 429.
   defp classic_login(conn, username, password, %{"install_id" => install_id} = params)
        when is_binary(install_id) do
-    case ClassicVerification.verify_sign_in(username, password, params) do
-      {:ok, result} ->
-        json(conn, %{data: Map.put(result, :classic_found, true)})
+    limited = conn |> put_private(:rate_limit, [:classic_claim]) |> RateLimit.call([])
 
-      {:error, reason}
-      when reason in [:invalid_credentials, :account_inactive, :claim_binding_required] ->
-        {:error, :invalid_credentials}
+    with %Plug.Conn{halted: false} <- limited do
+      case ClassicVerification.verify_sign_in(username, password, params) do
+        {:ok, result} ->
+          json(conn, %{data: Map.put(result, :classic_found, true)})
 
-      {:error, reason} ->
-        Logger.warning("Classic sign-in check failed: #{log_reason(reason)}")
-        {:error, :invalid_credentials}
+        {:error, reason}
+        when reason in [:invalid_credentials, :account_inactive, :claim_binding_required] ->
+          {:error, :invalid_credentials}
+
+        {:error, reason} ->
+          Logger.warning("Classic sign-in check failed: #{log_reason(reason)}")
+          {:error, :invalid_credentials}
+      end
     end
   end
 
