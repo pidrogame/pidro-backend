@@ -141,6 +141,20 @@ defmodule PidroServer.Accounts.ClassicClaims do
     end
   end
 
+  @doc """
+  How and when a Classic account was moved here, or nil while it is free.
+  Password sign-in answers this to a player who typed an old-app password.
+  """
+  def already_moved(classic_user_id, method) do
+    case Repo.get_by(User, classic_user_id: classic_user_id) do
+      nil ->
+        nil
+
+      owner ->
+        %{sign_in_method: sign_in_method(owner, method), claimed_at: owner.classic_claimed_at}
+    end
+  end
+
   @doc "Redeems a ticket for the current user, or creates a user for an install-bound claim."
   def redeem(token, current_user, params)
       when is_binary(token) and (is_nil(current_user) or is_struct(current_user, User)) and

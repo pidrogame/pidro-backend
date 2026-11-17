@@ -32,7 +32,16 @@ defmodule PidroServerWeb.API.AuthController do
   use OpenApiSpex.ControllerSpecs
   require Logger
 
-  alias PidroServer.Accounts.{AgeTerms, Auth, FacebookCredential, ProviderAuth, Token, User}
+  alias PidroServer.Accounts.{
+    AgeTerms,
+    Auth,
+    ClassicVerification,
+    FacebookCredential,
+    ProviderAuth,
+    Token,
+    User
+  }
+
   alias PidroServer.Emails
   alias PidroServer.Games.Room.Seat
   alias PidroServer.Games.RoomManager
@@ -155,13 +164,21 @@ defmodule PidroServerWeb.API.AuthController do
     The token should be included in subsequent requests in the Authorization header
     as a Bearer token: `Authorization: Bearer <token>`
 
+    With `install_id`, credentials this server does not know are checked
+    against Classic. A Classic account not moved yet answers `classic_found`
+    with an install-bound ticket, as Apple and Facebook sign-in do. One already
+    moved answers `classic_found` with its preview and `already_claimed`
+    (`sign_in_method`, `claimed_at`), and no ticket or token.
+
     ## Error Responses
     - Returns 401 Unauthorized if credentials are invalid (a guest without a
-      password is invalid too)
+      password is invalid too), also when Classic cannot be reached
     """,
     request_body: {"Login credentials", "application/json", UserSchemas.LoginRequest},
     responses: [
-      ok: {"Authentication successful", "application/json", UserSchemas.UserWithTokenResponse},
+      ok:
+        {"Authentication successful or Classic account found", "application/json",
+         ClassicClaimSchemas.PasswordSignInResponse},
       unauthorized:
         {"Invalid credentials", "application/json", ErrorSchemas.unauthorized_error()},
       forbidden: {"Age is not eligible", "application/json", ErrorSchemas.error_response()},
@@ -222,17 +239,47 @@ defmodule PidroServerWeb.API.AuthController do
   """
   @spec login(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def login(conn, %{"username" => username, "password" => password} = params) do
-    with {:ok, declaration} <- AgeTerms.parse(params),
-         {:ok, user} <- Auth.authenticate_user(username, password),
-         {:ok, user} <- AgeTerms.store(user, declaration) do
-      token = Token.generate(user)
-      Auth.touch_last_seen(user)
+    with {:ok, declaration} <- AgeTerms.parse(params) do
+      case Auth.authenticate_user(username, password) do
+        {:ok, user} ->
+          with {:ok, user} <- AgeTerms.store(user, declaration) do
+            token = Token.generate(user)
+            Auth.touch_last_seen(user)
 
-      conn
-      |> put_view(UserJSON)
-      |> render(:show, %{user: user, token: token})
+            conn
+            |> put_view(UserJSON)
+            |> render(:show, %{user: user, token: token})
+          end
+
+        {:error, :invalid_credentials} ->
+          classic_login(conn, username, password, params)
+      end
     end
   end
+
+  # Only a client that sends `install_id` is asked about Classic; older builds
+  # keep today's 401. A Classic failure of any kind answers the same 401, so a
+  # mistyped password never turns into "unavailable".
+  defp classic_login(conn, username, password, %{"install_id" => install_id} = params)
+       when is_binary(install_id) do
+    case ClassicVerification.verify_sign_in(username, password, params) do
+      {:ok, result} ->
+        json(conn, %{data: Map.put(result, :classic_found, true)})
+
+      {:error, reason}
+      when reason in [:invalid_credentials, :account_inactive, :claim_binding_required] ->
+        {:error, :invalid_credentials}
+
+      {:error, reason} ->
+        Logger.warning("Classic sign-in check failed: #{log_reason(reason)}")
+        {:error, :invalid_credentials}
+    end
+  end
+
+  defp classic_login(_conn, _username, _password, _params), do: {:error, :invalid_credentials}
+
+  defp log_reason(reason) when is_atom(reason), do: reason
+  defp log_reason(_reason), do: "unexpected error"
 
   operation(:apple,
     summary: "Sign in with Apple",

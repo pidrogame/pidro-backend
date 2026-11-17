@@ -532,6 +532,288 @@ defmodule PidroServerWeb.API.AuthControllerTest do
     end
   end
 
+  describe "login with Classic credentials" do
+    # Classic answers its password check from a stub; every call is reported to
+    # the test, so a test can prove Classic was not asked.
+    setup do
+      test = self()
+
+      classic = fn answer ->
+        Req.Test.stub(PidroServer.Accounts.ClassicClient, fn
+          %{request_path: "/internal/claims/verify_password"} = classic_conn ->
+            {:ok, body, classic_conn} = Plug.Conn.read_body(classic_conn)
+            send(test, {:classic_asked, Jason.decode!(body)})
+
+            case answer do
+              {:ok, profile} -> Req.Test.json(classic_conn, %{"classic" => profile})
+              status -> classic_conn |> Plug.Conn.put_status(status) |> Req.Test.json(%{})
+            end
+
+          # The Premium carry-over after a claim looks the account up; it has none.
+          %{request_path: "/internal/claims/lookup"} = classic_conn ->
+            classic_conn |> Plug.Conn.put_status(404) |> Req.Test.json(%{})
+        end)
+      end
+
+      %{classic: classic}
+    end
+
+    defp login(params), do: post(build_conn(), ~p"/api/v1/auth/login", params)
+
+    defp classic_login(name, password, install_id \\ "install-455"),
+      do: login(%{"username" => name, "password" => password, "install_id" => install_id})
+
+    defp move_classic!(classic_id, fields) do
+      AccountsFixtures.user_fixture()
+      |> User.classic_claim_changeset(
+        Map.merge(
+          %{classic_user_id: classic_id, classic_claimed_at: ~U[2026-11-03 09:15:00.000000Z]},
+          fields
+        )
+      )
+      |> Ecto.Changeset.change(password_hash: fields[:password_hash])
+      |> Repo.update!()
+    end
+
+    @invalid_credentials %{
+      "errors" => [
+        %{
+          "code" => "INVALID_CREDENTIALS",
+          "title" => "Invalid credentials",
+          "detail" => "Username or password is incorrect"
+        }
+      ],
+      "error_code" => "invalid_credentials",
+      "error_params" => %{}
+    }
+
+    test "a name and password the new Pidro knows sign in without asking Classic", ctx do
+      ctx.classic.({:ok, classic_profile(72_000, "Never")})
+      user = AccountsFixtures.user_fixture(%{username: "known_455"})
+
+      data =
+        classic_login("known_455", AccountsFixtures.valid_user_password())
+        |> json_response(200)
+        |> Map.fetch!("data")
+
+      assert data["user"]["id"] == user.id
+      assert is_binary(data["token"])
+      refute Map.has_key?(data, "classic_found")
+      refute_received {:classic_asked, _}
+    end
+
+    test "an account not moved yet answers classic_found with an install-bound ticket", ctx do
+      ctx.classic.({:ok, Map.put(classic_profile(72_001, "Tiger"), "email", "t@example.com")})
+
+      body = classic_login("Tiger", "classic-password") |> json_response(200)
+
+      OpenApiSpex.TestAssertions.assert_schema(
+        body,
+        "Classic account found response",
+        PidroServerWeb.ApiSpec.spec()
+      )
+
+      assert_received {:classic_asked, %{"login" => "Tiger", "password" => "classic-password"}}
+      data = body["data"]
+
+      assert Map.keys(data) |> Enum.sort() ==
+               ~w(already_claimed classic classic_found expires_at ticket)
+
+      assert data["classic_found"] == true
+      assert Map.fetch!(data, "already_claimed") == nil
+
+      assert data["classic"] == %{
+               "name" => "Tiger",
+               "games_played" => 700,
+               "level" => 42,
+               "member_since" => "2011-01-02T00:00:00Z",
+               "name_allowed" => true,
+               "new_account" => %{"username" => "Tiger", "email" => "t@example.com"}
+             }
+
+      assert %ClassicClaimTicket{install_id: "install-455", bound_user_id: nil, method: :password} =
+               Repo.get_by!(ClassicClaimTicket, classic_user_id: 72_001)
+
+      claim = %{ticket: data["ticket"], account: %{password: "new password!"}}
+
+      assert build_conn()
+             |> post(~p"/api/v1/classic/claim", Map.put(claim, :install_id, "other-install"))
+             |> json_response(422)
+
+      # The declaration the login carried is the claim's to store, as after an
+      # Apple or Facebook match.
+      claimed =
+        build_conn()
+        |> post(
+          ~p"/api/v1/classic/claim",
+          Map.merge(claim, %{install_id: "install-455", age_band: "18_plus", terms_version: "1"})
+        )
+        |> json_response(200)
+        |> Map.fetch!("data")
+
+      assert is_binary(claimed["token"])
+      user = Repo.get!(User, claimed["user"]["id"])
+      assert {user.classic_user_id, user.username, user.age_band} == {72_001, "Tiger", "18_plus"}
+
+      assert classic_login("Tiger", "new password!") |> json_response(200)
+      refute_received {:classic_asked, _}
+    end
+
+    test "a moved account answers how and when it moved, with no ticket and no token", ctx do
+      for {classic_id, fields, method} <- [
+            {72_101, %{password_hash: "hash"}, "password"},
+            {72_102, %{apple_sub: "owner-apple"}, "apple"},
+            {72_103, %{facebook_id: "owner-facebook"}, "facebook"}
+          ] do
+        owner = move_classic!(classic_id, fields)
+        ctx.classic.({:ok, classic_profile(classic_id, "Moved")})
+        tickets = Repo.aggregate(ClassicClaimTicket, :count)
+
+        body = classic_login("Moved", "old-password") |> json_response(200)
+
+        OpenApiSpex.TestAssertions.assert_schema(
+          body,
+          "Classic account moved response",
+          PidroServerWeb.ApiSpec.spec()
+        )
+
+        assert body["data"] == %{
+                 "classic_found" => true,
+                 "classic" => %{
+                   "name" => "Moved",
+                   "games_played" => 700,
+                   "level" => 42,
+                   "member_since" => "2011-01-02T00:00:00Z",
+                   "name_allowed" => true
+                 },
+                 "already_claimed" => %{
+                   "sign_in_method" => method,
+                   "claimed_at" => "2026-11-03T09:15:00.000000Z"
+                 }
+               }
+
+        assert Repo.aggregate(ClassicClaimTicket, :count) == tickets
+        assert Repo.get!(User, owner.id).token_version == owner.token_version
+      end
+    end
+
+    test "wrong credentials answer the same 401 whether or not the name exists anywhere", ctx do
+      AccountsFixtures.user_fixture(%{username: "exists_455"})
+
+      bodies =
+        for {name, install_id, classic_status} <- [
+              {"nobody_455", nil, nil},
+              {"exists_455", nil, nil},
+              {"nobody_455", "install-455", 401},
+              {"exists_455", "install-455", 401},
+              {"classic_only", "install-455", 401},
+              {"classic_only", "install-455", 404},
+              {"switched_off", "install-455", 403}
+            ] do
+          if classic_status, do: ctx.classic.(classic_status)
+          params = %{"username" => name, "password" => "wrong-password"}
+          params = if install_id, do: Map.put(params, "install_id", install_id), else: params
+          conn = login(params)
+          assert json_response(conn, 401) == @invalid_credentials
+          conn.resp_body
+        end
+
+      assert Enum.uniq(bodies) |> length() == 1
+    end
+
+    test "an unreachable Classic is the same 401, with a log line", ctx do
+      ctx.classic.(503)
+
+      log =
+        capture_log(fn ->
+          assert classic_login("Tiger", "classic-password") |> json_response(401) ==
+                   @invalid_credentials
+        end)
+
+      assert_received {:classic_asked, _}
+      assert log =~ "Classic sign-in check failed: provider_unavailable"
+    end
+
+    test "without install_id Classic is never asked and the 401 is today's", ctx do
+      ctx.classic.({:ok, classic_profile(72_200, "Tiger")})
+
+      log =
+        capture_log(fn ->
+          for params <- [
+                %{"username" => "Tiger", "password" => "classic-password"},
+                %{"username" => "Tiger", "password" => "classic-password", "install_id" => nil}
+              ] do
+            assert login(params) |> json_response(401) == @invalid_credentials
+          end
+        end)
+
+      refute log =~ "Classic"
+
+      refute_received {:classic_asked, _}
+      refute Repo.get_by(ClassicClaimTicket, classic_user_id: 72_200)
+    end
+
+    test "a malformed install_id is the same 401 and Classic is not asked", ctx do
+      ctx.classic.({:ok, classic_profile(72_201, "Tiger")})
+
+      log =
+        capture_log(fn ->
+          for install_id <- ["", String.duplicate("i", 65)] do
+            assert classic_login("Tiger", "classic-password", install_id) |> json_response(401) ==
+                     @invalid_credentials
+          end
+        end)
+
+      refute log =~ "Classic"
+
+      refute_received {:classic_asked, _}
+    end
+
+    test "an under-13 declaration is refused before Classic is asked", ctx do
+      ctx.classic.({:ok, classic_profile(72_202, "Tiger")})
+
+      assert login(%{
+               "username" => "Tiger",
+               "password" => "classic-password",
+               "install_id" => "install-455",
+               "age_band" => "under_13"
+             })
+             |> json_response(403)
+
+      refute_received {:classic_asked, _}
+    end
+
+    test "a Classic try counts once against the login limit and not the claim limit", ctx do
+      with_limit(:login, 2, 60_000)
+      with_limit(:classic_claim, 1, 60_000)
+      ctx.classic.({:ok, classic_profile(72_300, "Tiger")})
+      params = %{"username" => "Tiger", "password" => "classic-password", "install_id" => "i"}
+
+      tickets =
+        for _try <- 1..2 do
+          build_conn()
+          |> from_ip({10, 4, 5, 5})
+          |> post(~p"/api/v1/auth/login", params)
+          |> json_response(200)
+          |> get_in(["data", "ticket"])
+        end
+
+      assert build_conn()
+             |> from_ip({10, 4, 5, 5})
+             |> post(~p"/api/v1/auth/login", params)
+             |> json_response(429)
+
+      assert build_conn()
+             |> from_ip({10, 4, 5, 5})
+             |> post(~p"/api/v1/classic/claim", %{
+               ticket: List.last(tickets),
+               install_id: "i",
+               account: %{email: "tiger@example.com", password: "new password!"}
+             })
+             |> json_response(200)
+    end
+  end
+
   describe "provider login" do
     setup do
       previous_provider = Application.get_env(:pidro_server, :provider_identity)

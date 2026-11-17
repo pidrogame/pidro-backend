@@ -58,6 +58,34 @@ defmodule PidroServer.Accounts.ClassicVerification do
   def verify_provider(_identity, _params, _opts),
     do: {:error, :invalid_credentials}
 
+  @doc """
+  Asks Classic about a name and password that password sign-in did not know.
+
+  A match answers like an Apple or Facebook match, with an install-bound
+  ticket. A Classic account already moved here answers its preview and how
+  and when it was moved, and no ticket: the old password never signs anyone
+  in to it and never moves it again.
+  """
+  def verify_sign_in(login, password, params, opts \\ []) do
+    classic = Keyword.get(opts, :classic_client, ClassicClient)
+    proof = %{login: login, password: password}
+
+    with {:ok, binding} <- binding(nil, params),
+         {:ok, profile, _identity, _matched_on} <- verify_method(:password, proof, classic, nil),
+         {:ok, classic_user_id} <- classic_user_id(profile) do
+      case ClassicClaims.already_moved(classic_user_id, :password) do
+        nil -> issue_ticket(binding, :password, profile, nil, :password, nil)
+        moved -> moved(profile, moved)
+      end
+    end
+  end
+
+  defp moved(profile, moved) do
+    with {:ok, preview} <- profile |> legacy_data() |> preview() do
+      {:ok, %{classic: preview, already_claimed: moved}}
+    end
+  end
+
   @doc "The user or install binding shared by Classic ownership proofs."
   def binding(%{id: user_id}, _params), do: {:ok, %{user_id: user_id}}
 

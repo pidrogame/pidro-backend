@@ -709,6 +709,12 @@ defmodule PidroServerWeb.Schemas.UserSchemas do
           description: "Password for the account",
           minLength: 1,
           example: "secure_password_123"
+        },
+        install_id: %Schema{
+          type: :string,
+          maxLength: 64,
+          description:
+            "Sent by builds that understand a Classic answer: wrong credentials here are then checked against Classic"
         }
       },
       required: [:username, :password],

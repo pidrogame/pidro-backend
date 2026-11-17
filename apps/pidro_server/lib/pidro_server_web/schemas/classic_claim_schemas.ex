@@ -195,6 +195,52 @@ defmodule PidroServerWeb.Schemas.ClassicClaimSchemas do
     })
   end
 
+  defmodule ClassicMovedResponse do
+    @moduledoc false
+    OpenApiSpex.schema(%{
+      type: :object,
+      title: "Classic account moved response",
+      description:
+        "Password sign-in with an old-app password for an account already moved here: no ticket, no token.",
+      properties: %{
+        data: %Schema{
+          type: :object,
+          required: [:classic_found, :classic, :already_claimed],
+          additionalProperties: false,
+          properties: %{
+            classic_found: %Schema{type: :boolean, enum: [true]},
+            classic: ClassicPreview,
+            already_claimed: %Schema{
+              type: :object,
+              required: [:sign_in_method, :claimed_at],
+              properties: %{
+                sign_in_method: %Schema{
+                  type: :string,
+                  enum: ["password", "apple", "facebook"],
+                  nullable: true
+                },
+                claimed_at: %Schema{type: :string, format: :"date-time"}
+              }
+            }
+          }
+        }
+      },
+      required: [:data]
+    })
+  end
+
+  defmodule PasswordSignInResponse do
+    @moduledoc false
+    OpenApiSpex.schema(%{
+      title: "Password sign-in response",
+      oneOf: [
+        PidroServerWeb.Schemas.UserSchemas.UserWithTokenResponse,
+        ClassicFoundResponse,
+        ClassicMovedResponse
+      ]
+    })
+  end
+
   defmodule ProviderSignInResponse do
     @moduledoc false
     OpenApiSpex.schema(%{
