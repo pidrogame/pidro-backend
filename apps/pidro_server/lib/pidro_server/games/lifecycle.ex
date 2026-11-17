@@ -41,6 +41,7 @@ defmodule PidroServer.Games.Lifecycle do
           | :own_bot_delay_ms
           | :bot_delay_variance_ms
           | :bot_min_delay_ms
+          | :dealer_cut_delay_ms
           | :dealer_selection_delay_ms
           | :trick_transition_delay_ms
           | :own_trick_transition_delay_ms
@@ -73,6 +74,8 @@ defmodule PidroServer.Games.Lifecycle do
     own_bot_delay_ms: 2_500,
     bot_delay_variance_ms: 0,
     bot_min_delay_ms: 300,
+    # The room cuts for dealer this long after a game starts (PID-442).
+    dealer_cut_delay_ms: 3_000,
     dealer_selection_delay_ms: 3_000,
     trick_transition_delay_ms: 0,
     own_trick_transition_delay_ms: 2_500,

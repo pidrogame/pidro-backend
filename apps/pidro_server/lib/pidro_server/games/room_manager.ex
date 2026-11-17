@@ -2202,6 +2202,12 @@ defmodule PidroServer.Games.RoomManager do
                ) do
           record_timed_turn(room, user_id, position)
           applied
+        else
+          # Older apps still ask for the cut the room makes by itself (PID-442).
+          # The engine only refuses it once the cards are cut: that ask is done.
+          {:error, {:not_your_turn, _}} when action == :select_dealer -> :already_cut
+          {:error, {:invalid_action, :select_dealer, _phase}} -> :already_cut
+          other -> other
         end
       else
         {:error, reason} -> {:error, reason}
@@ -2211,6 +2217,9 @@ defmodule PidroServer.Games.RoomManager do
     case result do
       {:replayed, original} ->
         {:reply, {:ok, original}, state}
+
+      :already_cut ->
+        {:reply, {:ok, %{}}, state}
 
       {:error, :stale_turn} ->
         key = {diagnostics[:expected_turn], user_id}
@@ -3081,6 +3090,14 @@ defmodule PidroServer.Games.RoomManager do
 
           maybe_schedule_settle(updated_room, room_code, game_state, transition_delay_ms)
 
+          maybe_schedule_dealer_cut(
+            updated_room,
+            room_code,
+            game_state,
+            game_instance_id,
+            transition_delay_ms
+          )
+
           {:noreply,
            %{updated_state | rooms: Map.put(updated_state.rooms, room_code, updated_room)}}
         end
@@ -3255,6 +3272,23 @@ defmodule PidroServer.Games.RoomManager do
         _ ->
           state
       end
+
+    {:noreply, state}
+  end
+
+  # The cut for dealer (PID-442): nobody chooses, each seat draws a card. The
+  # turn pins it to the state that scheduled it, so a cut an older app asked
+  # for first stands and the room never cuts twice. Nothing else cuts at a
+  # table of people, so a cut the game could not save is asked again.
+  @impl true
+  def handle_info({:cut_for_dealer, room_code, turn, retries}, %State{} = state) do
+    with %Room{status: :playing} <- state.rooms[room_code],
+         {:error, :game_unavailable} when retries > 0 <-
+           GameAdapter.apply_action(room_code, :north, :select_dealer, 5_000, %{
+             expected_turn: turn
+           }) do
+      Process.send_after(self(), {:cut_for_dealer, room_code, turn, retries - 1}, 1_000)
+    end
 
     {:noreply, state}
   end
@@ -6920,6 +6954,26 @@ defmodule PidroServer.Games.RoomManager do
 
   defp maybe_schedule_settle(_room, _room_code, _game_state, _transition_delay_ms), do: nil
 
+  # Bots cut at their own beat; at any other table the room cuts by itself.
+  defp maybe_schedule_dealer_cut(
+         %Room{status: :playing} = room,
+         room_code,
+         %{phase: :dealer_selection, dealer_selection_cuts: nil, events: events},
+         game_instance_id,
+         transition_delay_ms
+       ) do
+    unless bots?(room) do
+      Process.send_after(
+        self(),
+        {:cut_for_dealer, room_code, {game_instance_id, length(events)}, 3},
+        transition_delay_ms + Lifecycle.config(:dealer_cut_delay_ms)
+      )
+    end
+  end
+
+  defp maybe_schedule_dealer_cut(_room, _room_code, _game_state, _instance_id, _delay_ms),
+    do: nil
+
   # The bot beat, so the last real trick is read like any other.
   defp schedule_settle(room_code, event_seq, retries, transition_delay_ms) do
     delay_ms = transition_delay_ms + Lifecycle.config(:bot_delay_ms)
@@ -6936,16 +6990,6 @@ defmodule PidroServer.Games.RoomManager do
       event_seq = length(Map.get(game_state, :events, []))
 
       cond do
-        phase == :dealer_selection and all_human_table?(room) ->
-          case first_connected_human_position(room) do
-            nil ->
-              :none
-
-            actor_position ->
-              {:ok, {:room, :dealer_selection, event_seq}, :room, actor_position,
-               :dealer_selection, Lifecycle.config(:turn_timer_play_ms)}
-          end
-
         phase in [:bidding, :declaring, :playing, :second_deal] ->
           position = Map.get(game_state, :current_turn)
           seat = position && Map.get(room.seats, position)
@@ -7242,8 +7286,6 @@ defmodule PidroServer.Games.RoomManager do
     end
   end
 
-  defp maybe_increment_timeout_counter(%Room{} = room, _scope, _actor_position), do: {room, false}
-
   defp timeout_threshold_reached?(%Room{} = room, actor_position) do
     Map.get(room.consecutive_timeouts, actor_position, 0) >=
       Lifecycle.config(:consecutive_timeout_threshold)
@@ -7307,25 +7349,6 @@ defmodule PidroServer.Games.RoomManager do
 
   defp reset_timeout_counter(%Room{} = room, position) do
     %{room | consecutive_timeouts: Map.delete(room.consecutive_timeouts, position)}
-  end
-
-  defp all_human_table?(%Room{seats: seats}) when map_size(seats) == 0, do: false
-
-  defp all_human_table?(%Room{seats: seats}) do
-    map_size(seats) == @max_players and
-      Enum.all?(seats, fn {_position, seat} ->
-        Seat.connected_human?(seat) and seat.background_token == nil
-      end)
-  end
-
-  defp first_connected_human_position(%Room{seats: seats}) do
-    [:north, :east, :south, :west]
-    |> Enum.find(fn position ->
-      case Map.get(seats, position) do
-        %Seat{} = seat -> Seat.connected_human?(seat)
-        _ -> false
-      end
-    end)
   end
 
   defp serialize_turn_timer(nil), do: nil

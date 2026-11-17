@@ -796,4 +796,114 @@ defmodule PidroServer.Games.RematchTest do
       assert length(sockets) == 4
     end
   end
+
+  describe "the cut for dealer at a table of four people (PID-442)" do
+    setup do
+      previous = Application.get_env(:pidro_server, Lifecycle, [])
+      on_exit(fn -> Application.put_env(:pidro_server, Lifecycle, previous) end)
+
+      Application.put_env(
+        :pidro_server,
+        Lifecycle,
+        Keyword.put(previous, :dealer_cut_delay_ms, 300)
+      )
+
+      users = Enum.map(1..4, &AccountsFixtures.user_fixture(%{display_name: "Cut #{&1}"}))
+      [host | others] = users
+      {:ok, room} = RoomManager.create_room(host.id, %{})
+      for user <- others, do: RoomManager.join_room(room.code, user.id)
+
+      sockets =
+        Enum.map(users, fn user ->
+          {:ok, socket} = create_socket(user)
+          {:ok, reply, joined} = subscribe_and_join(socket, GameChannel, "game:#{room.code}")
+          {joined, reply}
+        end)
+
+      [{_socket, %{readiness: initial}} | _] = sockets
+      params = %{"room_id" => room.id, "ready_epoch" => initial.ready_epoch}
+
+      for {socket, _reply} <- sockets do
+        ref = push(socket, "ready", params)
+        assert_reply ref, :ok, _
+      end
+
+      %{room: room, sockets: Enum.map(sockets, &elem(&1, 0))}
+    end
+
+    test "nobody sends select_dealer: the room cuts after the delay, first game and rematch",
+         %{room: room, sockets: sockets} do
+      cut_by_the_room(room.code)
+
+      finish_game(room.code)
+      assert_push "readiness_updated", %{status: :finished, ready_epoch: epoch}
+      params = %{"room_id" => room.id, "ready_epoch" => epoch}
+
+      for socket <- sockets do
+        ref = push(socket, "rematch", params)
+        assert_reply ref, :ok, _
+      end
+
+      assert {:ok, %{status: :playing, game_number: 2}} = RoomManager.get_room(room.code)
+      cut_by_the_room(room.code)
+    end
+
+    test "an old app that asks for the cut, before or after the room's, gets ok and one cut",
+         %{room: room, sockets: [north | _]} do
+      ref = push(north, "select_dealer", %{"action_id" => "early"})
+      assert_reply ref, :ok, _
+      assert [_cut] = dealer_cuts(room.code)
+
+      Process.sleep(Lifecycle.config(:dealer_cut_delay_ms) + 200)
+      assert [_cut] = dealer_cuts(room.code)
+
+      ref = push(north, "select_dealer", %{"action_id" => "late"})
+      assert_reply ref, :ok, _
+      assert [_cut] = dealer_cuts(room.code)
+
+      refute_received %Phoenix.Socket.Message{
+        event: "turn_auto_played",
+        payload: %{phase: :dealer_selection}
+      }
+    end
+  end
+
+  # Nothing is cut before the delay and nothing waits on a timer; then one
+  # cut, and nobody is told the dealer was picked for them.
+  defp cut_by_the_room(room_code) do
+    Process.sleep(Lifecycle.config(:dealer_cut_delay_ms) - 100)
+    assert dealer_cuts(room_code) == []
+    assert {:ok, nil} = RoomManager.get_turn_timer(room_code)
+
+    assert [_cut] = wait_for_cut(room_code, 50)
+
+    refute_received %Phoenix.Socket.Message{
+      event: "turn_timer_started",
+      payload: %{phase: :dealer_selection}
+    }
+
+    refute_received %Phoenix.Socket.Message{
+      event: "turn_auto_played",
+      payload: %{phase: :dealer_selection}
+    }
+
+    {:ok, room} = RoomManager.get_room(room_code)
+    refute Enum.any?(room.auto_played_turns, &match?({_turn, %{type: :select_dealer}}, &1))
+  end
+
+  defp wait_for_cut(room_code, attempts) do
+    case dealer_cuts(room_code) do
+      [] when attempts > 0 ->
+        Process.sleep(10)
+        wait_for_cut(room_code, attempts - 1)
+
+      cuts ->
+        cuts
+    end
+  end
+
+  defp dealer_cuts(room_code) do
+    {:ok, state} = GameAdapter.get_state(room_code)
+    Enum.filter(state.events, &match?({:dealer_selected, _, _}, &1))
+  end
 end

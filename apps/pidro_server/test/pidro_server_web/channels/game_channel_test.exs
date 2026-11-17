@@ -820,11 +820,14 @@ defmodule PidroServerWeb.GameChannelTest do
       room_code: room_code,
       sockets: sockets
     } do
+      # The cut for dealer has no timer (PID-442); the auction's is the first.
+      advance_game_to_bidding(room_code)
       {:ok, expected_timer} = wait_for_turn_timer(room_code)
 
       {:ok, reply, _socket} =
         subscribe_and_join(sockets[user.id], GameChannel, "game:#{room_code}", %{})
 
+      assert reply.turn_timer.phase == :bidding
       assert reply.turn_timer.timer_id == expected_timer.timer_id
       assert reply.turn_timer.scope == expected_timer.scope
       assert reply.turn_timer.position == expected_timer.position

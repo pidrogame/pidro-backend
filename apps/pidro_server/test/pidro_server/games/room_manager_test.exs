@@ -17,7 +17,7 @@ defmodule PidroServer.Games.RoomManagerTest do
 
   alias Pidro.Core.Types.{Bid, Trick}
   alias PidroServer.Games.{GameAdapter, Lifecycle, RoomCodes, RoomManager}
-  alias PidroServer.Games.Bots.BotBrain
+  alias PidroServer.Games.Bots.{BotBrain, BotManager}
   alias PidroServer.Games.Room.{Config, Positions, Seat}
   alias PidroServer.RoomFixtures
 
@@ -1091,7 +1091,8 @@ defmodule PidroServer.Games.RoomManagerTest do
       refute_receive {:turn_timer_started, _payload}, 100
     end
 
-    test "starts a room-owned timer for all-human dealer selection" do
+    test "four people and nobody asks: the room cuts for dealer, with no timer and no auto-play" do
+      put_dealer_cut_delay(300)
       {:ok, room} = RoomManager.create_room("user1", %{})
       room_code = room.code
 
@@ -1102,19 +1103,47 @@ defmodule PidroServer.Games.RoomManagerTest do
       {:ok, _, _} = RoomManager.join_room(room_code, "user4")
 
       RoomFixtures.ready_room(room_code)
-      assert_receive {:turn_timer_started, payload}, 200
-      assert payload.scope == :room
-      assert payload.position == nil
-      assert payload.phase == :dealer_selection
-      assert payload.transition_delay_ms == 0
-      assert payload.event_seq == 0
 
-      turn_timer = wait_for_turn_timer(room_code)
-      assert turn_timer.scope == :room
-      assert turn_timer.position == nil
-      assert turn_timer.phase == :dealer_selection
-      assert turn_timer.timer_id == payload.timer_id
-      assert turn_timer.remaining_ms > 0
+      Process.sleep(200)
+
+      assert {:ok, %{phase: :dealer_selection, dealer_selection_cuts: nil}} =
+               GameAdapter.get_state(room_code)
+
+      assert {:ok, nil} = RoomManager.get_turn_timer(room_code)
+
+      assert_receive {:turn_timer_started, %{scope: :seat, phase: :bidding}}, 1_000
+      {:ok, state} = GameAdapter.get_state(room_code)
+      assert [{:dealer_selected, dealer, _card}] = dealer_cuts(state)
+      assert state.current_dealer == dealer
+
+      refute_received {:turn_timer_started, %{phase: :dealer_selection}}
+      refute_received {:turn_auto_played, %{phase: :dealer_selection}}
+      {:ok, room} = RoomManager.get_room(room_code)
+      refute Enum.any?(room.auto_played_turns, &match?({_turn, %{type: :select_dealer}}, &1))
+    end
+
+    test "at a table with bots the bots cut for dealer, not the room" do
+      put_dealer_cut_delay(100)
+      {:ok, room} = RoomManager.create_room("user1", %{})
+
+      for position <- [:east, :south, :west] do
+        {:ok, _pid} = BotManager.start_bot(room.code, position, :basic, 600)
+      end
+
+      RoomFixtures.ready_room(room.code)
+
+      Process.sleep(400)
+
+      assert {:ok, %{phase: :dealer_selection, dealer_selection_cuts: nil}} =
+               GameAdapter.get_state(room.code)
+
+      state =
+        wait_until(fn ->
+          {:ok, state} = GameAdapter.get_state(room.code)
+          dealer_cuts(state) != [] && state
+        end)
+
+      assert [{:dealer_selected, _dealer, _card}] = dealer_cuts(state)
     end
 
     test "restarts the timer when a new same-position action window arrives" do
@@ -2289,6 +2318,19 @@ defmodule PidroServer.Games.RoomManagerTest do
       end
     end)
   end
+
+  defp put_dealer_cut_delay(delay_ms) do
+    previous = Application.get_env(:pidro_server, Lifecycle, [])
+    on_exit(fn -> Application.put_env(:pidro_server, Lifecycle, previous) end)
+
+    Application.put_env(
+      :pidro_server,
+      Lifecycle,
+      Keyword.put(previous, :dealer_cut_delay_ms, delay_ms)
+    )
+  end
+
+  defp dealer_cuts(state), do: Enum.filter(state.events, &match?({:dealer_selected, _, _}, &1))
 
   defp wait_for_turn_timer(room_code) do
     wait_until(fn ->

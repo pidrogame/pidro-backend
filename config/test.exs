@@ -122,6 +122,8 @@ config :pidro_server, PidroServer.Games.Lifecycle,
   bot_delay_ms: 20,
   bot_delay_variance_ms: 10,
   bot_min_delay_ms: 5,
+  # Tests that start a table cut for dealer themselves unless they lower it.
+  dealer_cut_delay_ms: 60_000,
   dealer_selection_delay_ms: 0,
   trick_transition_delay_ms: 30,
   hand_transition_delay_ms: 40,

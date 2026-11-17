@@ -194,7 +194,11 @@ defmodule PidroServerWeb.Dev.GameListLiveTest do
   test "two real games update independently, including timers, turn, action and rematch", %{
     conn: conn
   } do
-    Application.put_env(:pidro_server, Lifecycle, dealer_selection_delay_ms: 0)
+    Application.put_env(:pidro_server, Lifecycle,
+      dealer_selection_delay_ms: 0,
+      dealer_cut_delay_ms: 60_000
+    )
+
     {one, ids} = playing_room()
     {two, _} = playing_room()
     {:ok, view, _} = live(conn, ~p"/admin/games")
