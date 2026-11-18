@@ -244,9 +244,9 @@ Must kill 2 cards to get to 6.
 Valid kills: K♥, Q♥, 6♥, 4♥ (any 2)
 Invalid kills: A♥, J♥, 10♥, 5♥ (point cards)
 
-Player kills: K♥ and 4♥ (placed face-up)
-Top killed card: K♥ (must play first)
-Final hand: A♥ Q♥ J♥ 10♥ 5♥ 6♥ (6 cards)
+The engine kills the lowest: 4♥ and 6♥ (placed face-up)
+Top killed card: 4♥ (must play first)
+Final hand: A♥ K♥ Q♥ J♥ 10♥ 5♥ (6 cards)
 ```
 
 ### Example: Dealer Rob

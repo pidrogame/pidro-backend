@@ -71,7 +71,7 @@ defmodule Pidro.Game.Play do
   @doc """
   Compute killed cards for all players entering playing phase.
 
-  Players with >6 trump must kill down to 6 using non-point cards.
+  Players with >6 trump must kill down to 6 using their lowest non-point cards.
   If a player has 7+ point cards, they cannot kill and keep all their cards.
 
   ## Parameters
@@ -106,8 +106,9 @@ defmodule Pidro.Game.Play do
           non_point = Card.non_point_trumps(player.hand, trump)
 
           if length(non_point) >= excess do
-            # Kill oldest non-point cards (arbitrary choice)
-            to_kill = Enum.take(non_point, excess)
+            # Kill the lowest non-point trumps, as a player at the table would.
+            # Fives are point cards, so these share the trump suit and sort by rank.
+            to_kill = non_point |> Enum.sort() |> Enum.take(excess)
             Map.put(acc, pos, to_kill)
           else
             # Cannot kill (7+ point cards) - keep all cards

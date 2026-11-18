@@ -6,8 +6,8 @@ defmodule Pidro.Core.SeatViewTest do
   alias Pidro.Game.{Engine, Play}
   alias Pidro.Test.GameTrace
 
-  # North holds seven trumps, so entering play kills the King (the first
-  # non-point trump in hand order). East, South and West go cold one by one.
+  # North holds seven trumps, so entering play kills the 8 (the lowest
+  # non-point trump). East, South and West go cold one by one.
   defp kill_state do
     hands = %{
       north: [
@@ -154,7 +154,7 @@ defmodule Pidro.Core.SeatViewTest do
 
     test "a card killed on entering play is still shown after three tricks" do
       state = kill_state()
-      assert state.killed_cards == %{north: [{13, :hearts}]}
+      assert state.killed_cards == %{north: [{8, :hearts}]}
 
       state =
         play_all(state,
@@ -175,7 +175,7 @@ defmodule Pidro.Core.SeatViewTest do
 
       for pos <- [:north, :east, :south, :west] do
         view = SeatView.for_seat(state, pos)
-        assert view.killed_cards == %{north: [{13, :hearts}]}
+        assert view.killed_cards == %{north: [{8, :hearts}]}
       end
     end
 
@@ -195,7 +195,7 @@ defmodule Pidro.Core.SeatViewTest do
           east: {7, :hearts},
           north: {10, :hearts},
           north: {9, :hearts},
-          north: {8, :hearts}
+          north: {13, :hearts}
         )
 
       assert state.hand_number == 2

@@ -79,4 +79,35 @@ defmodule Pidro.Game.PlayKillRuleTest do
       assert {:ok, _} = result
     end
   end
+
+  describe "which trumps are killed" do
+    test "seven trumps give up the lowest non-point trump, not the king" do
+      state = kill(hearts([13, 12, 10, 8, 7, 5, 2]))
+
+      assert state.killed_cards.west == [{7, :hearts}]
+      assert state.players.west.hand == hearts([13, 12, 10, 8, 5, 2])
+      assert Play.compute_kills(state).players == state.players
+    end
+
+    test "eight trumps give up the two lowest non-point trumps, never a five" do
+      state = kill(hearts([4, 13, 12, 10, 9, 2, 14]) ++ [{5, :diamonds}])
+
+      assert state.killed_cards.west == [{4, :hearts}, {9, :hearts}]
+      assert state.players.west.hand == hearts([13, 12, 10, 2, 14]) ++ [{5, :diamonds}]
+    end
+  end
+
+  defp hearts(ranks), do: Enum.map(ranks, &{&1, :hearts})
+
+  defp kill(hand) do
+    player = %Player{position: :west, hand: hand, team: :east_west}
+
+    Play.compute_kills(%{
+      GameState.new(seed: 1)
+      | trump_suit: :hearts,
+        players: %{west: player},
+        phase: :playing,
+        current_turn: :west
+    })
+  end
 end
