@@ -3279,15 +3279,20 @@ defmodule PidroServer.Games.RoomManager do
   # The cut for dealer (PID-442): nobody chooses, each seat draws a card. The
   # turn pins it to the state that scheduled it, so a cut an older app asked
   # for first stands and the room never cuts twice. Nothing else cuts at a
-  # table of people, so a cut the game could not save is asked again.
+  # table of people, so a cut the game could not save is asked again each
+  # second until it lands, the game moves on or the room goes.
   @impl true
-  def handle_info({:cut_for_dealer, room_code, turn, retries}, %State{} = state) do
+  def handle_info({:cut_for_dealer, room_code, turn}, %State{} = state) do
     with %Room{status: :playing} <- state.rooms[room_code],
-         {:error, :game_unavailable} when retries > 0 <-
-           GameAdapter.apply_action(room_code, :north, :select_dealer, 5_000, %{
-             expected_turn: turn
-           }) do
-      Process.send_after(self(), {:cut_for_dealer, room_code, turn, retries - 1}, 1_000)
+         {:error, :game_unavailable} <-
+           GameAdapter.apply_action(
+             room_code,
+             :north,
+             :select_dealer,
+             @player_action_call_timeout_ms,
+             %{expected_turn: turn}
+           ) do
+      Process.send_after(self(), {:cut_for_dealer, room_code, turn}, 1_000)
     end
 
     {:noreply, state}
@@ -6965,7 +6970,7 @@ defmodule PidroServer.Games.RoomManager do
     unless bots?(room) do
       Process.send_after(
         self(),
-        {:cut_for_dealer, room_code, {game_instance_id, length(events)}, 3},
+        {:cut_for_dealer, room_code, {game_instance_id, length(events)}},
         transition_delay_ms + Lifecycle.config(:dealer_cut_delay_ms)
       )
     end

@@ -303,6 +303,88 @@ defmodule PidroServer.Games.RoomHandoverTest do
     assert GameArchive.summary(id).status == "interrupted"
   end
 
+  describe "the cut for dealer across a move (PID-442)" do
+    setup do
+      previous = Application.get_env(:pidro_server, Lifecycle, [])
+
+      Application.put_env(
+        :pidro_server,
+        Lifecycle,
+        Keyword.put(previous, :dealer_cut_delay_ms, 1_000)
+      )
+
+      :ok
+    end
+
+    test "a deploy inside the delay: the next node cuts and the table plays on" do
+      {code, _users} = table()
+      assert {:ok, %{dealer_selection_cuts: nil}} = GameAdapter.get_state(code)
+
+      assert :ok = RoomManager.release_rooms()
+      new_node()
+      send(RoomManager, :room_store_sweep)
+      wait(fn -> Map.has_key?(:sys.get_state(RoomManager).rooms, code) end)
+
+      assert_cut_once_after_the_delay(code)
+    end
+
+    test "a room manager restart drops the scheduled cut; the room cuts once it is back" do
+      {code, _users} = table()
+      new_node()
+      assert {:ok, %{status: :playing}} = RoomManager.find_room(code)
+
+      assert_cut_once_after_the_delay(code)
+    end
+
+    test "a cut the game cannot save for longer than a few tries still lands" do
+      {code, _users} = table()
+      {:ok, %{game_instance_id: id}} = GameAdapter.get_snapshot(code)
+
+      Repo.query!("""
+      CREATE FUNCTION archive_test_refuse_cut() RETURNS trigger AS $$
+      BEGIN
+        IF NEW.game_instance_id = '#{id}' THEN RAISE EXCEPTION 'database away'; END IF;
+        RETURN NEW;
+      END;
+      $$ LANGUAGE plpgsql
+      """)
+
+      Repo.query!(
+        "CREATE TRIGGER archive_refuse_cut BEFORE INSERT ON game_archive_events FOR EACH ROW EXECUTE FUNCTION archive_test_refuse_cut()"
+      )
+
+      on_exit(fn ->
+        Repo.query!("DROP TRIGGER IF EXISTS archive_refuse_cut ON game_archive_events")
+        Repo.query!("DROP FUNCTION IF EXISTS archive_test_refuse_cut()")
+      end)
+
+      # Longer than the three tries the room used to make (about 4 s).
+      Process.sleep(6_000)
+
+      assert {:ok, %{phase: :dealer_selection, dealer_selection_cuts: nil}} =
+               GameAdapter.get_state(code)
+
+      Repo.query!("DROP TRIGGER archive_refuse_cut ON game_archive_events")
+      wait(fn -> dealer_cuts(code) != [] end, 200)
+      assert [_cut] = dealer_cuts(code)
+      wait(fn -> match?({:ok, %{phase: :bidding}}, GameAdapter.get_state(code)) end)
+    end
+  end
+
+  defp assert_cut_once_after_the_delay(code) do
+    assert {:ok, %{phase: :dealer_selection, dealer_selection_cuts: nil}} =
+             GameAdapter.get_state(code)
+
+    wait(fn -> dealer_cuts(code) != [] end, 200)
+    assert [_cut] = dealer_cuts(code)
+    wait(fn -> match?({:ok, %{phase: :bidding}}, GameAdapter.get_state(code)) end)
+  end
+
+  defp dealer_cuts(code) do
+    {:ok, state} = GameAdapter.get_state(code)
+    Enum.filter(state.events, &match?({:dealer_selected, _, _}, &1))
+  end
+
   defp assert_restores_and_finishes(code, before) do
     new_node()
     assert {:ok, room} = RoomManager.find_room(code)
