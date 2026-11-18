@@ -693,6 +693,10 @@ defmodule PidroServerWeb.API.FallbackController do
     )
   end
 
+  def call(conn, {:error, :room_not_finished}) do
+    conflict(conn, "ROOM_NOT_FINISHED", "Room not finished", "The room's game is not over")
+  end
+
   def call(conn, {:error, :invite_limit}) do
     conflict(conn, "INVITE_LIMIT", "Invite limit", "This room has reached its invite limit")
   end

@@ -63,6 +63,21 @@ defmodule PidroServer.Games.RematchTest do
     pid
   end
 
+  # Two people, two bots, one finished game; the guest has voted to rematch.
+  defp finished_bot_table do
+    [host, guest] = Enum.map(1..2, &AccountsFixtures.user_fixture(%{display_name: "Host #{&1}"}))
+    {:ok, room} = RoomManager.create_room(host.id, %{name: "Bots after"})
+    {:ok, _, :east} = RoomManager.join_room(room.code, guest.id, :east)
+
+    for position <- [:south, :west],
+        do: {:ok, _} = BotManager.start_bot(room.code, position, :basic, 5_000)
+
+    RoomFixtures.ready_room(room.code)
+    finished = finish_game(room.code)
+    ask_for_rematch(room, [guest.id])
+    {finished, host.id, guest.id}
+  end
+
   describe "the same four, again" do
     test "a rematch waiting for a replacement retains the hold until that friend sits" do
       {room, [host, departing | remaining]} = four_player_game()
@@ -277,6 +292,7 @@ defmodule PidroServer.Games.RematchTest do
       assert reopened.host_id == host
       assert reopened.seats[leaver_position].occupant_type == :vacant
       assert reopened.ready_epoch > vote.ready_epoch
+      assert {:ok, %{status: :waiting, reopened_by: :leave}} = RoomManager.readiness(room.code)
 
       for user_id <- user_ids -- [leaver] do
         assert Enum.any?(reopened.seats, fn {_pos, seat} -> seat.user_id == user_id end)
@@ -504,6 +520,84 @@ defmodule PidroServer.Games.RematchTest do
       Process.sleep(Lifecycle.config(:hiccup_timeout_ms) + 100)
 
       assert {:ok, %{status: :finished}} = RoomManager.get_room(room.code)
+    end
+  end
+
+  describe "the host reopens the table (PID-439)" do
+    test "nobody moves, the votes and the finished game go, and nothing starts by itself" do
+      {finished, host, _guest} = finished_bot_table()
+      first_game = game_pid(finished.code)
+      {:ok, vote} = RoomManager.readiness(finished.code)
+      assert vote.ready_players == [:east, :south, :west]
+      assert vote.reopened_by == nil
+      Phoenix.PubSub.subscribe(PidroServer.PubSub, "game:#{finished.code}")
+
+      assert {:ok, reopened} = RoomManager.reopen(finished.code, host)
+
+      assert_receive {:readiness_updated, %{status: :waiting, reopened_by: :host} = snapshot}
+      assert snapshot.ready_players == [:south, :west]
+      assert snapshot.ready_epoch == vote.ready_epoch + 1
+      assert snapshot.positions == finished.positions
+
+      assert reopened.status == :waiting
+      assert reopened.id == finished.id
+      assert reopened.host_id == host
+      assert reopened.game_number == 1
+      assert reopened.ready_player_ids == MapSet.new()
+
+      for position <- [:south, :west] do
+        assert %{occupant_type: :bot, bot_pid: pid, bot_persona: persona} =
+                 reopened.seats[position]
+
+        assert pid == finished.seats[position].bot_pid and Process.alive?(pid)
+        assert persona == finished.seats[position].bot_persona
+      end
+
+      refute Process.alive?(first_game)
+      Process.sleep(200)
+      assert {:ok, %{status: :waiting, game_number: 1}} = RoomManager.get_room(finished.code)
+    end
+
+    test "only the host, and only a finished room" do
+      {finished, host, guest} = finished_bot_table()
+
+      assert {:error, :not_owner} = RoomManager.reopen(finished.code, guest)
+      assert {:error, :room_not_found} = RoomManager.reopen("ZZZZ", host)
+      assert {:ok, %{status: :finished}} = RoomManager.get_room(finished.code)
+
+      assert {:ok, _} = RoomManager.reopen(finished.code, host)
+      assert {:error, :room_not_finished} = RoomManager.reopen(finished.code, host)
+
+      RoomFixtures.ready_room(finished.code)
+      assert {:ok, %{status: :playing}} = RoomManager.get_room(finished.code)
+      assert {:error, :room_not_finished} = RoomManager.reopen(finished.code, host)
+      assert {:ok, %{status: :playing}} = RoomManager.get_room(finished.code)
+    end
+
+    test "a full table everyone readies starts the next game with its bots" do
+      {finished, host, _guest} = finished_bot_table()
+      {:ok, _} = RoomManager.reopen(finished.code, host)
+
+      playing = RoomFixtures.ready_room(finished.code)
+
+      assert playing.status == :playing
+      assert playing.game_number == 2
+      assert playing.id == finished.id
+
+      for position <- [:south, :west],
+          do: assert(playing.seats[position].bot_pid == finished.seats[position].bot_pid)
+
+      assert {:ok, %{reopened_by: nil}} = RoomManager.readiness(finished.code)
+      {:ok, state} = GameAdapter.get_state(finished.code)
+      assert state.phase == :dealer_selection
+    end
+
+    test "the finished room's close timer no longer applies" do
+      {finished, host, _guest} = finished_bot_table()
+      {:ok, _} = RoomManager.reopen(finished.code, host)
+
+      Process.sleep(Lifecycle.config(:finished_room_ttl_ms) + 200)
+      assert {:ok, %{status: :waiting}} = RoomManager.get_room(finished.code)
     end
   end
 

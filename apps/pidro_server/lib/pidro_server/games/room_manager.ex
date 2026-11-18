@@ -102,6 +102,7 @@ defmodule PidroServer.Games.RoomManager do
     - `:config` - The `Room.Config` set at creation: name, requested bot difficulty and whether the table is solo. Never changes for the life of the room
     - `:phase_timers` - Map of position to timer reference for the disconnect cascade (%{position => reference()})
     - `:post_game_summaries` - The last game's `%{user_id => summary}`, kept while `:finished` so a rejoin sees it
+    - `:reopened_by` - Why a finished room went back to waiting: `:host` (`reopen/2`) or `:leave` (a player left). Nil until then, cleared when the next game starts and not stored across a deploy
     - `:talk` - The last 20 faces, words and typed lines at the table, newest first, so a report quotes what the server saw and a join hears what was said. Cleared when a game ends; gone with the room
     - `:last_game_talk` - The finished game's `:talk`, kept only so a report from the result screen quotes it; never replayed. Dropped when the next game starts; gone with the room
     - `:talk_id` - The `id` of the last line said at the table; each line takes the next, so a client shows a line it hears twice once. Stored with the room, so it keeps climbing across a deploy
@@ -147,6 +148,7 @@ defmodule PidroServer.Games.RoomManager do
             game_number: non_neg_integer(),
             game_started_at: DateTime.t() | nil,
             post_game_summaries: %{optional(String.t()) => map()},
+            reopened_by: :host | :leave | nil,
             talk: [map()],
             last_game_talk: [map()],
             talk_id: non_neg_integer(),
@@ -197,6 +199,7 @@ defmodule PidroServer.Games.RoomManager do
       game_number: 0,
       game_started_at: nil,
       post_game_summaries: %{},
+      reopened_by: nil,
       talk: [],
       last_game_talk: [],
       talk_id: 0,
@@ -396,6 +399,19 @@ defmodule PidroServer.Games.RoomManager do
           {:ok, Room.t(), [Positions.position()]} | {:error, term()}
   def fill_with_bots(code, host_id) do
     GenServer.call(__MODULE__, {:fill_with_bots, String.upcase(code), host_id})
+  end
+
+  @doc """
+  Sends a finished room back to waiting, so its host can change the seats
+  before the next game. Nobody is removed: it goes back the way it does when a
+  player leaves, with `reopened_by: :host`. Host only. Any other status answers
+  `{:error, :room_not_finished}`.
+  """
+  @spec reopen(String.t(), String.t()) ::
+          {:ok, Room.t()}
+          | {:error, :room_not_found | :room_moving | :not_owner | :room_not_finished}
+  def reopen(code, host_id) do
+    GenServer.call(__MODULE__, {:reopen, String.upcase(code), host_id})
   end
 
   @doc """
@@ -1631,6 +1647,17 @@ defmodule PidroServer.Games.RoomManager do
       {:reply, {:ok, updated, positions}, state}
     else
       [] -> {:reply, {:error, :no_seats_to_fill}, state}
+      {:error, reason} -> {:reply, {:error, reason}, state}
+    end
+  end
+
+  def handle_call({:reopen, code, host_id}, _from, state) do
+    with {:ok, room} <- fetch_room(state, code),
+         :ok <- ensure_owner(room, host_id),
+         :ok <- ensure_finished(room) do
+      {room, state} = return_to_waiting(state, room, :host)
+      {:reply, {:ok, room}, state}
+    else
       {:error, reason} -> {:reply, {:error, reason}, state}
     end
   end
@@ -3899,6 +3926,9 @@ defmodule PidroServer.Games.RoomManager do
   defp ensure_waiting(%Room{status: status}) when status in [:waiting, :ready], do: :ok
   defp ensure_waiting(_), do: {:error, :room_not_waiting}
 
+  defp ensure_finished(%Room{status: :finished}), do: :ok
+  defp ensure_finished(_), do: {:error, :room_not_finished}
+
   @doc false
   # An invite binds to the room id; the same code may belong to a later room.
   defp ensure_room_id(%Room{id: id}, room_id) when id == room_id, do: :ok
@@ -4467,7 +4497,8 @@ defmodule PidroServer.Games.RoomManager do
           {position, Config.serialize_seat(room.config, seat)}
         end),
       ready_players: ready_players,
-      bots_offer_in_ms: bots_offer_in_ms(room)
+      bots_offer_in_ms: bots_offer_in_ms(room),
+      reopened_by: room.reopened_by
     }
     |> Map.merge(Room.game_payload(room))
   end
@@ -5163,36 +5194,17 @@ defmodule PidroServer.Games.RoomManager do
   defp remove_player(%State{} = state, %Room{code: room_code} = room, player_id) do
     player_position = Positions.get_position(room, player_id)
 
-    # A finished room that loses a player reopens as a waiting table, so its
-    # completed game goes: the next start must be a new game, not this one.
     updated_room =
       room
       |> Positions.remove(player_id)
       |> vacate_seat(player_position)
-      |> retire_finished_game()
-      |> reset_readiness()
 
     if Positions.count(updated_room) == 0 do
       Logger.info("Room #{room_code} is now empty, deleting")
       {:closed, remove_room(state, room_code)}
     else
-      final_room =
-        updated_room
-        |> Map.put(:status, :waiting)
-        |> bump_seat_lifecycle_revision()
-        |> touch_last_activity()
-
-      %State{} =
-        new_state = %State{
-          state
-          | rooms: Map.put(state.rooms, room_code, final_room),
-            player_rooms: Map.delete(state.player_rooms, player_id)
-        }
-
-      broadcast_room(room_code, final_room)
-      broadcast_readiness(final_room)
-      broadcast_lobby_event({:room_updated, final_room})
-      broadcast_seat_lifecycle(final_room)
+      state = %State{state | player_rooms: Map.delete(state.player_rooms, player_id)}
+      {final_room, new_state} = return_to_waiting(state, updated_room, :leave)
 
       # If this was a :playing room and no connected humans remain,
       # schedule auto-close (bots may still be playing)
@@ -5202,6 +5214,26 @@ defmodule PidroServer.Games.RoomManager do
 
       {:ok, final_room, new_state}
     end
+  end
+
+  # The room back at `:waiting` with its readiness reset, and the table told.
+  # A finished room reopens as a waiting table, so its completed game goes (the
+  # next start must be a new game, not this one) and it says why: `reason`.
+  defp return_to_waiting(%State{} = state, %Room{code: room_code} = room, reason) do
+    final_room =
+      %{room | reopened_by: if(room.status == :finished, do: reason, else: room.reopened_by)}
+      |> retire_finished_game()
+      |> reset_readiness()
+      |> Map.put(:status, :waiting)
+      |> bump_seat_lifecycle_revision()
+      |> touch_last_activity()
+
+    broadcast_room(room_code, final_room)
+    broadcast_readiness(final_room)
+    broadcast_lobby_event({:room_updated, final_room})
+    broadcast_seat_lifecycle(final_room)
+
+    {final_room, put_room(state, final_room)}
   end
 
   @doc false
@@ -6146,6 +6178,7 @@ defmodule PidroServer.Games.RoomManager do
               {position, Seat.start_connection_stats(seat, now)}
             end),
           post_game_summaries: %{},
+          reopened_by: nil,
           last_game_talk: []
       }
       |> revive_substitute_bots()

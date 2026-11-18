@@ -121,7 +121,7 @@
     {"code":"stale_readiness","params":{},"sources":["readiness"],"meaning":"The readiness state changed; refresh before retrying."},
     {"code":"stale_identity","params":{},"sources":["readiness"],"meaning":"The game identity changed; refresh before retrying."},
     {"code":"table_not_full","params":{},"sources":["readiness"],"meaning":"All seats must be filled before starting."},
-    {"code":"room_not_finished","params":{},"sources":["readiness"],"meaning":"Finish this game before requesting a rematch."},
+    {"code":"room_not_finished","params":{},"sources":["rooms","readiness"],"meaning":"This game is not over yet."},
     {"code":"stale_decision","params":{},"sources":["seats"],"meaning":"The seat decision changed; refresh before retrying."},
     {"code":"game_unavailable","params":{},"sources":["actions","rooms"],"meaning":"The game is temporarily unavailable."},
     {"code":"invalid_phase","params":{},"sources":["actions"],"meaning":"This action is not allowed in the current game phase."},

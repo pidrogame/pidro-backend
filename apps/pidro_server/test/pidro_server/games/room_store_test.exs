@@ -95,6 +95,7 @@ defmodule PidroServer.Games.RoomStoreTest do
       game_number: 2,
       game_started_at: now,
       post_game_summaries: %{},
+      reopened_by: :host,
       talk: [%{id: 7, user_id: host, seat: :north, text: "gg"}],
       last_game_talk: [%{id: 6, user_id: host, seat: :north, text: "hyvä"}],
       talk_id: 7,
@@ -122,6 +123,7 @@ defmodule PidroServer.Games.RoomStoreTest do
                last_game_talk: [],
                bot_talk: %{room.bot_talk | seen: nil},
                table_changed_at: nil,
+               reopened_by: nil,
                game: nil
            }
   end

@@ -2482,6 +2482,91 @@ defmodule PidroServerWeb.API.RoomControllerTest do
     end
   end
 
+  describe "PID-439 reopen/2" do
+    test "a non-host gets 403, a playing or waiting room 409 ROOM_NOT_FINISHED", %{conn: conn} do
+      {finished, host, guest} = finished_bot_table()
+
+      assert %{"errors" => [%{"code" => "NOT_OWNER"}], "error_code" => "not_owner"} =
+               as_user(conn, guest)
+               |> post(~p"/api/v1/rooms/#{finished.code}/reopen")
+               |> json_response(403)
+
+      assert {:ok, %{status: :finished}} = RoomManager.get_room(finished.code)
+
+      waiting_host = AccountsFixtures.user_fixture()
+      {:ok, waiting} = RoomManager.create_room(waiting_host.id)
+      playing_host = AccountsFixtures.user_fixture()
+      {:ok, playing} = RoomManager.create_room(playing_host.id)
+      :ok = RoomManager.update_room_status(playing.code, :playing)
+
+      for {room, user, status} <- [
+            {waiting, waiting_host, :waiting},
+            {playing, playing_host, :playing}
+          ] do
+        assert %{
+                 "errors" => [%{"code" => "ROOM_NOT_FINISHED"}],
+                 "error_code" => "room_not_finished"
+               } =
+                 as_user(build_conn(), user)
+                 |> post(~p"/api/v1/rooms/#{room.code}/reopen")
+                 |> json_response(409)
+
+        assert {:ok, %{status: ^status}} = RoomManager.get_room(room.code)
+      end
+
+      reopened =
+        as_user(build_conn(), host)
+        |> post(~p"/api/v1/rooms/#{finished.code}/reopen")
+        |> data(200)
+
+      assert reopened["room"]["status"] == "waiting"
+      assert reopened["room"]["host_id"] == host.id
+
+      assert reopened["room"]["positions"] ==
+               Map.new(finished.positions, fn {pos, id} -> {Atom.to_string(pos), id} end)
+    end
+
+    test "after reopening the host opens a bot's seat, a person sits and the next game starts",
+         %{conn: conn} do
+      {finished, host, guest} = finished_bot_table()
+      viewer = AccountsFixtures.user_fixture()
+      bot = finished.seats.west.bot_pid
+      ref = Process.monitor(bot)
+
+      listed? = fn ->
+        as_user(build_conn(), viewer)
+        |> get(~p"/api/v1/lobby")
+        |> data(200)
+        |> Map.fetch!("open_tables")
+        |> Enum.any?(&(&1["code"] == finished.code))
+      end
+
+      as_user(conn, host) |> post(~p"/api/v1/rooms/#{finished.code}/reopen") |> data(200)
+      refute listed?.()
+
+      opened =
+        as_user(build_conn(), host)
+        |> put(~p"/api/v1/rooms/#{finished.code}/seats/west", %{"seat" => "open"})
+        |> data(200)
+
+      assert opened["room"]["positions"]["west"] == nil
+      assert_receive {:DOWN, ^ref, :process, ^bot, _}
+      assert listed?.()
+
+      as_user(build_conn(), viewer)
+      |> post(~p"/api/v1/rooms/#{finished.code}/join", %{position: "west"})
+      |> json_response(200)
+
+      playing = PidroServer.RoomFixtures.ready_room(finished.code)
+      assert playing.status == :playing
+      assert playing.game_number == 2
+      assert playing.id == finished.id
+      assert playing.positions.west == viewer.id
+      assert playing.positions.east == guest.id
+      assert playing.seats.south.bot_pid == finished.seats.south.bot_pid
+    end
+  end
+
   describe "PID-457 bots_offer_in_ms" do
     test "counts down from the delay after a change and restarts when someone sits or leaves",
          %{conn: conn} do
@@ -2594,6 +2679,22 @@ defmodule PidroServerWeb.API.RoomControllerTest do
   end
 
   defp data(conn, status), do: json_response(conn, status)["data"]
+
+  # Two people and two bots whose first game is over.
+  defp finished_bot_table do
+    host = AccountsFixtures.user_fixture()
+    guest = AccountsFixtures.user_fixture()
+    {:ok, room} = RoomManager.create_room(host.id)
+    {:ok, _, :east} = RoomManager.join_room(room.code, guest.id, :east)
+
+    for position <- [:south, :west],
+        do: {:ok, _} = BotManager.start_bot(room.code, position, :basic, 5_000)
+
+    PidroServer.RoomFixtures.ready_room(room.code)
+    send(RoomManager, {:game_over, room.code, :north_south, %{north_south: 62, east_west: 40}})
+    assert {:ok, %{status: :finished} = finished} = RoomManager.get_room(room.code)
+    {finished, host, guest}
+  end
 
   # The offer as the room payload and the readiness snapshot both carry it.
   defp offer(conn, user, room) do

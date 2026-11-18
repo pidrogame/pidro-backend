@@ -718,6 +718,35 @@ defmodule PidroServerWeb.API.RoomController do
   end
 
   @doc false
+  def open_api_operation(:reopen) do
+    %Operation{
+      summary: "Send a finished table back to waiting",
+      description: """
+      Host only, on a finished room, so the seats can change before the next
+      game. Nobody is removed: every seat keeps its player or bot. The room goes
+      back to waiting as when a player leaves it: the finished game and the
+      rematch votes go, and the next game needs the ordinary ready check. The
+      readiness snapshot says `reopened_by: "host"`. Any other status answers
+      409 `ROOM_NOT_FINISHED`. The response is the host's room.
+      """,
+      operationId: "RoomController.reopen",
+      tags: ["Rooms"],
+      security: [%{"bearer_auth" => []}],
+      parameters: [room_code_parameter()],
+      responses:
+        Map.put(
+          host_control_responses(),
+          409,
+          Operation.response(
+            "Room not finished",
+            "application/json",
+            ErrorSchemas.conflict_error()
+          )
+        )
+    }
+  end
+
+  @doc false
   def open_api_operation(:watch) do
     %Operation{
       summary: "Watch a room as a spectator",
@@ -1736,6 +1765,13 @@ defmodule PidroServerWeb.API.RoomController do
         nil -> render(conn, :show, room: started |> List.last() |> elem(1))
         error -> error
       end
+    end
+  end
+
+  @doc "Sends a finished table back to waiting (host only). See `open_api_operation(:reopen)`."
+  def reopen(conn, %{"code" => code}) do
+    with {:ok, room} <- RoomManager.reopen(code, conn.assigns.current_user.id) do
+      render(conn, :show, room: room)
     end
   end
 
