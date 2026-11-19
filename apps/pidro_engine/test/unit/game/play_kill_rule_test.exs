@@ -60,9 +60,7 @@ defmodule Pidro.Game.PlayKillRuleTest do
       # Verify killed cards
       killed = killed_state.killed_cards[:west]
       assert length(killed) == 1
-      # It kills oldest non-point. The logic is: 
-      # non_point = Card.non_point_trumps(player.hand, trump)
-      # to_kill = Enum.take(non_point, excess)
+      # It kills the lowest non-point trump (since PID-477).
       # We don't strictly care WHICH one is killed for this test, just that one IS killed.
       assert length(killed_state.players[:west].hand) == 6
 

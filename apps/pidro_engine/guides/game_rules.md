@@ -97,14 +97,11 @@ After second deal, dealer **combines their hand with all remaining deck cards** 
 
 If any player (including dealer) has **more than 6 trump cards**, they must:
 
-**Option A: Kill Down to 6**
+**Kill Down to 6**
 - Discard non-point trump cards to reach exactly 6
 - Can only kill: K, Q, 9, 8, 7, 6, 4, 3 (non-point trump)
 - Cannot kill: A, J, 10, Right-5, Wrong-5, 2 (point cards)
-
-**Option B: Keep All Cards**
-- If player has 7+ point cards, cannot kill
-- Player keeps all cards (>6 allowed)
+- There are only six point trumps, so a kill down to 6 always works
 
 **Killed Cards:**
 - Placed face-up (visible to all) and out of the hand
@@ -192,7 +189,7 @@ Result:
 2. **Wrong 5**: 5 of same-color suit is trump (15 trump cards total)
 3. **Redeal**: Non-dealers dealt to 6 cards after discard
 4. **Dealer Rob**: Dealer combines hand + deck, selects best 6
-5. **Kill Rule**: Players with >6 trump must kill non-point cards (or keep all if 7+ point cards)
+5. **Kill Rule**: Players with >6 trump kill non-point cards down to 6 (only six point trumps exist, so this always works)
 6. **Killed Cards**: Lie face up, visible to all, and are never played
 7. **Going Cold**: Players eliminated when out of trump
 8. **Information Asymmetry**: Only dealer sees full pool; others see counts only

@@ -43,7 +43,7 @@ If after re-deal, ANY player (including dealer) has more than 6 trump cards:
 2. Killed cards placed face-up on table, declared "out of game"
 3. **Cannot kill point cards** (A, J, 10, 5, 5, 2)
 4. Can only kill non-point trump (K, Q, 9, 8, 7, 6, 4, 3)
-5. If player has 7+ point cards (impossible to kill) → **they keep all cards >6**
+5. There are only six point trumps, so a kill down to 6 always works
 6. Killed cards stay face up, out of the hand, and are **never played** (see `guides/game_rules.md`, Kill Rule)
 
 ## Edge Cases to Handle
@@ -59,11 +59,7 @@ If all 3 non-dealers request 6 cards each:
 
 ### Edge 2: Player Has 7 Point Cards
 
-Player has: A, J, 10, Right-5, Wrong-5, 2, and one more point card (impossible unless bug)
-
-- Cannot kill any cards (all are point cards)
-- **Must keep all 7 cards** and play with >6 hand
-- Plays one card per trick like everyone else; nothing is put down to get back to 6
+Impossible: there are only six point trumps (A, J, 10, Right-5, Wrong-5, 2), so a kill down to 6 always works.
 
 ### Edge 3: Dealer Has >6 Trump After Robbing
 
@@ -73,7 +69,6 @@ Dealer combines → 10 trump + 2 non-trump = 12 cards
 
 - Dealer keeps best 6 trump
 - Discards 4 trump + 2 non-trump
-  OR if 7+ are point cards → keeps all trump, kills non-point
 
 ## Data Structure Requirements
 
@@ -109,9 +104,8 @@ Dealer combines → 10 trump + 2 non-trump = 12 cards
 - [ ] Track dealer_pool_size (for later analysis, not visible to players)
 - [ ] Kill validation: only allow non-point cards
 - [ ] Kill mechanic: killed cards are never played
-- [ ] Allow >6 cards if all trump and can't kill point cards
 - [ ] Property test: dealer always sees >= 6 cards (or game is invalid)
-- [ ] Property test: killed cards are non-point or player has 7+ point cards
+- [ ] Property test: killed cards are non-point
 
 ## Why This Matters
 

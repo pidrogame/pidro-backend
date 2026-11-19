@@ -310,7 +310,7 @@ A: The dealer is forced to bid 6 (minimum bid).
 
 **Q: Can the dealer have more than 6 cards?**
 
-A: Yes, if the dealer has 7+ trump cards after robbing the pack, they can keep all of them if they're all point cards. Otherwise, they must kill (discard) non-point trump cards down to 6.
+A: No. After robbing the pack the dealer keeps exactly 6 cards (the whole pool, if it holds fewer) and discards the rest face down.
 
 ## Example Complete Game
 
