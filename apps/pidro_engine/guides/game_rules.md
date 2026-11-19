@@ -107,9 +107,9 @@ If any player (including dealer) has **more than 6 trump cards**, they must:
 - Player keeps all cards (>6 allowed)
 
 **Killed Cards:**
-- Placed face-up (visible to all)
-- Not in play, but **top killed card** must be played first
-- Points from killed cards are **out of play** (except top card)
+- Placed face-up (visible to all) and out of the hand
+- **Never played** this hand
+- Never point cards, so killing never takes points out of play
 
 ### 8. Playing Tricks
 
@@ -121,10 +121,6 @@ If any player (including dealer) has **more than 6 trump cards**, they must:
 3. Highest trump card wins the trick
 4. Winner leads next trick
 5. Continue until all players are eliminated or out of cards
-
-**Special First Play Rule:**
-- If player has killed cards, they **must play the top killed card** as their first card in the hand
-- After first play, normal rules apply
 
 **Trump Ranking (Highest to Lowest):**
 ```
@@ -176,9 +172,7 @@ Result:
 ```
 
 **Killed Cards:**
-- Points on killed cards are **out of play** (don't count toward 14)
-- **Exception**: Top killed card is played, its points count normally
-- If many cards killed, available points may be <14
+- Point cards are never killed, so killing never takes points out of play
 
 ### 10. Winning the Game
 
@@ -199,7 +193,7 @@ Result:
 3. **Redeal**: Non-dealers dealt to 6 cards after discard
 4. **Dealer Rob**: Dealer combines hand + deck, selects best 6
 5. **Kill Rule**: Players with >6 trump must kill non-point cards (or keep all if 7+ point cards)
-6. **Top Killed**: If killed cards, top card must be played first
+6. **Killed Cards**: Lie face up, visible to all, and are never played
 7. **Going Cold**: Players eliminated when out of trump
 8. **Information Asymmetry**: Only dealer sees full pool; others see counts only
 
@@ -237,15 +231,14 @@ Not trump:
 Player has 8 trump cards after dealer rob:
 A♥ [1pt] K♥ Q♥ J♥ [1pt] 10♥ [1pt] 5♥ [5pt] 6♥ 4♥
 
-Point cards: 4 (A, J, 10, 5) = can kill
+Point cards: 4 (A, J, 10, 5) = cannot be killed
 Non-point cards: 4 (K, Q, 6, 4) = killable
 
 Must kill 2 cards to get to 6.
 Valid kills: K♥, Q♥, 6♥, 4♥ (any 2)
 Invalid kills: A♥, J♥, 10♥, 5♥ (point cards)
 
-The engine kills the lowest: 4♥ and 6♥ (placed face-up)
-Top killed card: 4♥ (must play first)
+The engine kills the lowest: 4♥ and 6♥ (placed face-up, never played)
 Final hand: A♥ K♥ Q♥ J♥ 10♥ 5♥ (6 cards)
 ```
 

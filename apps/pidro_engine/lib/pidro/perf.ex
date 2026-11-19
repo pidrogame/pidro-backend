@@ -173,7 +173,7 @@ defmodule Pidro.Perf do
           nil
       end
 
-    # Include killed cards for this position (affects legal moves in playing phase)
+    # Include killed cards for this position
     killed = Map.get(state.killed_cards, position, []) |> Enum.sort()
 
     {

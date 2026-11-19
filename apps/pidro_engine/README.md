@@ -243,7 +243,6 @@ This engine uses extensive property-based testing with StreamData to ensure corr
 - Dealer combines hand + deck before selecting 6
 - Non-dealers receive correct number of cards
 - Kill rule enforces non-point trump discards
-- Top killed card forced as first play
 
 See [guides/property_testing.md](guides/property_testing.md) for details.
 

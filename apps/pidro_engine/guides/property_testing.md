@@ -314,18 +314,15 @@ end
 **Property: Total points equals 14**
 
 ```elixir
-property "total points in hand equals 14 (minus killed)" do
+property "total points in hand equals 14" do
   check all state <- scored_game_generator() do
     team1_points = get_in(state.cumulative_scores, [:north_south])
     team2_points = get_in(state.cumulative_scores, [:east_west])
 
-    # Account for killed cards
-    killed_points = calculate_killed_points(state)
-    available_points = 14 - killed_points
-
-    # If no failed bid, sum should equal available points
+    # Point cards are never killed, so killing removes no points.
+    # If no failed bid, sum should equal 14
     if no_failed_bid?(state) do
-      assert team1_points + team2_points == available_points
+      assert team1_points + team2_points == 14
     end
   end
 end

@@ -73,7 +73,7 @@ defmodule Pidro.Game.PlayKillRuleTest do
       # Now try to play a valid card from the hand
       card_to_play = hd(killed_state.players[:west].hand)
 
-      # This should succeed, but currently fails with {:must_play_top_killed_card_first, ...}
+      # Killed cards are never played, so the first play comes from the hand
       result = Play.play_card(killed_state, :west, card_to_play)
 
       assert {:ok, _} = result

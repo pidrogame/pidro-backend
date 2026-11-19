@@ -44,7 +44,7 @@ If after re-deal, ANY player (including dealer) has more than 6 trump cards:
 3. **Cannot kill point cards** (A, J, 10, 5, 5, 2)
 4. Can only kill non-point trump (K, Q, 9, 8, 7, 6, 4, 3)
 5. If player has 7+ point cards (impossible to kill) → **they keep all cards >6**
-6. The **TOP card** of killed pile is the card played on first trick
+6. Killed cards stay face up, out of the hand, and are **never played** (see `guides/game_rules.md`, Kill Rule)
 
 ## Edge Cases to Handle
 
@@ -63,7 +63,7 @@ Player has: A, J, 10, Right-5, Wrong-5, 2, and one more point card (impossible u
 
 - Cannot kill any cards (all are point cards)
 - **Must keep all 7 cards** and play with >6 hand
-- First play puts down 2 cards to get back to 6
+- Plays one card per trick like everyone else; nothing is put down to get back to 6
 
 ### Edge 3: Dealer Has >6 Trump After Robbing
 
@@ -96,7 +96,7 @@ Dealer combines → 10 trump + 2 non-trump = 12 cards
 
   # Kill tracking
   killed_cards: %{
-    west: [{:king, :hearts}],  # West killed K♥, will play it first
+    west: [{:king, :hearts}],  # West killed K♥; it is never played
   }
 }
 ```
@@ -108,7 +108,7 @@ Dealer combines → 10 trump + 2 non-trump = 12 cards
 - [ ] Track cards_requested per player (public info)
 - [ ] Track dealer_pool_size (for later analysis, not visible to players)
 - [ ] Kill validation: only allow non-point cards
-- [ ] Kill mechanic: top card auto-played on first trick
+- [ ] Kill mechanic: killed cards are never played
 - [ ] Allow >6 cards if all trump and can't kill point cards
 - [ ] Property test: dealer always sees >= 6 cards (or game is invalid)
 - [ ] Property test: killed cards are non-point or player has 7+ point cards
@@ -117,7 +117,7 @@ Dealer combines → 10 trump + 2 non-trump = 12 cards
 
 - Dealer has 20-30% higher chance of strong hand (depends on remaining trump)
 - Information asymmetry is core game mechanic (not a bug!)
-- Kill rule prevents dealer from being TOO powerful (can't hide which card they play first)
+- Kill rule prevents dealer from being TOO powerful (killed cards lie face up for everyone to see)
 
 ## Current situation
 
@@ -208,7 +208,7 @@ property "dealer knows how many trump each player started with (but not their ow
 end
 ```
 
-3. Kill Rule First Card Mechanic (Missing)
+3. Kill Rule First Card Mechanic (Wrong: killed cards are never played; see `guides/game_rules.md`, Kill Rule)
    The spec mentions killing cards, but doesn't mention that the top killed card is played first:
 
 ```elixir
@@ -247,8 +247,7 @@ property "dealer can have >6 cards if remaining deck has many trump" do
       # Dealer keeps ALL trump (per Finnish rules from pagat.com)
       assert length(dealer.hand) > 6
 
-      # And must kill non-point trump on first play
-      assert dealer.must_play_extra_on_first_trick == true
+      # Killed cards are never played (see guides/game_rules.md, Kill Rule)
     end
   end
 end
@@ -267,8 +266,7 @@ property "dealer can have >6 cards if remaining deck has many trump" do
       # Dealer keeps ALL trump (per Finnish rules from pagat.com)
       assert length(dealer.hand) > 6
 
-      # And must kill non-point trump on first play
-      assert dealer.must_play_extra_on_first_trick == true
+      # Killed cards are never played (see guides/game_rules.md, Kill Rule)
     end
   end
 end
