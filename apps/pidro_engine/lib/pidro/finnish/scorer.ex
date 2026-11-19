@@ -504,65 +504,6 @@ defmodule Pidro.Finnish.Scorer do
     end
   end
 
-  @doc """
-  Calculates the total points available in the current hand, accounting for killed cards.
-
-  In Finnish Pidro with the redeal rule, players may have to "kill" excess trump cards
-  before play begins. Killed cards are placed face-up and declared out of game, with
-  only the TOP killed card being played on the first trick. All other killed cards
-  never enter play and their points are not available to win.
-
-  This function calculates how many points are actually available in the current hand
-  by subtracting the point values of all non-top killed cards from the standard 14.
-
-  ## Parameters
-  - `state` - `GameState.t()` with `killed_cards` and `trump_suit` set
-
-  ## Returns
-  The total points available in this hand (typically 14, but may be less with killed cards)
-
-  ## Examples
-
-      See test suite for comprehensive examples including:
-      - No killed cards (returns 14)
-      - Killed non-point cards (still returns 14)
-      - Killed point cards excluding top card
-      - Multiple players with killed cards
-      - Killed 5s and 2s
-  """
-  @spec total_available_points(Types.GameState.t()) :: non_neg_integer()
-  def total_available_points(%Types.GameState{killed_cards: killed_cards, trump_suit: trump_suit}) do
-    # Standard total is 14 points
-    standard_total = 14
-
-    # Calculate points from killed cards that will NOT be played (all except top card)
-    points_excluded =
-      killed_cards
-      |> Enum.reduce(0, fn {_position, cards}, acc ->
-        case cards do
-          # No killed cards
-          [] ->
-            acc
-
-          # Only one killed card - it WILL be played, so don't exclude it
-          [_top_card] ->
-            acc
-
-          # Multiple killed cards - exclude all except the top (first) one
-          [_top_card | rest_cards] ->
-            rest_points =
-              rest_cards
-              |> Enum.map(&Card.point_value(&1, trump_suit))
-              |> Enum.sum()
-
-            acc + rest_points
-        end
-      end)
-
-    # Return available points = standard total - excluded points
-    standard_total - points_excluded
-  end
-
   # =============================================================================
   # Private Helper Functions
   # =============================================================================

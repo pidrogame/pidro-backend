@@ -439,14 +439,11 @@ Uses `:erlang.phash2/1` (very fast, < 10μs)
 **Example Property:**
 
 ```elixir
-property "total points per hand always equals 14 (minus killed)" do
-  check all state <- playing_phase_generator() do
-    available_points = Finnish.Scorer.total_available_points(state)
+property "total points in any trump suit always equals 14" do
+  check all trump_suit <- suit() do
+    total = Deck.ordered() |> Enum.map(&Card.point_value(&1, trump_suit)) |> Enum.sum()
 
-    # Calculate killed points (excluding top killed card)
-    killed_points = calculate_killed_points(state)
-
-    assert available_points == 14 - killed_points
+    assert total == 14
   end
 end
 ```
