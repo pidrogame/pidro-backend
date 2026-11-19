@@ -55,12 +55,12 @@ defmodule PidroServerWeb.Dev.LeaguesLiveTest do
 
     {:ok, view, _html} = live(conn, "/admin/leagues")
     assert has_element?(view, "#league-pairs", "No pairs have reached 11 games yet.")
-    refute has_element?(view, "#league-pairs li")
+    refute has_element?(view, "#league-pairs table")
 
     save_game([a.id, b.id], now, same_team)
     view |> element("button", "Refresh") |> render_click()
 
-    row = "#league-pairs li:only-child"
+    row = "#league-pairs tbody tr:only-child"
     assert has_element?(view, "#{row} a[href='/admin/users/#{a.id}']", "Ada Vale")
 
     assert has_element?(
@@ -70,10 +70,18 @@ defmodule PidroServerWeb.Dev.LeaguesLiveTest do
 
     assert has_element?(view, "#{row} a[href='/admin/users/#{b.id}']", "birch")
     assert has_element?(view, "#{row} a[href='/admin/users/#{b.id}'] [aria-hidden='true']", "B")
-    assert has_element?(view, "#{row} strong", "11")
 
-    for detail <- ["6 as teammates", "4 as opponents", "1 without team data", "Level 1"],
-        do: assert(has_element?(view, row, detail))
+    for {column, header, count} <- [
+          {2, "Games", "11"},
+          {3, "As teammates", "6"},
+          {4, "As opponents", "4"}
+        ] do
+      assert has_element?(view, "#league-pairs th:nth-child(#{column})", header)
+      assert has_element?(view, "#{row} td:nth-child(#{column})", count)
+    end
+
+    assert has_element?(view, row, "1 game without team data")
+    assert has_element?(view, row, "Level 1")
   end
 
   test "historical pairs without a current player profile still count", %{conn: conn} do
@@ -81,8 +89,9 @@ defmodule PidroServerWeb.Dev.LeaguesLiveTest do
     missing = Ecto.UUID.generate()
     for _ <- 1..12, do: save_game([player.id, missing], DateTime.utc_now(), nil)
     {:ok, view, _html} = live(conn, "/admin/leagues")
-    assert has_element?(view, "#league-pairs li", "Unknown player")
-    assert has_element?(view, "#league-pairs li", "12 without team data")
+    assert has_element?(view, "#league-pairs tbody tr", "Unknown player")
+    assert has_element?(view, "#league-pairs tbody tr", "12 games without team data")
+    assert has_element?(view, "#league-pairs tbody td:nth-child(3)", "—")
     refute has_element?(view, "#league-pairs a[href='/admin/users/#{missing}']")
   end
 

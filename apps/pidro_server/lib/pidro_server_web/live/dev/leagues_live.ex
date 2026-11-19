@@ -132,13 +132,11 @@ defmodule PidroServerWeb.Dev.LeaguesLive do
       <section
         id="league-pairs"
         aria-labelledby="league-pairs-title"
-        class="rounded-lg border border-stone-200 bg-white"
+        class="max-w-4xl rounded-lg border border-stone-200 bg-white"
       >
-        <header class="px-4 py-3">
+        <header class="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 px-3 py-2.5 sm:px-4">
           <h2 id="league-pairs-title" class="text-base font-semibold">Frequent tablemates</h2>
-          <p class="mt-0.5 text-sm text-stone-600">
-            Pairs who shared 11 or more completed games this league week.
-          </p>
+          <p class="text-xs text-stone-600">11+ completed games together this league week</p>
         </header>
         <p
           :if={@report.pairs == []}
@@ -146,27 +144,49 @@ defmodule PidroServerWeb.Dev.LeaguesLive do
         >
           No pairs have reached 11 games yet.
         </p>
-        <ul :if={@report.pairs != []} class="divide-y divide-stone-200 border-t border-stone-200">
-          <li
-            :for={pair <- @report.pairs}
-            class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-2 px-4 py-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_15rem]"
-          >
-            <.pair_player :for={player <- pair.players} player={player} />
-            <div class="col-start-2 row-span-2 row-start-1 text-right tabular-nums sm:col-start-3 sm:row-span-1">
-              <p class="text-sm text-stone-700">
-                <strong class="text-lg font-semibold text-stone-950">{pair.games}</strong> games
-              </p>
-              <p class="text-xs leading-5 text-stone-600">
-                <span :if={pair.unknown < pair.games}>
-                  <span class="block sm:inline">{pair.teammates} as teammates</span>
-                  <span aria-hidden="true" class="hidden sm:inline"> · </span>
-                  <span>{pair.opponents} as opponents</span>
+        <table
+          :if={@report.pairs != []}
+          aria-labelledby="league-pairs-title"
+          class="w-full table-fixed text-right text-sm"
+        >
+          <colgroup>
+            <col /><col class="w-11 sm:w-16" /><col class="w-11 sm:w-28" /><col class="w-16 sm:w-28" />
+          </colgroup>
+          <thead class="border-y border-stone-200 bg-stone-50 text-xs text-stone-600 [&_th]:py-1 [&_th]:font-medium">
+            <tr>
+              <th scope="col" class="pl-3 text-left sm:pl-4">Player pair</th>
+              <th scope="col" class="pr-2" aria-sort="descending">Games</th>
+              <th scope="col" class="pr-2">
+                <span class="sm:hidden">With</span><span class="hidden sm:inline">As teammates</span>
+              </th>
+              <th scope="col" class="pr-3 sm:pr-4">
+                <span class="sm:hidden">Against</span><span class="hidden sm:inline">As opponents</span>
+              </th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-stone-200 tabular-nums">
+            <tr :for={pair <- @report.pairs}>
+              <td class="px-3 py-1 text-left sm:pl-4">
+                <div class="flex flex-col items-start sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-2">
+                  <% [first, second] = pair.players %>
+                  <.pair_player player={first} />
+                  <span aria-hidden="true" class="hidden text-stone-400 sm:inline">&amp;</span>
+                  <.pair_player player={second} />
+                </div>
+                <span :if={pair.unknown > 0} class="block text-xs text-stone-600">
+                  {pair.unknown} {if pair.unknown == 1, do: "game", else: "games"} without team data
                 </span>
-                <span :if={pair.unknown > 0} class="block">{pair.unknown} without team data</span>
-              </p>
-            </div>
-          </li>
-        </ul>
+              </td>
+              <td class="pr-2 font-semibold">{pair.games}</td>
+              <td class="pr-2 text-stone-600">
+                {if pair.unknown == pair.games, do: "—", else: pair.teammates}
+              </td>
+              <td class="pr-3 text-stone-600 sm:pr-4">
+                {if pair.unknown == pair.games, do: "—", else: pair.opponents}
+              </td>
+            </tr>
+          </tbody>
+        </table>
       </section>
       <form
         :if={@dev}
@@ -193,15 +213,15 @@ defmodule PidroServerWeb.Dev.LeaguesLive do
 
   defp pair_player(assigns) do
     ~H"""
-    <div class="min-w-0">
+    <div class="flex min-w-0 max-w-full items-center">
       <.link
         :if={@player.name}
         navigate={~p"/admin/users/#{@player.id}"}
-        class="group inline-flex max-w-full items-center gap-2.5 rounded-sm"
+        class="group inline-flex min-h-8 min-w-0 items-center gap-1.5 rounded-sm"
       >
         <span
           aria-hidden="true"
-          class="relative grid size-9 shrink-0 place-items-center overflow-hidden rounded-full bg-sky-100 text-sm font-semibold text-sky-900"
+          class="relative grid size-7 shrink-0 place-items-center overflow-hidden rounded-full bg-sky-100 text-xs font-semibold text-sky-900"
         >
           {String.upcase(String.first(@player.name))}
           <img
@@ -214,13 +234,13 @@ defmodule PidroServerWeb.Dev.LeaguesLive do
             onload="this.hidden=false"
           />
         </span>
-        <span class="min-w-0">
-          <span class="block text-sm font-semibold text-sky-900 wrap-anywhere group-hover:underline">{@player.name}</span>
-          <span class="block text-xs text-stone-600">Level {@player.level}</span>
+        <span class="min-w-0 leading-tight">
+          <span class="font-semibold text-sky-900 wrap-anywhere group-hover:underline">{@player.name}</span>
+          <span class="ml-1 text-xs whitespace-nowrap text-stone-600">Level {@player.level}</span>
         </span>
       </.link>
-      <span :if={!@player.name} class="flex items-center gap-2.5">
-        <span class="grid size-9 shrink-0 place-items-center rounded-full bg-stone-100 text-stone-500">
+      <span :if={!@player.name} class="flex min-h-8 items-center gap-1.5">
+        <span class="grid size-7 shrink-0 place-items-center rounded-full bg-stone-100 text-stone-500">
           <.icon name="hero-user" class="size-4" />
         </span>
         <span>
