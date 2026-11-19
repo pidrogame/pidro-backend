@@ -10,7 +10,7 @@ defmodule PidroServerWeb.Dev.LeaguesLiveTest do
     conn: conn
   } do
     a = user_fixture()
-    b = user_fixture()
+    user_fixture()
     {starts, closes} = Leagues.week(DateTime.utc_now())
     now = DateTime.utc_now()
     room = Repo.insert!(%Room{league: "deuce", starts_at: starts, closes_at: closes})
@@ -24,24 +24,88 @@ defmodule PidroServerWeb.Dev.LeaguesLiveTest do
       placed_at: now
     })
 
-    for i <- 1..11 do
-      Stats.save_game_result(%{
-        room_code: "pair#{i}",
-        completed_at: now,
-        player_ids: [a.id, b.id]
-      })
-    end
-
     report = Report.build()
     assert report.total == 2
-    assert [%{games: 11}] = report.pairs
     assert [%{members: 1}] = report.rooms
-    {:ok, view, html} = live(conn, "/dev/leagues")
+    {:ok, view, html} = live(conn, "/admin/leagues")
     for target <- ["~13%", "~22%", "~29%", "~26%", "~8%"], do: assert(html =~ target)
+    assert has_element?(view, "nav a[href='/admin/leagues'][aria-current='page']", "Leagues")
     refute has_element?(view, "#league-close")
     refute function_exported?(Leagues, :dev_close, 1)
     view |> element("button", "Refresh") |> render_click()
     assert has_element?(view, "#league-rooms")
-    assert {:error, {:redirect, _}} = live(build_conn(), "/dev/leagues")
+  end
+
+  test "the eleventh game reveals both profiles and the recorded team breakdown", %{conn: conn} do
+    a = user_fixture(%{display_name: "Ada Vale"})
+    b = user_fixture(%{username: "birch"})
+    a |> Ecto.Changeset.change(avatar_face: "a") |> Repo.update!()
+    now = DateTime.utc_now()
+    {starts, _} = Leagues.week(now)
+
+    north = %{team: "north_south", position: "north"}
+    same_team = %{a.id => north, b.id => %{team: "north_south", position: "south"}}
+    opposite_teams = %{a.id => %{team: "east_west", position: "east"}, b.id => north}
+
+    save_game([a.id, b.id], DateTime.add(starts, -1), same_team)
+    save_game([a.id, b.id], now, %{a.id => north, b.id => north})
+    save_game([a.id, b.id], now, nil)
+    for _ <- 1..5, do: save_game([a.id, b.id], now, same_team)
+    for _ <- 1..4, do: save_game([b.id, a.id], now, opposite_teams)
+
+    {:ok, view, _html} = live(conn, "/admin/leagues")
+    assert has_element?(view, "#league-pairs", "No pairs have reached 11 games yet.")
+    refute has_element?(view, "#league-pairs li")
+
+    save_game([a.id, b.id], now, same_team)
+    view |> element("button", "Refresh") |> render_click()
+
+    row = "#league-pairs li:only-child"
+    assert has_element?(view, "#{row} a[href='/admin/users/#{a.id}']", "Ada Vale")
+
+    assert has_element?(
+             view,
+             "#{row} a[href='/admin/users/#{a.id}'] img[src$='/images/faces/a.png']"
+           )
+
+    assert has_element?(view, "#{row} a[href='/admin/users/#{b.id}']", "birch")
+    assert has_element?(view, "#{row} a[href='/admin/users/#{b.id}'] [aria-hidden='true']", "B")
+    assert has_element?(view, "#{row} strong", "11")
+
+    for detail <- ["6 as teammates", "4 as opponents", "1 without team data", "Level 1"],
+        do: assert(has_element?(view, row, detail))
+  end
+
+  test "historical pairs without a current player profile still count", %{conn: conn} do
+    player = user_fixture()
+    missing = Ecto.UUID.generate()
+    for _ <- 1..12, do: save_game([player.id, missing], DateTime.utc_now(), nil)
+    {:ok, view, _html} = live(conn, "/admin/leagues")
+    assert has_element?(view, "#league-pairs li", "Unknown player")
+    assert has_element?(view, "#league-pairs li", "12 without team data")
+    refute has_element?(view, "#league-pairs a[href='/admin/users/#{missing}']")
+  end
+
+  test "old bookmarks redirect and both routes require an authenticated admin with a changed password",
+       %{conn: conn} do
+    assert redirected_to(get(conn, "/dev/leagues")) == "/admin/leagues"
+    temporary = PidroServer.AdminsFixtures.admin_fixture(%{force_password_change: true})
+
+    for path <- ["/dev/leagues", "/admin/leagues"] do
+      assert redirected_to(get(build_conn(), path)) == "/admin/login"
+
+      assert redirected_to(build_conn() |> log_in_admin(temporary) |> get(path)) ==
+               "/admin/admins"
+    end
+  end
+
+  defp save_game(players, at, results) do
+    {:ok, _} =
+      Stats.save_game_result(%{
+        room_code: "PAIR",
+        completed_at: at,
+        player_ids: players,
+        player_results: results
+      })
   end
 end

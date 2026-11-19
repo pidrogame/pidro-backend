@@ -258,7 +258,7 @@ IO.puts(
   "Not placed: league71@demo.pidro.local; opted out: league72@demo.pidro.local (same password)"
 )
 
-IO.puts("Admin: #{admin_email} / #{password}; /dev/leagues")
+IO.puts("Admin: #{admin_email} / #{password}; /admin/leagues")
 IO.puts("Guest: #{guest.id}; create a fresh guest through POST /api/v1/auth/guest to sign in")
 
 if write_samples?,

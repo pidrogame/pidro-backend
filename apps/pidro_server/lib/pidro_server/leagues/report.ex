@@ -1,7 +1,7 @@
 defmodule PidroServer.Leagues.Report do
   @moduledoc "League operations numbers, aggregated without per-player reads."
   import Ecto.Query
-  alias PidroServer.Accounts.User
+  alias PidroServer.Accounts.{Auth, User}
   alias PidroServer.Leagues
   alias PidroServer.Leagues.{Membership, Player, Result, Room}
   alias PidroServer.Repo
@@ -96,14 +96,39 @@ defmodule PidroServer.Leagues.Report do
     %{rows: rows} =
       Repo.query!(
         """
-        SELECT a::text, b::text, count(*) FROM game_stats g,
-          LATERAL unnest(g.player_ids) a, LATERAL unnest(g.player_ids) b
-        WHERE g.completed_at >= $1 AND g.completed_at < $2 AND a < b
+        WITH shared_games AS (
+          SELECT a, b, g.player_results -> a::text AS player_a, g.player_results -> b::text AS player_b
+          FROM game_stats g, LATERAL unnest(g.player_ids) a, LATERAL unnest(g.player_ids) b
+          WHERE g.completed_at >= $1 AND g.completed_at < $2 AND a < b
+        )
+        SELECT a::text, b::text, count(*),
+               count(*) FILTER (WHERE player_a ->> 'team' = player_b ->> 'team'),
+               count(*) FILTER (WHERE player_a ->> 'team' <> player_b ->> 'team')
+        FROM shared_games
+        -- Exclude a player and their replacement; older games may lack seat data.
+        WHERE (player_a ->> 'position' = player_b ->> 'position') IS NOT TRUE
         GROUP BY a, b HAVING count(*) > 10 ORDER BY count(*) DESC, a, b
         """,
         [DateTime.to_naive(starts), DateTime.to_naive(closes)]
       )
 
-    Enum.map(rows, fn [a, b, games] -> %{a: a, b: b, games: games} end)
+    users =
+      rows |> Enum.flat_map(fn [a, b | _] -> [a, b] end) |> Enum.uniq() |> Auth.get_users_map()
+
+    Enum.map(rows, fn [a, b, games, teammates, opponents] ->
+      %{
+        players: Enum.map([a, b], &pair_player(&1, users[&1])),
+        games: games,
+        teammates: teammates,
+        opponents: opponents,
+        unknown: games - teammates - opponents
+      }
+    end)
+  end
+
+  defp pair_player(id, nil), do: %{id: id, name: nil, avatar_url: nil}
+
+  defp pair_player(id, user) do
+    %{id: id, name: User.public_name(user), avatar_url: user.avatar_url, level: user.level}
   end
 end

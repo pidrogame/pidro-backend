@@ -129,14 +129,44 @@ defmodule PidroServerWeb.Dev.LeaguesLive do
           </tbody>
         </table>
       </section>
-      <section class="rounded-lg border border-stone-200 bg-white p-4">
-        <h2 class="text-base font-semibold">Pairs sharing a table more than 10 times this week</h2>
-        <p :if={@report.pairs == []} class="mt-2 text-sm text-stone-600">
-          No repeated pairs above the threshold.
+      <section
+        id="league-pairs"
+        aria-labelledby="league-pairs-title"
+        class="rounded-lg border border-stone-200 bg-white"
+      >
+        <header class="px-4 py-3">
+          <h2 id="league-pairs-title" class="text-base font-semibold">Frequent tablemates</h2>
+          <p class="mt-0.5 text-sm text-stone-600">
+            Pairs who shared 11 or more completed games this league week.
+          </p>
+        </header>
+        <p
+          :if={@report.pairs == []}
+          class="border-t border-stone-200 px-4 py-4 text-sm text-stone-600"
+        >
+          No pairs have reached 11 games yet.
         </p>
-        <p :for={pair <- @report.pairs} class="mt-2 text-sm">
-          {pair.a} / {pair.b}: {pair.games} games
-        </p>
+        <ul :if={@report.pairs != []} class="divide-y divide-stone-200 border-t border-stone-200">
+          <li
+            :for={pair <- @report.pairs}
+            class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-2 px-4 py-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_15rem]"
+          >
+            <.pair_player :for={player <- pair.players} player={player} />
+            <div class="col-start-2 row-span-2 row-start-1 text-right tabular-nums sm:col-start-3 sm:row-span-1">
+              <p class="text-sm text-stone-700">
+                <strong class="text-lg font-semibold text-stone-950">{pair.games}</strong> games
+              </p>
+              <p class="text-xs leading-5 text-stone-600">
+                <span :if={pair.unknown < pair.games}>
+                  <span class="block sm:inline">{pair.teammates} as teammates</span>
+                  <span aria-hidden="true" class="hidden sm:inline"> · </span>
+                  <span>{pair.opponents} as opponents</span>
+                </span>
+                <span :if={pair.unknown > 0} class="block">{pair.unknown} without team data</span>
+              </p>
+            </div>
+          </li>
+        </ul>
       </section>
       <form
         :if={@dev}
@@ -156,6 +186,53 @@ defmodule PidroServerWeb.Dev.LeaguesLive do
         >Run close</button>
       </form>
     </.admin_shell>
+    """
+  end
+
+  attr :player, :map, required: true
+
+  defp pair_player(assigns) do
+    ~H"""
+    <div class="min-w-0">
+      <.link
+        :if={@player.name}
+        navigate={~p"/admin/users/#{@player.id}"}
+        class="group inline-flex max-w-full items-center gap-2.5 rounded-sm"
+      >
+        <span
+          aria-hidden="true"
+          class="relative grid size-9 shrink-0 place-items-center overflow-hidden rounded-full bg-sky-100 text-sm font-semibold text-sky-900"
+        >
+          {String.upcase(String.first(@player.name))}
+          <img
+            :if={@player.avatar_url}
+            src={@player.avatar_url}
+            alt=""
+            loading="lazy"
+            class="absolute inset-0 size-full object-cover"
+            onerror="this.hidden=true"
+            onload="this.hidden=false"
+          />
+        </span>
+        <span class="min-w-0">
+          <span class="block text-sm font-semibold text-sky-900 wrap-anywhere group-hover:underline">{@player.name}</span>
+          <span class="block text-xs text-stone-600">Level {@player.level}</span>
+        </span>
+      </.link>
+      <span :if={!@player.name} class="flex items-center gap-2.5">
+        <span class="grid size-9 shrink-0 place-items-center rounded-full bg-stone-100 text-stone-500">
+          <.icon name="hero-user" class="size-4" />
+        </span>
+        <span>
+          <span class="block text-sm font-medium">Unknown player</span>
+          <span title={@player.id} class="block text-xs text-stone-600">{String.slice(
+            @player.id,
+            0,
+            8
+          )}</span>
+        </span>
+      </span>
+    </div>
     """
   end
 

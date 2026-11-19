@@ -311,7 +311,7 @@ defmodule PidroServerWeb.Dev.AdminComponents do
        [
          {"news", "News", ~p"/admin/news", "hero-newspaper"},
          {"feedback", "Feedback", ~p"/admin/feedback", "hero-chat-bubble-left-ellipsis"},
-         {"leagues", "Leagues", ~p"/dev/leagues", "hero-trophy"}
+         {"leagues", "Leagues", ~p"/admin/leagues", "hero-trophy"}
        ]},
       {"Releases",
        [

@@ -370,12 +370,13 @@ defmodule PidroServerWeb.Router do
       live "/beta", BetaLive
       live "/feedback", FeedbackLive
       live "/news", NewsLive
+      live "/leagues", LeaguesLive
       live "/store-builds", StoreBuildsLive
       live "/bots", BotCatalogueLive
     end
   end
 
-  scope "/dev", PidroServerWeb.Dev do
+  scope "/dev", PidroServerWeb do
     pipe_through [
       :browser,
       :dev_layout,
@@ -384,14 +385,7 @@ defmodule PidroServerWeb.Router do
       :require_changed_admin_password
     ]
 
-    live_session :leagues,
-      root_layout: {PidroServerWeb.Layouts, :dev_root},
-      on_mount: [
-        {PidroServerWeb.AdminAuth, :ensure_authenticated_and_password_changed},
-        {PidroServerWeb.Dev.AdminComponents, :reload_on_new_assets}
-      ] do
-      live "/leagues", LeaguesLive
-    end
+    get "/leagues", PageController, :legacy_leagues
   end
 
   # Enable LiveDashboard and Swoosh mailbox preview in development
