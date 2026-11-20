@@ -19,28 +19,31 @@ GameDetailLive and card_components belong to the separate Watch branch.
       "strategy": "search",
       "tempo": "quick",
       "home": "anywhere",
-      "lines": []
+      "lines": [],
+      "lines_sv": []
     }
   ]
 }
 ```
 
 Each entry contains **only** `id`, `name`, `description`, `avatar_url`,
-`strategy`, `tempo`, `home`, `lines`. All but `lines` are strings; description
+`strategy`, `tempo`, `home`, `lines`, `lines_sv`, `voice`, `appetite` and
+`enabled`. All but the two lists and `enabled` are strings; description
 can be empty. `strategy` is `rulebook`, `random` or `search` (PID-403: the
 character plays the odds); older servers omit it, and a client treats a missing
 or unknown value as an honest rulebook game. `tempo` is `quick`, `steady` or
 `slow`: how fast the character acts at the table (PID-378); older servers omit
 it, so treat a missing value as `steady`. `home` is `anywhere`, `finland` or `louisiana`: where the character
 is from (PID-404). `lines` is a list of zero to eight trimmed, nonblank strings
-of at most 18 characters (what the app's seat bubble fits): what the character says while thinking, written as
-language-neutral table noises, so one list serves every app language. Older
-servers omit both; treat a missing `home` as `anywhere` and missing `lines` as
-none. IDs are opaque,
+of at most 18 characters (what the app's seat bubble fits): what the character
+says while thinking, in **English**. `lines_sv` is the same in **Swedish**, with the same limits
+(PID-488): the bot speaks the language the player picked. Older servers omit
+`home` and `lines`, and servers before PID-488 omit `lines_sv`; treat a missing
+`home` as `anywhere` and a missing list as none. IDs are opaque,
 immutable strings: legacy IDs remain exactly `marcel`, `antti`, `jocke`; new profiles receive a
 server-generated UUID string. Do not enumerate persona IDs in client code.
 Catalogue reads include disabled profiles so seated identities still resolve.
-There is no public enabled flag, module name, process identifier,
+There is no public module name, process identifier,
 image bytes, admin identity, user account, or rating in a profile.
 
 Use backend-origin absolute `avatar_url` as returned. Do not derive a URL from
@@ -66,7 +69,8 @@ HTTP projections) gain optional `bot_profile`:
     "avatar_url": "https://BACKEND_ORIGIN/images/bots/marcel.svg",
     "tempo": "steady",
     "home": "anywhere",
-    "lines": []
+    "lines": [],
+    "lines_sv": []
   }
 }
 ```
@@ -185,8 +189,9 @@ Fields:
   production rulebook, as before; persona identity is not difficulty.
 - `bot[home]`: `anywhere` (default), `finland` or `louisiana`; a check
   constraint holds the same set.
-- `bot[lines]`: a textarea, one line per line; each is trimmed and blank ones
-  are dropped, then at most eight of at most 18 characters each.
+- `bot[lines]` ("Lines (English)") and `bot[lines_sv]` ("Lines (Swedish)"):
+  textareas, one line per line; each is trimmed and blank ones are dropped,
+  then at most eight of at most 18 characters each, per list.
 - `bot[portrait]`: `marcel`, `antti`, `jocke`, or `upload` when one exists.
 - LiveView upload `avatar`: one PNG/JPEG, at most 5 MiB. Signature-checked;
   maximum 8192px side and 16 megapixels; reused bounded ImageMagick normalizer

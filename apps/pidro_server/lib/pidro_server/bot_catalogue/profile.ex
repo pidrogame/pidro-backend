@@ -13,8 +13,10 @@ defmodule PidroServer.BotCatalogue.Profile do
     field :portrait, :string, default: "marcel"
     # Where the character is from: it sits first at its own crowd's tables.
     field :home, :string, default: "anywhere"
-    # What the character says while thinking, in no app language in particular.
+    # What the character says while thinking: `lines` in English, `lines_sv`
+    # in Swedish, so the bot speaks the language the player picked.
     field :lines, {:array, :string}, default: []
+    field :lines_sv, {:array, :string}, default: []
     # How the character talks at the table, and how often (`Games.Bots.Talk`).
     field :voice, :string, default: "dry"
     field :appetite, :string, default: "normal"
@@ -36,6 +38,7 @@ defmodule PidroServer.BotCatalogue.Profile do
         :portrait,
         :home,
         :lines,
+        :lines_sv,
         :voice,
         :appetite
       ],
@@ -43,9 +46,8 @@ defmodule PidroServer.BotCatalogue.Profile do
     )
     |> update_change(:name, fn name -> if is_binary(name), do: String.trim(name), else: name end)
     |> update_change(:description, &(&1 || ""))
-    |> update_change(:lines, fn lines ->
-      lines |> List.wrap() |> Enum.map(&String.trim/1) |> Enum.reject(&(&1 == ""))
-    end)
+    |> lines(:lines)
+    |> lines(:lines_sv)
     |> validate_required([
       :name,
       :enabled,
@@ -58,12 +60,6 @@ defmodule PidroServer.BotCatalogue.Profile do
     ])
     |> validate_length(:name, max: 60)
     |> validate_length(:description, max: 500)
-    |> validate_length(:lines, max: 8)
-    |> validate_change(:lines, fn :lines, lines ->
-      if Enum.any?(lines, &(String.length(&1) > 18)),
-        do: [lines: "each line should be at most 18 characters"],
-        else: []
-    end)
     |> validate_inclusion(:strategy, ["rulebook", "random", "search"])
     |> validate_inclusion(:tempo, ~w(quick steady slow))
     |> validate_inclusion(:portrait, ~w(marcel antti jocke upload))
@@ -75,5 +71,19 @@ defmodule PidroServer.BotCatalogue.Profile do
     |> check_constraint(:home, name: :supported_home)
     |> check_constraint(:voice, name: :supported_voice)
     |> check_constraint(:appetite, name: :supported_appetite)
+  end
+
+  # Trimmed, blanks dropped, at most eight that fit the seat bubble.
+  defp lines(changeset, field) do
+    changeset
+    |> update_change(field, fn lines ->
+      lines |> List.wrap() |> Enum.map(&String.trim/1) |> Enum.reject(&(&1 == ""))
+    end)
+    |> validate_length(field, max: 8)
+    |> validate_change(field, fn ^field, lines ->
+      if Enum.any?(lines, &(String.length(&1) > 18)),
+        do: [{field, "each line should be at most 18 characters"}],
+        else: []
+    end)
   end
 end

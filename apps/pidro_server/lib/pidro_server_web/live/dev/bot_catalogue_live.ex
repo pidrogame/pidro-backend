@@ -198,11 +198,16 @@ defmodule PidroServerWeb.Dev.BotCatalogueLive do
   defp strategy_words("rulebook"), do: "plays the honest game"
   defp strategy_words(strategy), do: strategy
 
-  # The textarea holds one line per line.
-  defp split_lines(%{"lines" => text} = params) when is_binary(text),
-    do: %{params | "lines" => String.split(text, ["\r\n", "\n"])}
+  # Each lines textarea holds one line per line.
+  defp split_lines(params) do
+    Map.new(params, fn
+      {key, text} when key in ~w(lines lines_sv) and is_binary(text) ->
+        {key, String.split(text, ["\r\n", "\n"])}
 
-  defp split_lines(params), do: params
+      pair ->
+        pair
+    end)
+  end
 
   defp cancel_pending_uploads(socket) do
     Enum.reduce(
@@ -390,14 +395,23 @@ defmodule PidroServerWeb.Dev.BotCatalogueLive do
           <p class="bot-meta mt-1 text-sm text-stone-600">{meta(@profile)}</p>
         </div>
       </div>
-      <ul :if={@profile.lines != []} class="mt-4 flex flex-wrap gap-1.5">
-        <li
-          :for={line <- @profile.lines}
-          class="rounded-full bg-stone-100 px-2.5 py-0.5 text-xs italic text-stone-700"
+      <div :if={@profile.lines != [] or @profile.lines_sv != []} class="mt-4 space-y-1.5">
+        <div
+          :for={{lang, lines} <- [en: @profile.lines, sv: @profile.lines_sv]}
+          :if={lines != []}
+          class="flex items-baseline gap-2"
         >
-          {line}
-        </li>
-      </ul>
+          <span class="w-5 shrink-0 text-xs font-medium text-stone-500">{lang}</span>
+          <ul lang={lang} class="flex flex-wrap gap-1.5">
+            <li
+              :for={line <- lines}
+              class="rounded-full bg-stone-100 px-2.5 py-0.5 text-xs italic text-stone-700"
+            >
+              {line}
+            </li>
+          </ul>
+        </div>
+      </div>
       <p :if={@profile.description != ""} class="mt-3 break-words text-sm text-stone-800">
         {@profile.description}
       </p>
@@ -507,12 +521,16 @@ defmodule PidroServerWeb.Dev.BotCatalogueLive do
             {"Chatty (often)", "chatty"}
           ]}
         />
+        <p class="text-sm text-stone-600">
+          Lines while thinking, in the player's language: one per line, up to 8 of 18 characters.
+        </p>
         <.input
-          field={@form[:lines]}
+          :for={{field, label} <- [lines: "Lines (English)", lines_sv: "Lines (Swedish)"]}
+          field={@form[field]}
           type="textarea"
-          label="Lines while thinking (one per line, up to 8 of 18 characters)"
+          label={label}
           rows="5"
-          value={Enum.join(@form[:lines].value || [], "\n")}
+          value={Enum.join(@form[field].value || [], "\n")}
         />
         <.input
           field={@form[:portrait]}

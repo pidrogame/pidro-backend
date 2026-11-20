@@ -71,7 +71,7 @@ defmodule PidroServerWeb.Dev.BotCatalogueLiveTest do
     assert public["enabled"] == false
 
     assert Enum.sort(Map.keys(public)) ==
-             ~w(appetite avatar_url description enabled home id lines name strategy tempo voice)
+             ~w(appetite avatar_url description enabled home id lines lines_sv name strategy tempo voice)
   end
 
   test "a new bot is steady, and the tempo only takes quick, steady or slow", %{conn: conn} do
@@ -96,11 +96,14 @@ defmodule PidroServerWeb.Dev.BotCatalogueLiveTest do
     end
   end
 
-  test "the form saves a home and lines, one per line, and the card shows them", %{conn: conn} do
+  test "the form saves a home and English and Swedish lines, one per line, and the card shows both",
+       %{conn: conn} do
     %{conn: admin_conn} = register_and_log_in_admin(%{conn: conn})
     {:ok, view, _} = live(admin_conn, ~p"/admin/bots")
     view |> element("#add-bot") |> render_click()
     assert has_element?(view, "#bot-form select[name='bot[home]'] option[selected]", "Anywhere")
+    assert has_element?(view, "#bot-form label", "Lines (English)")
+    assert has_element?(view, "#bot-form label", "Lines (Swedish)")
     assert has_element?(view, "#bot-antti .bot-meta", "anywhere · slow")
     refute has_element?(view, "#bot-antti li")
 
@@ -108,33 +111,58 @@ defmodule PidroServerWeb.Dev.BotCatalogueLiveTest do
 
     view
     |> form("#bot-form",
-      bot: %{home: "louisiana", lines: "Hmm, jaha…\n\n  Let's see…  \r\nVäntä lite…\n"}
+      bot: %{
+        home: "louisiana",
+        lines: "Hmm, right…\n\n  Let's see…  \r\nWait now…\n",
+        lines_sv: "Hmm, jaha…\r\n  Få se…  \n\nVänta nu…"
+      }
     )
     |> render_submit()
 
-    assert %{home: "louisiana", lines: ["Hmm, jaha…", "Let's see…", "Väntä lite…"]} =
-             BotCatalogue.get!("antti")
+    assert %{
+             home: "louisiana",
+             lines: ["Hmm, right…", "Let's see…", "Wait now…"],
+             lines_sv: ["Hmm, jaha…", "Få se…", "Vänta nu…"]
+           } = BotCatalogue.get!("antti")
 
     assert has_element?(view, "#bot-antti .bot-meta", "Louisiana · slow")
 
-    assert ["Hmm, jaha…", "Let's see…", "Väntä lite…"] ==
-             view |> element("#bot-antti ul") |> render() |> texts("li")
+    assert ["Hmm, right…", "Let's see…", "Wait now…"] ==
+             view |> element("#bot-antti ul[lang=en]") |> render() |> texts("li")
+
+    assert ["Hmm, jaha…", "Få se…", "Vänta nu…"] ==
+             view |> element("#bot-antti ul[lang=sv]") |> render() |> texts("li")
 
     view |> element("#bot-antti button") |> render_click()
 
     assert view |> element("#bot-form textarea[name='bot[lines]']") |> render() =~
-             "Hmm, jaha…\nLet&#39;s see…\nVäntä lite…"
+             "Hmm, right…\nLet&#39;s see…\nWait now…"
+
+    assert view |> element("#bot-form textarea[name='bot[lines_sv]']") |> render() =~
+             "Hmm, jaha…\nFå se…\nVänta nu…"
 
     nine = Enum.map_join(1..9, "\n", &"Line #{&1}")
     html = view |> form("#bot-form", bot: %{lines: nine}) |> render_submit()
     assert html =~ "should have at most 8 item(s)"
     assert view |> element("#bot-form textarea[name='bot[lines]']") |> render() =~ "Line 9"
-    assert BotCatalogue.get!("antti").lines == ["Hmm, jaha…", "Let's see…", "Väntä lite…"]
+    assert BotCatalogue.get!("antti").lines == ["Hmm, right…", "Let's see…", "Wait now…"]
+
+    html = view |> form("#bot-form", bot: %{lines_sv: "Låt mig tänka efter…"}) |> render_submit()
+    assert html =~ "each line should be at most 18 characters"
+    assert BotCatalogue.get!("antti").lines_sv == ["Hmm, jaha…", "Få se…", "Vänta nu…"]
 
     data = conn |> get(~p"/api/v1/bots") |> json_response(200) |> Map.fetch!("data")
 
-    assert %{"home" => "louisiana", "lines" => ["Hmm, jaha…", "Let's see…", "Väntä lite…"]} =
-             Enum.find(data, &(&1["id"] == "antti"))
+    assert %{
+             "home" => "louisiana",
+             "lines" => ["Hmm, right…", "Let's see…", "Wait now…"],
+             "lines_sv" => ["Hmm, jaha…", "Få se…", "Vänta nu…"]
+           } = Enum.find(data, &(&1["id"] == "antti"))
+
+    # A character with only Swedish lines shows only the Swedish list.
+    {:ok, _} = BotCatalogue.save(BotCatalogue.get!("jocke"), %{lines_sv: ["Jo jo…"]})
+    refute has_element?(view, "#bot-jocke ul[lang=en]")
+    assert has_element?(view, "#bot-jocke ul[lang=sv] li", "Jo jo…")
   end
 
   test "the strategy select offers search, and the form saves it", %{conn: conn} do

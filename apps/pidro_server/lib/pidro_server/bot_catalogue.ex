@@ -52,6 +52,7 @@ defmodule PidroServer.BotCatalogue do
             :portrait,
             :home,
             :lines,
+            :lines_sv,
             :voice,
             :appetite,
             :image_version,
@@ -116,6 +117,7 @@ defmodule PidroServer.BotCatalogue do
       :tempo,
       :home,
       :lines,
+      :lines_sv,
       :voice,
       :appetite
     ])

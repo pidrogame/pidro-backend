@@ -61,6 +61,7 @@ defmodule PidroServer.BotCatalogueTest do
                :home,
                :id,
                :lines,
+               :lines_sv,
                :name,
                :strategy,
                :tempo,
@@ -277,33 +278,59 @@ defmodule PidroServer.BotCatalogueTest do
       end
     end
 
-    test "lines are trimmed, blank ones dropped, at most eight of at most 18 characters" do
-      lines = fn lines -> BotCatalogue.change(BotCatalogue.new(), %{name: "X", lines: lines}) end
+    test "lines in English and Swedish are trimmed, blank ones dropped, at most eight of at most 18 characters" do
+      for field <- [:lines, :lines_sv] do
+        lines = fn lines ->
+          BotCatalogue.change(BotCatalogue.new(), %{:name => "X", field => lines})
+        end
 
-      changeset = lines.(["  Hmm, jaha…  ", "", "   ", "Let's see…"])
-      assert changeset.valid?
-      assert Ecto.Changeset.get_field(changeset, :lines) == ["Hmm, jaha…", "Let's see…"]
-      assert BotCatalogue.new().lines == []
+        changeset = lines.(["  Hmm, jaha…  ", "", "   ", "Let's see…"])
+        assert changeset.valid?
+        assert Ecto.Changeset.get_field(changeset, field) == ["Hmm, jaha…", "Let's see…"]
+        assert Map.fetch!(BotCatalogue.new(), field) == []
 
-      # Characters, not bytes, and counted after trimming: what the seat bubble fits.
-      assert lines.(["  " <> String.duplicate("ä", 18) <> "  "]).valid?
-      refute lines.([String.duplicate("a", 19)]).valid?
-      assert lines.(["Väntä lite…", "Let me think…", "One moment…"]).valid?
+        # Characters, not bytes, and counted after trimming: what the seat bubble fits.
+        assert lines.(["  " <> String.duplicate("ä", 18) <> "  "]).valid?
+        changeset = lines.([String.duplicate("a", 19)])
+        assert changeset.errors == [{field, {"each line should be at most 18 characters", []}}]
+        assert lines.(["Väntä lite…", "Let me think…", "One moment…"]).valid?
 
-      assert lines.(List.duplicate("Väntä lite…", 8) ++ [" "]).valid?
-      refute lines.(List.duplicate("Väntä lite…", 9)).valid?
+        assert lines.(List.duplicate("Väntä lite…", 8) ++ [" "]).valid?
+
+        assert [{^field, {"should have at most %{count} item(s)", _}}] =
+                 lines.(List.duplicate("Väntä lite…", 9)).errors
+      end
+
+      # Each list is checked on its own: a long Swedish line leaves English alone.
+      changeset =
+        BotCatalogue.change(BotCatalogue.new(), %{
+          name: "X",
+          lines: ["Let me think…"],
+          lines_sv: ["Låt mig tänka efter…"]
+        })
+
+      assert Keyword.keys(changeset.errors) == [:lines_sv]
     end
 
-    test "public profiles and seated bots carry the home and lines" do
+    test "public profiles and seated bots carry the home and lines in both languages" do
       {:ok, profile} =
-        BotCatalogue.save(BotCatalogue.get!("antti"), %{home: "finland", lines: ["Hmm, jaha…"]})
+        BotCatalogue.save(BotCatalogue.get!("antti"), %{
+          home: "finland",
+          lines: ["Hmm, right…"],
+          lines_sv: ["Hmm, jaha…"]
+        })
 
-      assert %{home: "finland", lines: ["Hmm, jaha…"]} = BotCatalogue.public(profile)
-      assert %{home: "anywhere", lines: []} = BotCatalogue.public(BotCatalogue.profile("marcel"))
-      assert %{home: "anywhere", lines: []} = BotCatalogue.public(hd(BotCatalogue.defaults()))
+      assert %{home: "finland", lines: ["Hmm, right…"], lines_sv: ["Hmm, jaha…"]} =
+               BotCatalogue.public(profile)
+
+      assert %{home: "anywhere", lines: [], lines_sv: []} =
+               BotCatalogue.public(BotCatalogue.profile("marcel"))
+
+      assert %{home: "anywhere", lines: [], lines_sv: []} =
+               BotCatalogue.public(hd(BotCatalogue.defaults()))
 
       bot_profile = Seat.serialize(Seat.new_bot(:east, nil, "antti")).bot_profile
-      assert %{home: "finland", lines: ["Hmm, jaha…"]} = bot_profile
+      assert %{home: "finland", lines: ["Hmm, right…"], lines_sv: ["Hmm, jaha…"]} = bot_profile
     end
   end
 
