@@ -1083,6 +1083,39 @@ defmodule PidroServerWeb.API.RoomControllerTest do
       end
     end
 
+    test "a seated character's profile carries its English and Swedish lines", %{conn: conn} do
+      {:ok, _} =
+        PidroServer.BotCatalogue.save(PidroServer.BotCatalogue.get!("gun"), %{
+          lines: ["Well now…", "Wait now…"],
+          lines_sv: ["Nå men…", "Vänta nu…"]
+        })
+
+      host = AccountsFixtures.user_fixture()
+
+      code =
+        conn
+        |> as_user(host)
+        |> post(~p"/api/v1/rooms", %{
+          "seats" => %{"seat_3" => %{"type" => "ai", "persona" => "gun"}, "seat_2" => "ai"}
+        })
+        |> data(201)
+        |> Map.get("code")
+
+      seats =
+        build_conn() |> get(~p"/api/v1/rooms/#{code}") |> data(200) |> get_in(["room", "seats"])
+
+      assert %{
+               "bot_persona" => "gun",
+               "bot_profile" => %{
+                 "lines" => ["Well now…", "Wait now…"],
+                 "lines_sv" => ["Nå men…", "Vänta nu…"]
+               }
+             } = seats["south"]
+
+      # A character without lines sends both lists, empty.
+      assert %{"lines" => [], "lines_sv" => []} = seats["east"]["bot_profile"]
+    end
+
     test "a character twice, an unknown and a disabled one are refused, and no room opens", %{
       conn: conn
     } do
