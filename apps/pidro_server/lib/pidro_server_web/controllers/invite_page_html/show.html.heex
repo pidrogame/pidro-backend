@@ -68,7 +68,7 @@
         </p>
 
         <p :if={@page.iphone_install_url || @page.play_store_url} class="invite-store-label">
-          New to Pidro? Get the beta, it's free.
+          New to Pidro? Get the {if @page.beta, do: "beta", else: "app"}, it's free.
         </p>
         <p
           :if={@page.deferred_capture_url && @page.device in [:ios, :android]}
@@ -89,7 +89,7 @@
             data-deferred-capture={if @page.device == :ios, do: @page.deferred_capture_url}
             data-deferred-platform={if @page.device == :ios, do: "ios"}
           >
-            Get Pidro Beta for iPhone
+            Get Pidro{if @page.beta, do: " Beta"} for iPhone
           </a>
           <a
             :if={@page.play_store_url}
@@ -119,7 +119,7 @@
             data-deferred-capture={if @page.device == :ios, do: @page.deferred_capture_url}
             data-deferred-platform={if @page.device == :ios, do: "ios"}
           >
-            Get Pidro Beta
+            Get Pidro{if @page.beta, do: " Beta"}
           </a>.
         </p>
       </div>

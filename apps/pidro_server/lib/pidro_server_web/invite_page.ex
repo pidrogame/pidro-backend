@@ -39,6 +39,7 @@ defmodule PidroServerWeb.InvitePage do
       ios_url: "#{app(:app_scheme)}://j/#{target.code}",
       android_url: android_intent(target_url, play_store_url(target.code)),
       device: device,
+      beta: beta?(),
       show_qr: show_qr
     })
     |> Map.put(:qr_data_uri, if(show_qr, do: qr_data_uri(target_url)))
@@ -59,7 +60,8 @@ defmodule PidroServerWeb.InvitePage do
       table_action: :none,
       iphone_install_url: store_url("ios"),
       play_store_url: store_url("android"),
-      device: device
+      device: device,
+      beta: beta?()
     }
   end
 
@@ -87,7 +89,8 @@ defmodule PidroServerWeb.InvitePage do
       android_url: android_intent(url, friend_play_store_url(slug)),
       deferred_capture_url:
         PidroServerWeb.DeferredInviteCaptureController.friend_capture_url(slug),
-      device: device
+      device: device,
+      beta: beta?()
     }
   end
 
@@ -101,7 +104,8 @@ defmodule PidroServerWeb.InvitePage do
       deferred_capture_url: nil,
       iphone_install_url: store_url("ios"),
       play_store_url: store_url("android"),
-      device: device
+      device: device,
+      beta: beta?()
     }
   end
 
@@ -182,6 +186,7 @@ defmodule PidroServerWeb.InvitePage do
 
   # The app the page opens: the beta until switch day (docs/deploy/switch-day.md).
   defp app(key), do: Application.fetch_env!(:pidro_server, __MODULE__)[key]
+  defp beta?, do: String.ends_with?(app(:android_package), ".beta")
 
   defp store_url(platform),
     do: Application.get_env(:pidro_server, :native_store_urls, %{})[platform]

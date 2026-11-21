@@ -22,7 +22,7 @@
 
       <div class="invite-actions">
         <p :if={@page.iphone_install_url || @page.play_store_url} class="invite-store-label">
-          New to Pidro? Get the beta, it's free.
+          New to Pidro? Get the {if @page.beta, do: "beta", else: "app"}, it's free.
         </p>
         <div class="invite-store-links" aria-label="Download Pidro">
           <a
@@ -31,7 +31,7 @@
             class="invite-store-text"
             data-store="apple"
           >
-            Get Pidro Beta for iPhone
+            Get Pidro{if @page.beta, do: " Beta"} for iPhone
           </a>
           <a
             :if={@page.play_store_url}

@@ -10,7 +10,7 @@ value as its default (`config/runtime.exs`), so the switch is one change to
 | Variable | Drives | Beta default |
 | --- | --- | --- |
 | `NATIVE_STORE_URL_IOS`, `NATIVE_STORE_URL_ANDROID` | Store buttons on invite and player pages, email store links, the lobby's update notice | TestFlight link, beta Play listing |
-| `NATIVE_ANDROID_PACKAGE` | The app the Android invite/player button opens (`intent://…;package=…`) | `com.oneapps.pidro.beta` |
+| `NATIVE_ANDROID_PACKAGE` | The app the Android invite/player button opens (`intent://…;package=…`), and the pages' wording: a `.beta` package says "Get Pidro Beta", any other "Get Pidro" | `com.oneapps.pidro.beta` |
 | `NATIVE_APP_SCHEME` | The app the iPhone invite/player button opens (`<scheme>://j/<code>`) | `pidro-mobile-beta` |
 | `STORE_BUILDS_ASC_APP_ID`, `STORE_BUILDS_PLAY_PACKAGE` | The store records [Store builds](https://app.pidro.online/admin/store-builds) reads and links to | `6816832730`, `com.oneapps.pidro.beta` |
 | `STORE_BUILDS_IOS_TRACK` | `testflight` (Friends group) or `app_store` (the App Store version in review or live) | `testflight` |

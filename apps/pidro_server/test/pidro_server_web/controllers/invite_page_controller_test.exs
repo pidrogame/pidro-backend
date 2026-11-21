@@ -19,6 +19,59 @@ defmodule PidroServerWeb.InvitePageControllerTest do
     :ok
   end
 
+  test "switch day: the pages open and offer the production app once its values are set" do
+    urls = Application.get_env(:pidro_server, :native_store_urls)
+    app = Application.get_env(:pidro_server, PidroServerWeb.InvitePage)
+
+    on_exit(fn ->
+      Application.put_env(:pidro_server, :native_store_urls, urls)
+      Application.put_env(:pidro_server, PidroServerWeb.InvitePage, app)
+    end)
+
+    {host, room} = host_and_room()
+    invite = mint!(room, host)
+    pages = [~p"/j/#{invite.code}", ~p"/play/#{host.share_slug}", ~p"/j/ZZZZZZZZ"]
+
+    get_page = fn path, agent ->
+      conn = build_conn() |> put_req_header("user-agent", agent) |> get(path)
+      assert conn.status == if(path == ~p"/j/ZZZZZZZZ", do: 404, else: 200)
+      conn.resp_body
+    end
+
+    for {mode, scheme, package, ios_store, copy, absent} <- [
+          {:beta, "pidro-mobile-beta", "com.oneapps.pidro.beta",
+           "https://testflight.apple.com/join/2JR95b65", "Get Pidro Beta for iPhone", nil},
+          {:production, "pidro-mobile", "com.oneapps.pidro",
+           "https://apps.apple.com/app/id1137091987", "Get Pidro for iPhone", "Beta"}
+        ] do
+      if mode == :production do
+        Application.put_env(:pidro_server, :native_store_urls, %{
+          "ios" => ios_store,
+          "android" => "https://play.google.com/store/apps/details?id=com.oneapps.pidro"
+        })
+
+        Application.put_env(:pidro_server, PidroServerWeb.InvitePage,
+          android_package: package,
+          app_scheme: scheme
+        )
+      end
+
+      for path <- pages do
+        ios = get_page.(path, "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0)")
+        android = get_page.(path, "Mozilla/5.0 (Linux; Android 15)")
+
+        assert ios =~ ios_store, "#{mode} #{path}"
+        assert ios =~ copy, "#{mode} #{path}"
+        if absent, do: refute(ios =~ absent, "#{mode} #{path} still says Beta")
+
+        if path != ~p"/j/ZZZZZZZZ" do
+          assert ios =~ ~s(href="#{scheme}:/#{path}"), "#{mode} #{path}"
+          assert android =~ ";package=#{package};", "#{mode} #{path}"
+        end
+      end
+    end
+  end
+
   test "invite and player pages omit unconfigured stores without losing app handoff" do
     urls = Application.get_env(:pidro_server, :native_store_urls)
     on_exit(fn -> Application.put_env(:pidro_server, :native_store_urls, urls) end)
