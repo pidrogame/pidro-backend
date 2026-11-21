@@ -6,6 +6,7 @@ defmodule PidroServer.Accounts.ClassicVerification do
   alias PidroServer.Accounts
 
   alias PidroServer.Accounts.{
+    AppleTokens,
     ClassicClaims,
     ClassicClient,
     FacebookCredential,
@@ -135,7 +136,7 @@ defmodule PidroServer.Accounts.ClassicVerification do
         business_ids: []
       }
 
-      {:ok, profile, identity, :email}
+      {:ok, profile, AppleTokens.put_refresh_token(identity, params), :email}
     else
       {:error, reason} -> {:error, reason}
       _invalid -> {:error, :invalid_credentials}

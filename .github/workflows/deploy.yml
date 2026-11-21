@@ -47,6 +47,10 @@ jobs:
       ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
       ASC_PRIVATE_KEY: ${{ secrets.ASC_PRIVATE_KEY }}
       PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+      # Optional too: empty revokes no Sign in with Apple tokens on account deletion.
+      APPLE_SIWA_KEY_ID: ${{ secrets.APPLE_SIWA_KEY_ID }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      APPLE_SIWA_PRIVATE_KEY: ${{ secrets.APPLE_SIWA_PRIVATE_KEY }}
       # Optional too: empty sends no errors to Sentry.
       SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
 
@@ -93,7 +97,7 @@ jobs:
           echo "$SSH_PRIVATE_KEY" | ssh-add -
           # Keep multiline credentials on one line through Kamal's env file.
           # Mask the encoded values too; runtime.exs decodes them in memory.
-          for name in ASC_PRIVATE_KEY PLAY_SERVICE_ACCOUNT_JSON; do
+          for name in ASC_PRIVATE_KEY PLAY_SERVICE_ACCOUNT_JSON APPLE_SIWA_PRIVATE_KEY; do
             encoded="$(printf '%s' "${!name}" | base64 -w 0)"
             if [ -n "$encoded" ]; then echo "::add-mask::$encoded"; fi
             echo "${name}_BASE64=$encoded" >> "$GITHUB_ENV"
@@ -103,7 +107,8 @@ jobs:
             CLASSIC_API_URL CLASSIC_CLAIM_SECRET FB_APP_SECRET \
             SMTP_RELAY SMTP_PORT SMTP_USERNAME SMTP_PASSWORD ANTHROPIC_API_KEY EXPO_ACCESS_TOKEN \
             REVENUECAT_SECRET_KEY REVENUECAT_WEBHOOK_SECRET \
-            ASC_KEY_ID ASC_ISSUER_ID ASC_PRIVATE_KEY_BASE64 PLAY_SERVICE_ACCOUNT_JSON_BASE64 SENTRY_DSN; do
+            ASC_KEY_ID ASC_ISSUER_ID ASC_PRIVATE_KEY_BASE64 PLAY_SERVICE_ACCOUNT_JSON_BASE64 SENTRY_DSN \
+            APPLE_SIWA_KEY_ID APPLE_TEAM_ID APPLE_SIWA_PRIVATE_KEY_BASE64; do
             echo "$name=\$$name"
           done > .kamal/secrets-common
 

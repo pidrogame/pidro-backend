@@ -33,8 +33,9 @@ defmodule PidroServer.Accounts.Auth do
   `delete_user/1` is the deletion recipe (KTD8) shared by
   `DELETE /api/v1/auth/me` and the admin panel: it revokes
   the invites they host, deletes their personal rows and the user row in one
-  database transaction, then performs the in-memory room cleanup and
-  broadcasts the disconnect after commit. The guest reaper uses
+  database transaction, then performs the in-memory room cleanup,
+  broadcasts the disconnect and revokes stored Sign in with Apple tokens
+  (`AppleTokens.revoke/1`, PID-158) after commit. The guest reaper uses
   `delete_guest/1`, which locks and reloads the account before applying the
   same recipe so it cannot delete a concurrently upgraded account.
   `game_stats` and `abandonment_events` keep the bare id (KD9).
@@ -72,7 +73,17 @@ defmodule PidroServer.Accounts.Auth do
 
   alias Ecto.Changeset
   alias PidroServer.Accounts
-  alias PidroServer.Accounts.{Avatars, ClassicNameReservations, GuestNames, Token}
+
+  alias PidroServer.Accounts.{
+    AppleTokens,
+    Avatars,
+    ClassicNameReservations,
+    GuestNames,
+    Token,
+    ClassicClaimTicket,
+    UserIdentity
+  }
+
   alias PidroServer.Accounts.User
   alias PidroServer.Entitlements
   alias PidroServer.Games.RoomManager
@@ -757,8 +768,8 @@ defmodule PidroServer.Accounts.Auth do
   @spec delete_user(User.t()) :: {:ok, User.t()} | {:error, term()}
   def delete_user(%User{} = user) do
     case delete_personal_rows(user) do
-      {:ok, {deleted, hosted_rooms}} ->
-        after_delete(deleted, hosted_rooms)
+      {:ok, {deleted, hosted_rooms, apple_tokens}} ->
+        after_delete(deleted, hosted_rooms, apple_tokens)
         {:ok, deleted}
 
       {:error, reason} ->
@@ -797,8 +808,8 @@ defmodule PidroServer.Accounts.Auth do
       end)
 
     case result do
-      {:ok, {deleted, hosted_rooms}} ->
-        after_delete(deleted, hosted_rooms)
+      {:ok, {deleted, hosted_rooms, apple_tokens}} ->
+        after_delete(deleted, hosted_rooms, apple_tokens)
         {:ok, deleted}
 
       {:error, reason} ->
@@ -806,7 +817,7 @@ defmodule PidroServer.Accounts.Auth do
     end
   end
 
-  defp after_delete(%User{id: id} = user, hosted_rooms) do
+  defp after_delete(%User{id: id} = user, hosted_rooms, apple_tokens) do
     safely_after_delete(id, "vacate room seat", fn -> vacate_seat(id) end)
 
     Enum.each(hosted_rooms, fn room ->
@@ -816,6 +827,10 @@ defmodule PidroServer.Accounts.Auth do
     end)
 
     safely_after_delete(id, "broadcast disconnect", fn -> broadcast_disconnect(user) end)
+
+    Enum.each(apple_tokens, fn token ->
+      safely_after_delete(id, "revoke Apple token", fn -> AppleTokens.revoke(token) end)
+    end)
   end
 
   defp safely_after_delete(user_id, action, fun) do
@@ -879,6 +894,25 @@ defmodule PidroServer.Accounts.Auth do
 
     hosted_rooms = hosted_invite_rooms(id)
 
+    # Read before the user row's delete cascades to them; revoked after commit.
+    # Locked so a concurrent Apple sign-in cannot swap in a token missed here.
+    # A ticket bound to this user still holds the token of an unfinished claim.
+    apple_tokens =
+      Repo.all(
+        from i in UserIdentity,
+          where: i.user_id == ^id and not is_nil(i.apple_refresh_token),
+          lock: "FOR UPDATE"
+      ) ++
+        Repo.all(
+          from t in ClassicClaimTicket,
+            where: t.bound_user_id == ^id and not is_nil(t.provider_apple_refresh_token),
+            select: %{
+              apple_refresh_token: t.provider_apple_refresh_token,
+              apple_client_id: t.provider_issuer_app,
+              user_id: t.bound_user_id
+            }
+        )
+
     case Invites.revoke_hosted(id) do
       {:ok, _revoked} -> :ok
       {:error, reason} -> Repo.rollback(reason)
@@ -908,7 +942,7 @@ defmodule PidroServer.Accounts.Auth do
     )
 
     case Repo.delete(user) do
-      {:ok, deleted} -> {deleted, hosted_rooms}
+      {:ok, deleted} -> {deleted, hosted_rooms, apple_tokens}
       {:error, changeset} -> Repo.rollback(changeset)
     end
   end

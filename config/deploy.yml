@@ -89,6 +89,10 @@ env:
     - ASC_ISSUER_ID
     - ASC_PRIVATE_KEY_BASE64
     - PLAY_SERVICE_ACCOUNT_JSON_BASE64
+    # Optional: without them account deletion revokes no Sign in with Apple tokens.
+    - APPLE_SIWA_KEY_ID
+    - APPLE_TEAM_ID
+    - APPLE_SIWA_PRIVATE_KEY_BASE64
     # Optional: without it no errors go to Sentry.
     - SENTRY_DSN
 

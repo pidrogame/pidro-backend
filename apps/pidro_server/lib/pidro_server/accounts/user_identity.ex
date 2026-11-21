@@ -19,6 +19,8 @@ defmodule PidroServer.Accounts.UserIdentity do
     field :link_source, Ecto.Enum, values: [:sign_up, :sign_in, :claim, :backfill]
     field :linked_at, :utc_datetime_usec
     field :last_used_at, :utc_datetime_usec
+    field :apple_refresh_token, :string, redact: true
+    field :apple_client_id, :string
 
     belongs_to :user, User
   end
@@ -34,7 +36,9 @@ defmodule PidroServer.Accounts.UserIdentity do
       :business_ids,
       :link_source,
       :linked_at,
-      :last_used_at
+      :last_used_at,
+      :apple_refresh_token,
+      :apple_client_id
     ])
     |> validate_required([:provider, :subject, :link_source, :linked_at, :last_used_at])
     |> unique_constraint([:provider, :subject])
@@ -51,9 +55,17 @@ defmodule PidroServer.Accounts.UserIdentity do
         end
       end)
       |> maybe_put_relay(identity, attrs)
+      |> maybe_put_apple_token(attrs)
 
     change(identity, changes)
   end
+
+  # The newest sign-in's refresh token replaces the stored one.
+  defp maybe_put_apple_token(changes, %{apple_refresh_token: token, apple_client_id: client_id})
+       when is_binary(token),
+       do: Map.merge(changes, %{apple_refresh_token: token, apple_client_id: client_id})
+
+  defp maybe_put_apple_token(changes, _attrs), do: changes
 
   defp maybe_put_relay(changes, %{email: nil}, %{email: email, email_is_relay: relay})
        when is_binary(email),

@@ -111,6 +111,10 @@ defmodule PidroServerWeb.Schemas.ClassicClaimSchemas do
         login: %Schema{type: :string, description: "Classic username or email"},
         password: %Schema{type: :string},
         identity_token: %Schema{type: :string},
+        authorization_code: %Schema{
+          type: :string,
+          description: "Apple's one-time code, exchanged for a token revoked on account deletion"
+        },
         access_token: %Schema{
           type: :string,
           description: "Facebook Graph credential; mutually exclusive with Limited Login fields"
@@ -298,6 +302,10 @@ defmodule PidroServerWeb.Schemas.ClassicClaimSchemas do
         age_band: PidroServerWeb.Schemas.UserSchemas.SubmittedAgeBand,
         terms_version: PidroServerWeb.Schemas.UserSchemas.TermsVersion,
         identity_token: %Schema{type: :string},
+        authorization_code: %Schema{
+          type: :string,
+          description: "Apple's one-time code, exchanged for a token revoked on account deletion"
+        },
         install_id: %Schema{
           type: :string,
           maxLength: 64,

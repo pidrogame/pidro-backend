@@ -65,6 +65,7 @@ defmodule PidroServer.Accounts.ClassicClaims do
       provider_email: fetch(identity, :email),
       provider_email_is_relay: fetch(identity, :email_is_relay) || false,
       provider_business_ids: fetch(identity, :business_ids),
+      provider_apple_refresh_token: fetch(identity, :apple_refresh_token),
       legacy_data: legacy_data,
       bound_user_id: fetch(attrs, :user_id),
       install_id: fetch(attrs, :install_id),
@@ -661,7 +662,9 @@ defmodule PidroServer.Accounts.ClassicClaims do
         issuer_app: ticket.provider_issuer_app,
         email: ticket.provider_email,
         email_is_relay: ticket.provider_email_is_relay,
-        business_ids: ticket.provider_business_ids || []
+        business_ids: ticket.provider_business_ids || [],
+        apple_refresh_token: ticket.provider_apple_refresh_token,
+        apple_client_id: ticket.provider_apple_refresh_token && ticket.provider_issuer_app
       },
       :claim,
       now

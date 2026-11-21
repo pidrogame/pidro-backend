@@ -251,6 +251,30 @@ gh secret set SENTRY_DSN
 For `just deploy`, add a `SENTRY_DSN=` line to `.kamal/secrets-common` (Kamal
 fails on a missing secret; empty keeps Sentry off).
 
+### Sign in with Apple token revocation (PID-158)
+
+App Review 5.1.1(v): deleting an account must revoke the user's Apple tokens.
+An Apple sign-in that sends `authorization_code` exchanges it for a refresh
+token, stored encrypted (with `SECRET_KEY_BASE`) on the Apple identity, and
+account deletion revokes it. Three optional secrets turn it on; without all
+three, sign-in and deletion work as before and nothing is exchanged or revoked:
+
+```bash
+gh secret set APPLE_SIWA_KEY_ID --body NKHK779PMR
+gh secret set APPLE_TEAM_ID --body LSFK7YF82G
+gh secret set APPLE_SIWA_PRIVATE_KEY < AuthKey_NKHK779PMR.p8   # the multiline .p8
+```
+
+Deploy passes the key base64-encoded as `APPLE_SIWA_PRIVATE_KEY_BASE64`, like
+the App Store Connect key below. A failed exchange logs `apple.exchange_failed`
+and still signs in; a failed revoke logs `apple.revoke_failed` (error level) and
+still deletes. Rotating `SECRET_KEY_BASE` makes stored tokens unreadable, so
+later revokes for them fail with that log line.
+
+For `just deploy` (and anything else reading `.kamal/secrets-common`), add
+`APPLE_SIWA_KEY_ID=`, `APPLE_TEAM_ID=` and `APPLE_SIWA_PRIVATE_KEY_BASE64=`
+lines (Kamal fails on a missing secret; empty keeps revocation off).
+
 ### Classic Premium carry-over (PID-391)
 
 It uses the Classic secret and the two RevenueCat secrets above, and does

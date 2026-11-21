@@ -20,6 +20,7 @@ defmodule PidroServer.Accounts.ClassicClaimTicket do
     field :provider_email, :string
     field :provider_email_is_relay, :boolean, default: false
     field :provider_business_ids, {:array, :string}
+    field :provider_apple_refresh_token, :string, redact: true
     field :legacy_data, :map
     field :install_id, :string
     field :expires_at, :utc_datetime_usec
@@ -43,6 +44,7 @@ defmodule PidroServer.Accounts.ClassicClaimTicket do
       :provider_email,
       :provider_email_is_relay,
       :provider_business_ids,
+      :provider_apple_refresh_token,
       :legacy_data,
       :bound_user_id,
       :install_id,
@@ -64,7 +66,11 @@ defmodule PidroServer.Accounts.ClassicClaimTicket do
 
   def redeem_changeset(ticket, user_id, redeemed_at) do
     ticket
-    |> change(redeemed_by_id: user_id, redeemed_at: redeemed_at)
+    |> change(
+      redeemed_by_id: user_id,
+      redeemed_at: redeemed_at,
+      provider_apple_refresh_token: nil
+    )
     |> check_constraint(:redeemed_by_id, name: :claim_ticket_redemption_is_complete)
   end
 

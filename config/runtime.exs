@@ -21,6 +21,12 @@ if config_env() != :test do
     asc_private_key: store_secret.("ASC_PRIVATE_KEY"),
     play_service_account_json: store_secret.("PLAY_SERVICE_ACCOUNT_JSON")
 
+  # Optional: without all three, account deletion revokes no Apple tokens (PID-158).
+  config :pidro_server, PidroServer.Accounts.AppleTokens,
+    key_id: System.get_env("APPLE_SIWA_KEY_ID"),
+    team_id: System.get_env("APPLE_TEAM_ID"),
+    private_key: store_secret.("APPLE_SIWA_PRIVATE_KEY")
+
   config :pidro_server, PidroServer.StoreBuilds.Cache,
     play_auto_refresh: System.get_env("PLAY_AUTO_REFRESH", "false") == "true"
 end

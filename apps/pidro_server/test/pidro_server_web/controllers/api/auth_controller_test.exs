@@ -6,11 +6,13 @@ defmodule PidroServerWeb.API.AuthControllerTest do
   import ExUnit.CaptureLog
 
   alias PidroServer.Accounts.{
+    AppleTokens,
     Auth,
     ClassicClaims,
     ClassicClaimTicket,
     ClassicNameReservation,
     ClassicNameReservations,
+    ClassicVerification,
     Token,
     User,
     UserIdentities,
@@ -189,6 +191,12 @@ defmodule PidroServerWeb.API.AuthControllerTest do
     def apple("apple-new"), do: apple_identity("apple-new-sub", "new@example.com")
     def apple("apple-no-email"), do: {:ok, %{"sub" => "apple-no-email-sub"}}
     def apple("apple-down"), do: apple_identity("apple-down-sub", "down@example.com")
+
+    def apple("apple-beta") do
+      with {:ok, claims} <- apple_identity("apple-beta-sub", "beta@example.com"),
+           do: {:ok, %{claims | "aud" => "com.oneapps.pidro.beta"}}
+    end
+
     def apple(_token), do: {:error, :invalid_credentials}
 
     def facebook("facebook-linked"), do: facebook_identity("facebook-linked-id")
@@ -2586,6 +2594,394 @@ defmodule PidroServerWeb.API.AuthControllerTest do
       assert vacated.positions.east == nil
     end
   end
+
+  describe "Sign in with Apple tokens (PID-158)" do
+    setup :start_room_manager
+
+    setup do
+      previous_provider = Application.get_env(:pidro_server, :provider_identity)
+      previous_names = Application.get_env(:pidro_server, :guest_names)
+      previous_apple = Application.fetch_env!(:pidro_server, AppleTokens)
+      Application.put_env(:pidro_server, :provider_identity, ProviderIdentity)
+      Application.put_env(:pidro_server, :guest_names, GuestNames)
+
+      {:ECPrivateKey, _version, _private, curve, public, _attributes} =
+        key = :public_key.generate_key({:namedCurve, :secp256r1})
+
+      pem = :public_key.pem_encode([:public_key.pem_entry_encode(:PrivateKeyInfo, key)])
+
+      Application.put_env(
+        :pidro_server,
+        AppleTokens,
+        Keyword.merge(previous_apple,
+          key_id: "NKHK779PMR",
+          team_id: "LSFK7YF82G",
+          private_key: pem
+        )
+      )
+
+      on_exit(fn ->
+        Application.put_env(:pidro_server, AppleTokens, previous_apple)
+
+        if previous_provider,
+          do: Application.put_env(:pidro_server, :provider_identity, previous_provider),
+          else: Application.delete_env(:pidro_server, :provider_identity)
+
+        if previous_names,
+          do: Application.put_env(:pidro_server, :guest_names, previous_names),
+          else: Application.delete_env(:pidro_server, :guest_names)
+      end)
+
+      %{apple_key: {{:ECPoint, public}, curve}, siwa_config: previous_apple}
+    end
+
+    test "a sign-up stores the token encrypted and deleting the account revokes it" do
+      expect_classic_not_found(:email, "beta@example.com")
+
+      stub_apple(%{
+        "/auth/token" => apple_refresh_token("refresh-beta", "apple-beta-sub"),
+        "/auth/revoke" => apple_ok()
+      })
+
+      %{"user" => %{"id" => user_id}, "token" => token} =
+        apple_sign_in(%{identity_token: "apple-beta", authorization_code: "code-beta"})
+
+      # The Beta's identity token: its audience is the client id, not the store app's.
+      assert_received {:apple, "/auth/token", exchange}
+
+      assert %{
+               "client_id" => "com.oneapps.pidro.beta",
+               "code" => "code-beta",
+               "grant_type" => "authorization_code",
+               "client_secret" => secret
+             } = exchange
+
+      assert %{"sub" => "com.oneapps.pidro.beta"} = client_secret_claims(secret)
+
+      identity = Repo.get_by!(UserIdentity, provider: :apple, subject: "apple-beta-sub")
+      assert identity.user_id == user_id
+      assert identity.apple_client_id == "com.oneapps.pidro.beta"
+      assert is_binary(identity.apple_refresh_token)
+      refute identity.apple_refresh_token =~ "refresh-beta"
+
+      assert delete_me(token) == ""
+
+      assert_received {:apple, "/auth/revoke", revoke}
+
+      assert %{
+               "client_id" => "com.oneapps.pidro.beta",
+               "token" => "refresh-beta",
+               "token_type_hint" => "refresh_token",
+               "client_secret" => secret
+             } = revoke
+
+      assert %{"sub" => "com.oneapps.pidro.beta"} = client_secret_claims(secret)
+
+      refute Repo.get(User, user_id)
+      refute Repo.get(UserIdentity, identity.id)
+    end
+
+    test "the client secret is an ES256 JWT from the team for the client id", %{
+      apple_key: apple_key
+    } do
+      expect_classic_not_found(:email, "new@example.com")
+      stub_apple(%{"/auth/token" => apple_refresh_token("refresh-store", "apple-new-sub")})
+      apple_sign_in(%{identity_token: "apple-new", authorization_code: "code-store"})
+
+      assert_received {:apple, "/auth/token", %{"client_secret" => secret}}
+      [header, claims, signature] = String.split(secret, ".")
+
+      <<r::unsigned-big-integer-size(256), s::unsigned-big-integer-size(256)>> =
+        decode!(signature)
+
+      der = :public_key.der_encode(:"ECDSA-Sig-Value", {:"ECDSA-Sig-Value", r, s})
+      assert :public_key.verify(header <> "." <> claims, :sha256, der, apple_key)
+
+      assert Jason.decode!(decode!(header)) == %{"alg" => "ES256", "kid" => "NKHK779PMR"}
+
+      assert %{
+               "iss" => "LSFK7YF82G",
+               "sub" => "com.oneapps.pidro",
+               "aud" => "https://appleid.apple.com",
+               "iat" => issued_at,
+               "exp" => expires_at
+             } = Jason.decode!(decode!(claims))
+
+      assert_in_delta issued_at, System.os_time(:second), 5
+      assert expires_at - issued_at == 300
+    end
+
+    test "a failed exchange still signs in, without a token" do
+      linked = provider_user!(:apple_sub, "apple-linked-sub")
+      expect_classic_not_found(:email, "new@example.com")
+
+      for {identity_token, subject, answer, logged} <- [
+            {"apple-new", "apple-new-sub", apple_error(400, "invalid_grant"), "invalid_grant"},
+            {"apple-linked", "apple-linked-sub", &Req.Test.transport_error(&1, :timeout),
+             "Req.TransportError"},
+            # A code from another Apple ID than the identity token's.
+            {"apple-linked", "apple-linked-sub",
+             apple_refresh_token("refresh-other", "another-apple-sub"), ":subject_mismatch"}
+          ] do
+        stub_apple(%{"/auth/token" => answer})
+
+        log =
+          capture_log(fn ->
+            assert %{"user" => %{"id" => user_id}, "token" => token} =
+                     apple_sign_in(%{identity_token: identity_token, authorization_code: "code"})
+
+            assert_token_user(build_conn(), token, user_id)
+            if subject == "apple-linked-sub", do: assert(user_id == linked.id)
+          end)
+
+        assert log =~ "apple.exchange_failed client_id=com.oneapps.pidro"
+        assert log =~ logged
+        assert_received {:apple, "/auth/token", _exchange}
+
+        assert Repo.get_by!(UserIdentity, provider: :apple, subject: subject).apple_refresh_token ==
+                 nil
+      end
+    end
+
+    test "a later sign-in replaces the stored token with its own" do
+      linked = provider_user!(:apple_sub, "apple-linked-sub")
+      stub_apple(%{"/auth/token" => apple_refresh_token("refresh-old", "apple-linked-sub")})
+      apple_sign_in(%{identity_token: "apple-linked", authorization_code: "code-1"})
+      old = Repo.get_by!(UserIdentity, user_id: linked.id).apple_refresh_token
+
+      stub_apple(%{
+        "/auth/token" => apple_refresh_token("refresh-new", "apple-linked-sub"),
+        "/auth/revoke" => apple_ok()
+      })
+
+      apple_sign_in(%{identity_token: "apple-linked", authorization_code: "code-2"})
+
+      identity = Repo.get_by!(UserIdentity, user_id: linked.id)
+      assert identity.apple_client_id == "com.oneapps.pidro"
+      refute identity.apple_refresh_token == old
+
+      # An old build sends no code: the stored token stays.
+      %{"token" => token} = apple_sign_in(%{identity_token: "apple-linked"})
+      assert Repo.reload!(identity).apple_refresh_token == identity.apple_refresh_token
+
+      assert delete_me(token) == ""
+      assert_received {:apple, "/auth/revoke", %{"token" => "refresh-new"}}
+      refute_received {:apple, "/auth/revoke", _second}
+    end
+
+    test "a failed revoke still deletes the account and logs apple.revoke_failed" do
+      expect_classic_not_found(:email, "new@example.com")
+
+      stub_apple(%{
+        "/auth/token" => apple_refresh_token("refresh-store", "apple-new-sub"),
+        "/auth/revoke" => apple_error(400, "invalid_client")
+      })
+
+      %{"user" => %{"id" => user_id}, "token" => token} =
+        apple_sign_in(%{identity_token: "apple-new", authorization_code: "code"})
+
+      log = capture_log(fn -> assert delete_me(token) == "" end)
+
+      assert_received {:apple, "/auth/revoke", %{"token" => "refresh-store"}}
+
+      assert log =~
+               "apple.revoke_failed user_id=#{user_id} client_id=com.oneapps.pidro " <>
+                 "reason={400, \"invalid_client\"}"
+
+      refute Repo.get(User, user_id)
+    end
+
+    test "without a stored token deletion asks Apple nothing" do
+      expect_classic_not_found(:email, "new@example.com")
+      stub_apple(%{})
+
+      %{"user" => %{"id" => user_id}, "token" => token} =
+        apple_sign_in(%{identity_token: "apple-new"})
+
+      assert Repo.get_by!(UserIdentity, user_id: user_id).apple_refresh_token == nil
+      assert delete_me(token) == ""
+      refute_received {:apple, _path, _form}
+      refute Repo.get(User, user_id)
+    end
+
+    test "without the key nothing is exchanged or revoked", %{siwa_config: siwa_config} do
+      expect_classic_not_found(:email, "new@example.com")
+      stub_apple(%{"/auth/token" => apple_refresh_token("refresh-store", "apple-new-sub")})
+
+      %{"token" => stored_token} =
+        apple_sign_in(%{identity_token: "apple-new", authorization_code: "code"})
+
+      assert_received {:apple, "/auth/token", _exchange}
+
+      Application.put_env(:pidro_server, AppleTokens, siwa_config)
+      provider_user!(:apple_sub, "apple-linked-sub")
+
+      %{"user" => %{"id" => user_id}, "token" => token} =
+        apple_sign_in(%{identity_token: "apple-linked", authorization_code: "code"})
+
+      assert Repo.get_by!(UserIdentity, user_id: user_id).apple_refresh_token == nil
+      assert delete_me(token) == ""
+
+      # A token stored while the key was set is reported, not silently kept.
+      log = capture_log(fn -> assert delete_me(stored_token) == "" end)
+      assert log =~ "apple.revoke_failed"
+      assert log =~ "reason=:not_configured"
+      refute_received {:apple, _path, _form}
+    end
+
+    test "a Classic claim carries the token from /auth/apple or /classic/verify to the account" do
+      stub_apple(%{
+        "/auth/token" => apple_refresh_token("refresh-claim", "apple-classic-sub"),
+        "/auth/revoke" => apple_ok()
+      })
+
+      for {classic_id, verify} <- [
+            {71_201,
+             fn ->
+               apple_sign_in(%{
+                 identity_token: "apple-classic",
+                 authorization_code: "code",
+                 install_id: "apple-install"
+               })
+             end},
+            {71_202,
+             fn ->
+               {:ok, %{ticket: ticket}} =
+                 ClassicVerification.verify(
+                   %{
+                     "method" => "apple",
+                     "identity_token" => "apple-classic",
+                     "authorization_code" => "code",
+                     "install_id" => "apple-install"
+                   },
+                   nil,
+                   provider_identity: ProviderIdentity
+                 )
+
+               %{"ticket" => ticket}
+             end}
+          ] do
+        expect_classic_lookup(:email, "classic@example.com", classic_profile(classic_id, "Bengt"))
+        %{"ticket" => ticket} = verify.()
+        assert_received {:apple, "/auth/token", %{"client_id" => "com.oneapps.pidro"}}
+
+        pending = Repo.get_by!(ClassicClaimTicket, classic_user_id: classic_id)
+        assert is_binary(pending.provider_apple_refresh_token)
+
+        %{"user" => %{"id" => user_id}, "token" => token} =
+          build_conn()
+          |> post(~p"/api/v1/classic/claim", %{
+            ticket: ticket,
+            install_id: "apple-install",
+            account: %{username: "bengt_#{classic_id}"}
+          })
+          |> json_response(200)
+          |> Map.fetch!("data")
+
+        identity = Repo.get_by!(UserIdentity, provider: :apple, subject: "apple-classic-sub")
+        assert identity.user_id == user_id
+        assert identity.link_source == :claim
+        assert identity.apple_client_id == "com.oneapps.pidro"
+        assert identity.apple_refresh_token == pending.provider_apple_refresh_token
+        assert Repo.reload!(pending).provider_apple_refresh_token == nil
+
+        assert delete_me(token) == ""
+        assert_received {:apple, "/auth/revoke", %{"token" => "refresh-claim"}}
+      end
+    end
+  end
+
+  describe "Sign in with Apple tokens on an unfinished claim (PID-158)" do
+    setup :start_room_manager
+
+    setup do
+      previous_apple = Application.fetch_env!(:pidro_server, AppleTokens)
+      key = :public_key.generate_key({:namedCurve, :secp256r1})
+      pem = :public_key.pem_encode([:public_key.pem_entry_encode(:PrivateKeyInfo, key)])
+
+      Application.put_env(
+        :pidro_server,
+        AppleTokens,
+        Keyword.merge(previous_apple, key_id: "K", team_id: "T", private_key: pem)
+      )
+
+      on_exit(fn -> Application.put_env(:pidro_server, AppleTokens, previous_apple) end)
+    end
+
+    test "deleting a player revokes the token on a Classic ticket they never redeemed" do
+      player = AccountsFixtures.user_fixture()
+
+      stub_apple(%{
+        "/auth/token" => apple_refresh_token("refresh-unclaimed", "apple-classic-sub"),
+        "/auth/revoke" => apple_ok()
+      })
+
+      expect_classic_lookup(:email, "classic@example.com", classic_profile(71_301, "Bengt"))
+
+      assert {:ok, %{ticket: _ticket}} =
+               ClassicVerification.verify(
+                 %{
+                   "method" => "apple",
+                   "identity_token" => "apple-classic",
+                   "authorization_code" => "code"
+                 },
+                 player,
+                 provider_identity: ProviderIdentity
+               )
+
+      assert_received {:apple, "/auth/token", _exchange}
+      assert delete_me(Token.generate(player)) == ""
+
+      assert_received {:apple, "/auth/revoke",
+                       %{"token" => "refresh-unclaimed", "client_id" => "com.oneapps.pidro"}}
+    end
+  end
+
+  defp stub_apple(answers) do
+    test = self()
+
+    Req.Test.stub(AppleTokens, fn conn ->
+      {:ok, body, conn} = Plug.Conn.read_body(conn)
+      send(test, {:apple, conn.request_path, URI.decode_query(body)})
+      Map.fetch!(answers, conn.request_path).(conn)
+    end)
+  end
+
+  defp apple_refresh_token(refresh_token, subject) do
+    claims = Base.url_encode64(Jason.encode!(%{"sub" => subject}), padding: false)
+
+    &Req.Test.json(&1, %{
+      "access_token" => "access",
+      "token_type" => "Bearer",
+      "expires_in" => 3600,
+      "refresh_token" => refresh_token,
+      "id_token" => "e30." <> claims <> ".signature"
+    })
+  end
+
+  defp apple_ok, do: &Plug.Conn.send_resp(&1, 200, "")
+
+  defp apple_error(status, error),
+    do: &(&1 |> Plug.Conn.put_status(status) |> Req.Test.json(%{"error" => error}))
+
+  defp apple_sign_in(params) do
+    build_conn()
+    |> post(~p"/api/v1/auth/apple", params)
+    |> json_response(200)
+    |> Map.fetch!("data")
+  end
+
+  defp delete_me(token) do
+    build_conn()
+    |> put_req_header("authorization", "Bearer #{token}")
+    |> delete(~p"/api/v1/auth/me")
+    |> response(204)
+  end
+
+  defp decode!(segment), do: Base.url_decode64!(segment, padding: false)
+
+  defp client_secret_claims(secret),
+    do: secret |> String.split(".") |> Enum.at(1) |> decode!() |> Jason.decode!()
 
   defp start_room_manager(_context) do
     case GenServer.whereis(RoomManager) do

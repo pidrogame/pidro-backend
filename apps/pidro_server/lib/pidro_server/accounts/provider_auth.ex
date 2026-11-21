@@ -4,6 +4,7 @@ defmodule PidroServer.Accounts.ProviderAuth do
   require Logger
 
   alias PidroServer.Accounts.{
+    AppleTokens,
     ClassicNameReservations,
     ClassicVerification,
     FacebookCredential,
@@ -37,6 +38,8 @@ defmodule PidroServer.Accounts.ProviderAuth do
       end)
 
     with {:ok, identity, lookup_context} <- verify(provider, credential, providers) do
+      identity = AppleTokens.put_refresh_token(identity, params)
+
       case UserIdentities.sign_in(identity) do
         {:ok, %User{} = user} ->
           maybe_heal_business_ids(identity, lookup_context, providers)

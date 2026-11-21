@@ -47,6 +47,10 @@ config :pidro_server, PidroServer.Accounts.FacebookDataDeletion,
   classic_url: "https://classic.test/v2/meta/data_deletion",
   req_options: [plug: {Req.Test, PidroServer.Accounts.FacebookDataDeletion}]
 
+# No Sign in with Apple key: tests that exchange or revoke tokens put one in.
+config :pidro_server, PidroServer.Accounts.AppleTokens,
+  req_options: [plug: {Req.Test, PidroServer.Accounts.AppleTokens}]
+
 config :pidro_server, PidroServerWeb.DeferredInviteCaptureController,
   endpoint_origin: "http://localhost:4002",
   allowed_origins: ["http://localhost:4002"]
