@@ -107,7 +107,9 @@ config :pidro_server, PidroServerWeb.Plugs.RateLimit,
   # The update-email unsubscribe page, and its POST apart, since mail apps'
   # one-click POSTs share provider addresses with link scanners (PID-448).
   unsubscribe: %{limit: 60, scale_ms: 60_000, key: :ip},
-  unsubscribe_post: %{limit: 300, scale_ms: 60_000, key: :ip}
+  unsubscribe_post: %{limit: 300, scale_ms: 60_000, key: :ip},
+  # Meta's data-deletion callback and its status page (PID-162).
+  meta_data_deletion: %{limit: 60, scale_ms: 60_000, key: :ip}
 
 # PidroServerWeb.Plugs.TrustedProxy honours X-Forwarded-For / X-Forwarded-Proto
 # only when this is true and the TCP peer is proxy-side. config/runtime.exs sets
@@ -119,6 +121,10 @@ config :pidro_server, PidroServer.Accounts.ClassicClient,
   secret: ""
 
 config :pidro_server, PidroServer.Accounts.ClassicNameReservations, cutoff_date: ~D[2026-09-27]
+
+# Meta's data-deletion callback goes on to Classic's until Classic is retired (PID-162).
+config :pidro_server, PidroServer.Accounts.FacebookDataDeletion,
+  classic_url: "https://api.pidro.online/v2/meta/data_deletion"
 
 config :pidro_server, PidroServer.Accounts.ProviderIdentity,
   apple_jwks_url: "https://appleid.apple.com/auth/keys",

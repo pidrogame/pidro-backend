@@ -227,7 +227,9 @@ rate_limit_overrides =
     {:unsubscribe, :limit, "RATE_LIMIT_UNSUBSCRIBE_LIMIT"},
     {:unsubscribe, :scale_ms, "RATE_LIMIT_UNSUBSCRIBE_SCALE_MS"},
     {:unsubscribe_post, :limit, "RATE_LIMIT_UNSUBSCRIBE_POST_LIMIT"},
-    {:unsubscribe_post, :scale_ms, "RATE_LIMIT_UNSUBSCRIBE_POST_SCALE_MS"}
+    {:unsubscribe_post, :scale_ms, "RATE_LIMIT_UNSUBSCRIBE_POST_SCALE_MS"},
+    {:meta_data_deletion, :limit, "RATE_LIMIT_META_DATA_DELETION_LIMIT"},
+    {:meta_data_deletion, :scale_ms, "RATE_LIMIT_META_DATA_DELETION_SCALE_MS"}
   ]
   |> Enum.reduce([], fn {policy, field, env_var}, acc ->
     case System.get_env(env_var) do

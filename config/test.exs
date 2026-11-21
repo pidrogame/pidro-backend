@@ -43,6 +43,10 @@ config :pidro_server, PidroServer.Accounts.ProviderIdentity,
   jwks_cache_ttl_ms: 0,
   req_options: [plug: {Req.Test, PidroServer.Accounts.ProviderIdentity}]
 
+config :pidro_server, PidroServer.Accounts.FacebookDataDeletion,
+  classic_url: "https://classic.test/v2/meta/data_deletion",
+  req_options: [plug: {Req.Test, PidroServer.Accounts.FacebookDataDeletion}]
+
 config :pidro_server, PidroServerWeb.DeferredInviteCaptureController,
   endpoint_origin: "http://localhost:4002",
   allowed_origins: ["http://localhost:4002"]
@@ -185,7 +189,8 @@ config :pidro_server, PidroServerWeb.Plugs.RateLimit,
   avatar_read: %{limit: 1_000_000, scale_ms: 60_000, key: :ip},
   push_token: %{limit: 1_000_000, scale_ms: 3_600_000, key: :user},
   unsubscribe: %{limit: 1_000_000, scale_ms: 60_000, key: :ip},
-  unsubscribe_post: %{limit: 1_000_000, scale_ms: 60_000, key: :ip}
+  unsubscribe_post: %{limit: 1_000_000, scale_ms: 60_000, key: :ip},
+  meta_data_deletion: %{limit: 1_000_000, scale_ms: 60_000, key: :ip}
 
 # Ops routes require a real admin session in tests. Only local development bypasses auth.
 config :pidro_server, dev_routes: false

@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex, nofollow" />
+    <meta name="color-scheme" content="light" />
+    <title>Pidro data deletion</title>
+    <style>
+      body { margin: 0; background: #f3eee4; color: #1c2a3a; font: 18px/1.6 Nunito, 'Helvetica Neue', Arial, sans-serif; }
+      main { max-width: 560px; margin: 0 auto; padding: 28px 12px 40px; }
+      .logo { display: block; width: 200px; height: auto; margin: 0 auto 18px; }
+      .card { background: #fff; border: 1px solid #e6ddc9; border-radius: 16px; padding: 32px 28px; }
+      h1 { margin: 0 0 8px; font-size: 26px; line-height: 1.25; }
+      p { margin: 0 0 20px; }
+      .sv { margin-top: 4px; padding-top: 20px; border-top: 1px solid #efe7d6; }
+      code { font-size: 16px; }
+      footer { padding: 26px 16px 0; text-align: center; color: #7a5a36; font-size: 14px; }
+      footer a { color: #7a5a36; }
+      @media (max-width: 480px) { .card { padding: 26px 20px; } h1 { font-size: 23px; } }
+    </style>
+  </head>
+  <body>
+    <main data-state={if @deletion, do: "processed", else: "unknown"}>
+      <img class="logo" src={~p"/images/logo-email.png"} width="200" height="124" alt="Pidro" />
+      <div class="card">
+        <%= if @deletion do %>
+          <h1>Your data-deletion request is done</h1>
+          <p>
+            We received your request on {Date.to_iso8601(@deletion.inserted_at)} and processed it.
+            Any Pidro account linked to this Facebook login is deleted.
+          </p>
+          <p>Confirmation code: <code>{@deletion.code}</code></p>
+          <div class="sv" lang="sv">
+            <h1>Din begäran om radering är klar</h1>
+            <p>
+              Vi tog emot din begäran den {Date.to_iso8601(@deletion.inserted_at)} och har behandlat den.
+              Om ett Pidro-konto var kopplat till den här Facebook-inloggningen är det raderat.
+            </p>
+            <p>Bekräftelsekod: <code>{@deletion.code}</code></p>
+          </div>
+        <% else %>
+          <h1>We don't know this confirmation code</h1>
+          <p>Check the code Facebook showed you, or write to {@support_email}.</p>
+          <div class="sv" lang="sv">
+            <h1>Vi känner inte igen den här bekräftelsekoden</h1>
+            <p>Kontrollera koden som Facebook visade dig, eller skriv till {@support_email}.</p>
+          </div>
+        <% end %>
+      </div>
+      <footer>
+        Pidro, the card game from Ostrobothnia<br /> Questions? Write to
+        <a href={"mailto:#{@support_email}"}>{@support_email}</a>
+      </footer>
+    </main>
+  </body>
+</html>

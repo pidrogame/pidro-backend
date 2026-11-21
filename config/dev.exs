@@ -149,7 +149,11 @@ config :pidro_server, PidroServerWeb.Plugs.RateLimit,
   avatar_read: %{limit: 3_000, scale_ms: 60_000, key: :ip},
   push_token: %{limit: 300, scale_ms: 3_600_000, key: :user},
   unsubscribe: %{limit: 600, scale_ms: 60_000, key: :ip},
-  unsubscribe_post: %{limit: 3_000, scale_ms: 60_000, key: :ip}
+  unsubscribe_post: %{limit: 3_000, scale_ms: 60_000, key: :ip},
+  meta_data_deletion: %{limit: 600, scale_ms: 60_000, key: :ip}
+
+config :pidro_server, PidroServer.Accounts.FacebookDataDeletion,
+  classic_url: "http://localhost:4001/v2/meta/data_deletion"
 
 config :pidro_server, :password_reset,
   debug_tokens: true,

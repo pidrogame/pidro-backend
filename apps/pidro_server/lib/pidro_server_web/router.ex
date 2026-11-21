@@ -36,6 +36,14 @@ defmodule PidroServerWeb.Router do
     plug PidroServerWeb.Plugs.RateLimit
   end
 
+  # Meta's data-deletion callback and its status page (PID-162). No session and
+  # no CSRF check: Meta's server posts the signed_request, the only credential.
+  pipeline :meta_callback do
+    plug :put_format, "html"
+    plug :put_secure_browser_headers
+    plug PidroServerWeb.Plugs.RateLimit
+  end
+
   pipeline :dev_layout do
     plug :put_root_layout, html: {PidroServerWeb.Layouts, :dev_root}
   end
@@ -122,6 +130,16 @@ defmodule PidroServerWeb.Router do
 
     post "/unsubscribe/:token", UnsubscribeController, :update,
       private: %{rate_limit: [:unsubscribe_post]}
+  end
+
+  scope "/meta", PidroServerWeb do
+    pipe_through :meta_callback
+
+    post "/data-deletion", MetaDataDeletionController, :create,
+      private: %{rate_limit: [:meta_data_deletion]}
+
+    get "/data-deletion/:code", MetaDataDeletionController, :show,
+      private: %{rate_limit: [:meta_data_deletion]}
   end
 
   scope "/webhooks", PidroServerWeb do

@@ -62,6 +62,29 @@ defmodule PidroServer.Accounts.ProviderIdentity do
 
   def facebook_limited(_authentication_token, _nonce), do: {:error, :invalid_credentials}
 
+  # Meta's data-deletion callback (PID-162) sends `<signature>.<payload>`, both
+  # base64url; the signature is the HMAC-SHA256 of the encoded payload with the
+  # app secret. Answers the app-scoped Facebook user id, our identity's subject.
+  def facebook_signed_request(signed_request) when is_binary(signed_request) do
+    secret =
+      :pidro_server |> Application.fetch_env!(__MODULE__) |> Keyword.fetch!(:facebook_app_secret)
+
+    with true <- secret != "",
+         [encoded_signature, encoded_payload] <- String.split(signed_request, "."),
+         {:ok, signature} <- Base.url_decode64(encoded_signature, padding: false),
+         expected = :crypto.mac(:hmac, :sha256, secret, encoded_payload),
+         true <- Plug.Crypto.secure_compare(signature, expected),
+         {:ok, payload_json} <- Base.url_decode64(encoded_payload, padding: false),
+         {:ok, %{"algorithm" => "HMAC-SHA256", "user_id" => user_id}}
+         when is_binary(user_id) and user_id != "" <- Jason.decode(payload_json) do
+      {:ok, user_id}
+    else
+      _invalid -> {:error, :invalid_credentials}
+    end
+  end
+
+  def facebook_signed_request(_signed_request), do: {:error, :invalid_credentials}
+
   def facebook_business_ids(access_token) when is_binary(access_token) do
     facebook_business_ids_page(access_token, nil, %{}, [])
   end
