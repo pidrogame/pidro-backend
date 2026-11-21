@@ -85,7 +85,8 @@ the next automatic main deploy applies changes to those URLs:
 | iOS | `MINIMUM_NATIVE_IOS` | `NATIVE_STORE_URL_IOS` — `https://testflight.apple.com/join/2JR95b65` |
 
 An empty URL also disables the notice; an unset URL uses the beta default above.
-At public launch, replace the beta/TestFlight URLs with the public store listings.
+On switch day, [deploy/switch-day.md](deploy/switch-day.md) replaces them with the
+public listings and moves the invite pages and Store builds to the production app.
 
 These same URLs drive invite/play page downloads and email `app_store_url` /
 `play_store_url` placeholders (including studio previews). Missing URLs hide page

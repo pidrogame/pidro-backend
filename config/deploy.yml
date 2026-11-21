@@ -53,7 +53,7 @@ env:
     NATIVE_STORE_URL_ANDROID: "https://play.google.com/store/apps/details?id=com.oneapps.pidro.beta"
     MINIMUM_NATIVE_IOS: ""
     NATIVE_STORE_URL_IOS: "https://testflight.apple.com/join/2JR95b65"
-    # Public launch: replace the beta/TestFlight URLs with the public store listings.
+    # Switch day (Dec 1): docs/deploy/switch-day.md replaces these URLs and adds the app ids.
     # Phase 4 privacy disclosure is live and verified on the canonical site.
     DEFERRED_INVITES_ENABLED: "true"
     # Watching tables (PID-389): "true" lists playing tables to watch and lets anyone watch.
