@@ -53,7 +53,12 @@ defmodule PidroServerWeb.Dev.PremiumLive do
   end
 
   defp load_counts(socket),
-    do: assign(socket, summary: Entitlements.summary(), classic: Profiles.classic_subscribers())
+    do:
+      assign(socket,
+        summary: Entitlements.summary(),
+        classic: Profiles.classic_subscribers(),
+        reinstated: ClassicPremium.reinstated_count()
+      )
 
   defp load_rows(socket, active_only),
     do:
@@ -82,6 +87,13 @@ defmodule PidroServerWeb.Dev.PremiumLive do
           label="Of those, not Premium here yet"
           value={length(@classic.not_premium)}
           icon="hero-user-minus"
+        />
+        <.stat_card
+          label="Reinstated after store Premium lapsed"
+          value={@reinstated}
+          hint="Classic still ran: grep classic_premium.reinstated"
+          icon="hero-arrow-path"
+          tone="red"
         />
       </dl>
 

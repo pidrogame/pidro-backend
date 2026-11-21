@@ -375,6 +375,7 @@ defmodule PidroServerWeb.Dev.AdminComponents do
         case @carryover.state do
           "granted" -> "bg-emerald-50 text-emerald-700"
           "imported" -> "bg-emerald-50 text-emerald-700"
+          "reinstated" -> "bg-emerald-50 text-emerald-700"
           "pending" -> "bg-amber-50 text-amber-800"
           _ended_or_none -> "bg-stone-100 text-stone-600"
         end

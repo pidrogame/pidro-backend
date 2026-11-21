@@ -20,6 +20,9 @@ defmodule PidroServerWeb.Dev.PremiumLiveTest do
       assert has_element?(view, "a[href='/admin/premium'][aria-current='page']", "Premium")
       assert view |> element("#premium-rows") |> render() =~ "Nobody is Premium yet."
 
+      assert view |> element("#premium-summary") |> render() =~
+               ~r/Reinstated after store Premium lapsed\s*<\/dt>\s*<dd[^>]*>0<\/dd>/
+
       assert view |> element("#classic-waiting") |> render() =~
                "No Classic subscriber has claimed yet."
 
@@ -31,6 +34,8 @@ defmodule PidroServerWeb.Dev.PremiumLiveTest do
       conn: conn
     } do
       %{soon: soon, promo: promo, lapsed: lapsed, lifetime: lifetime, waiting: waiting} = seed()
+      carryover(promo, 5003, state: "reinstated")
+      carryover(lifetime, 5001, state: "imported")
 
       {:ok, view, _html} = live(conn, ~p"/admin/premium")
 
@@ -40,7 +45,8 @@ defmodule PidroServerWeb.Dev.PremiumLiveTest do
             {"Premium now", 3},
             {"Ending within 7 days", 1},
             {"Classic subscribers claimed", 2},
-            {"Of those, not Premium here yet", 1}
+            {"Of those, not Premium here yet", 1},
+            {"Reinstated after store Premium lapsed", 1}
           ] do
         assert summary =~ ~r/#{label}\s*<\/dt>\s*<dd[^>]*>#{value}<\/dd>/
       end

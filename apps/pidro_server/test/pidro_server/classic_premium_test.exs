@@ -81,6 +81,23 @@ defmodule PidroServer.ClassicPremiumTest do
       assert %{state: "granted", classic_premium_until: ^until} = row
     end
 
+    test "the cap is `max_grant_months` in config: 12 cuts a grant a month shorter" do
+      config = Application.fetch_env!(:pidro_server, ClassicPremium)
+      on_exit(fn -> Application.put_env(:pidro_server, ClassicPremium, config) end)
+      Application.put_env(:pidro_server, ClassicPremium, max_grant_months: 12)
+
+      user = classic_user()
+      stub_classic(DateTime.to_iso8601(days_from_now(3 * 365)))
+      fake_revenuecat()
+
+      before = DateTime.utc_now() |> DateTime.shift(month: 12) |> DateTime.truncate(:second)
+      assert {:ok, %{state: "granted"}} = ClassicPremium.carry_over(user)
+      later = DateTime.utc_now() |> DateTime.shift(month: 12)
+
+      assert_received {:revenuecat_grant, _path, end_ms}
+      assert end_ms >= ms(before) and end_ms <= ms(later)
+    end
+
     test "an ended Classic Premium is `ended` with its date, none at all is `none`" do
       ended = classic_user()
       until = days_from_now(-10)
@@ -395,6 +412,234 @@ defmodule PidroServer.ClassicPremiumTest do
 
       stale_path = "/v1/subscribers/#{stale.id}"
       assert_received {:revenuecat_read, ^stale_path}
+    end
+  end
+
+  describe "Retry.run_once/0 on an imported carry-over (PID-496)" do
+    # Imported at claim long ago (past the 30 days a `pending` row is retried),
+    # last tried yesterday.
+    defp imported(user) do
+      Repo.insert!(%Carryover{
+        user_id: user.id,
+        classic_user_id: user.classic_user_id,
+        state: "imported",
+        inserted_at: days_from_now(-40),
+        updated_at: days_from_now(-40),
+        last_tried_at: days_from_now(-1)
+      })
+    end
+
+    # RevenueCat answers that the player's `premium` runs until `expires` from
+    # `store`, and reports any grant.
+    defp revenuecat_says(store, expires) do
+      test = self()
+      iso = DateTime.to_iso8601(expires)
+
+      Req.Test.stub(PidroServer.RevenueCat, fn conn ->
+        case conn.method do
+          "POST" ->
+            send(test, {:revenuecat_grant, conn.request_path, nil})
+            conn |> Plug.Conn.put_status(201) |> Req.Test.json(%{})
+
+          "GET" ->
+            Req.Test.json(conn, %{
+              "subscriber" => %{
+                "entitlements" => %{
+                  "premium" => %{"expires_date" => iso, "product_identifier" => "premium_yearly"}
+                },
+                "subscriptions" => %{
+                  "premium_yearly" => %{"expires_date" => iso, "store" => store}
+                }
+              }
+            })
+        end
+      end)
+    end
+
+    # The next day's run: the 20 hours since the last try have passed.
+    defp a_day_later(user) do
+      ClassicPremium.get(user.id)
+      |> Ecto.Changeset.change(last_tried_at: days_from_now(-1))
+      |> Repo.update!()
+    end
+
+    test "store Premium gone while Classic runs: granted until Classic's date, logged, once" do
+      # A renewal missed in the move, a transfer pulled it back, no row at all.
+      expired = classic_user()
+      expired_at = days_from_now(-3)
+      premium(expired, expires_at: expired_at)
+      transferred = classic_user()
+      premium(transferred, active: false, expires_at: days_from_now(200))
+      never_synced = classic_user()
+      for user <- [expired, transferred, never_synced], do: imported(user)
+
+      until = days_from_now(150)
+      stub_classic(DateTime.to_iso8601(until))
+      fake_revenuecat()
+
+      {result, log} = with_log(fn -> Retry.run_once() end)
+      assert result == {:ok, %{carried: 3, synced: 0}}
+
+      until_ms = ms(until)
+
+      for user <- [expired, transferred, never_synced] do
+        path = "/v1/subscribers/#{user.id}/entitlements/premium/promotional"
+        assert_received {:revenuecat_grant, ^path, ^until_ms}
+
+        assert %{state: "reinstated", classic_premium_until: ^until, attempts: 0} =
+                 ClassicPremium.get(user.id)
+
+        assert Entitlements.premium?(user)
+
+        assert %Entitlement{source: "classic_honored", expires_at: ^until} =
+                 Entitlements.get(user.id)
+
+        assert log =~
+                 "classic_premium.reinstated user_id=#{user.id} classic_premium_until=#{DateTime.to_iso8601(until)}"
+      end
+
+      assert log =~
+               "user_id=#{expired.id} classic_premium_until=#{DateTime.to_iso8601(until)} " <>
+                 "why=\"store premium expired #{DateTime.to_iso8601(expired_at)}\""
+
+      assert log =~
+               "user_id=#{transferred.id} classic_premium_until=#{DateTime.to_iso8601(until)} " <>
+                 "why=\"store premium inactive in RevenueCat\""
+
+      assert log =~
+               "user_id=#{never_synced.id} classic_premium_until=#{DateTime.to_iso8601(until)} " <>
+                 "why=\"no premium entitlement\""
+
+      # Rerun right away (a redeploy): nobody is due.
+      assert Retry.run_once() == {:ok, %{carried: 0, synced: 0}}
+
+      # The next day: visited like `granted`, but Classic's date did not move.
+      for user <- [expired, transferred, never_synced], do: a_day_later(user)
+      {result, log} = with_log(fn -> Retry.run_once() end)
+      assert result == {:ok, %{carried: 3, synced: 0}}
+      refute_received {:revenuecat_grant, _, _}
+      refute log =~ "classic_premium.reinstated"
+      assert %{state: "reinstated"} = ClassicPremium.get(expired.id)
+
+      # Classic's answer still reads as carried.
+      assert ClassicPremium.answer(ClassicPremium.get(expired.id)) ==
+               %{state: "carried", until: until}
+    end
+
+    test "a store subscription still running, or a player who never paid Classic, is left alone" do
+      user = classic_user()
+      premium(user, expires_at: days_from_now(200), last_synced_at: days_from_now(-1))
+      row = imported(user)
+      # Store Premium bought here and cancelled; Classic was never paid.
+      never_paid = classic_user(false)
+      premium(never_paid, expires_at: days_from_now(-3), last_synced_at: days_from_now(-1))
+      never_paid_row = imported(never_paid)
+      stub_classic(DateTime.to_iso8601(days_from_now(150)))
+      fake_revenuecat()
+
+      assert Retry.run_once() == {:ok, %{carried: 0, synced: 0}}
+      refute_received {:classic_lookup, _}
+      refute_received {:revenuecat_grant, _, _}
+      assert ClassicPremium.get(user.id) == row
+      assert ClassicPremium.get(never_paid.id) == never_paid_row
+    end
+
+    test "a store renewal the mirror missed: RevenueCat says it runs, so no grant, no log" do
+      user = classic_user()
+      premium(user, store: "app_store", expires_at: days_from_now(-3))
+      imported(user)
+      stub_classic(DateTime.to_iso8601(days_from_now(150)))
+      renewed = days_from_now(27)
+      revenuecat_says("app_store", renewed)
+
+      {result, log} = with_log(fn -> Retry.run_once() end)
+      assert result == {:ok, %{carried: 1, synced: 0}}
+      refute_received {:classic_lookup, _}
+      refute_received {:revenuecat_grant, _, _}
+      refute log =~ "classic_premium.reinstated"
+      assert %{state: "imported", attempts: 0} = ClassicPremium.get(user.id)
+
+      assert %Entitlement{source: "store", active: true, expires_at: ^renewed} =
+               Entitlements.get(user.id)
+    end
+
+    test "Try again on an imported player with another grant running: no grant" do
+      user = classic_user()
+      imported(user)
+      stub_classic(DateTime.to_iso8601(days_from_now(150)))
+      revenuecat_says("promotional", days_from_now(40))
+
+      assert {:ok, %{state: "imported"}} = ClassicPremium.carry_over(user)
+      assert_received {:classic_lookup, _}
+      refute_received {:revenuecat_grant, _, _}
+      assert %Entitlement{source: "promotional", active: true} = Entitlements.get(user.id)
+    end
+
+    test "Classic's Premium ended or never ran: no grant, still imported" do
+      for classic_until <- [days_from_now(-5), nil] do
+        user = classic_user()
+        premium(user, expires_at: days_from_now(-3))
+        imported(user)
+        stub_classic(classic_until && DateTime.to_iso8601(classic_until))
+        fake_revenuecat()
+
+        {result, log} = with_log(fn -> Retry.run_once() end)
+        assert result == {:ok, %{carried: 1, synced: 0}}
+        id = Integer.to_string(user.classic_user_id)
+        assert_received {:classic_lookup, %{"id" => ^id}}
+        refute_received {:revenuecat_grant, _, _}
+        refute log =~ "classic_premium.reinstated"
+
+        assert %{state: "imported", classic_premium_until: ^classic_until, attempts: 0} =
+                 ClassicPremium.get(user.id)
+
+        refute Entitlements.premium?(user)
+      end
+    end
+
+    test "Classic's date passed over 30 days ago: no longer visited; within 30 days it is" do
+      for {ended_days_ago, visited?} <- [{31, false}, {29, true}] do
+        user = classic_user()
+        premium(user, expires_at: days_from_now(-3))
+
+        imported(user)
+        |> Ecto.Changeset.change(classic_premium_until: days_from_now(-ended_days_ago))
+        |> Repo.update!()
+
+        stub_classic(DateTime.to_iso8601(days_from_now(-ended_days_ago)))
+        fake_revenuecat()
+
+        {result, _log} = with_log(fn -> Retry.run_once() end)
+        assert result == {:ok, %{carried: if(visited?, do: 1, else: 0), synced: 0}}
+        refute_received {:revenuecat_grant, _, _}
+      end
+    end
+
+    test "Classic unreachable: still imported, the attempt counted, granted on the next run" do
+      user = classic_user()
+      premium(user, expires_at: days_from_now(-3))
+      imported(user)
+      stub_classic({:status, 503})
+      fake_revenuecat()
+
+      {result, _log} = with_log(fn -> Retry.run_once() end)
+      assert result == {:ok, %{carried: 1, synced: 0}}
+      refute_received {:revenuecat_grant, _, _}
+
+      assert %{state: "imported", attempts: 1, last_error: error} = ClassicPremium.get(user.id)
+      assert error =~ "provider_unavailable"
+      refute Entitlements.premium?(user)
+
+      a_day_later(user)
+      until = days_from_now(150)
+      stub_classic(DateTime.to_iso8601(until))
+
+      {result, log} = with_log(fn -> Retry.run_once() end)
+      assert result == {:ok, %{carried: 1, synced: 0}}
+      assert_received {:revenuecat_grant, _, _}
+      assert log =~ "classic_premium.reinstated user_id=#{user.id}"
+      assert %{state: "reinstated", attempts: 0, last_error: nil} = ClassicPremium.get(user.id)
+      assert Entitlements.premium?(user)
     end
   end
 end

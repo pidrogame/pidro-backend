@@ -3,10 +3,13 @@ defmodule PidroServer.ClassicPremium.Retry do
   Keeps Classic Premium carried over (PID-391), once every `interval_ms`.
 
   Each run visits at most 200 players, one at a time: up to 150 carry-overs,
-  `pending` ones younger than 30 days and every `granted` one, not tried in
-  the last 20 hours, longest untried first, get
+  `pending` ones younger than 30 days, every `granted` and `reinstated` one,
+  and every `imported` Classic subscriber with no active Premium now whose
+  Classic date is unknown or passed less than 30 days ago (PID-496), not
+  tried in the last 20 hours, longest untried first, get
   `PidroServer.ClassicPremium.carry_over/1` again (which extends a grant
-  when Classic's date moved); then the rest go to active `premium`
+  when Classic's date moved, and grants an `imported` player while Classic
+  still runs); then the rest go to active `premium`
   entitlements not synced for 7 days, synced from RevenueCat. The first run
   is two minutes after boot, since every deploy restarts the node. Without
   RevenueCat configured a run does nothing.
@@ -31,6 +34,7 @@ defmodule PidroServer.ClassicPremium.Retry do
   alias PidroServer.ClassicPremium
   alias PidroServer.ClassicPremium.Carryover
   alias PidroServer.Entitlements
+  alias PidroServer.Profiles
   alias PidroServer.Repo
   alias PidroServer.RevenueCat
 
@@ -39,6 +43,8 @@ defmodule PidroServer.ClassicPremium.Retry do
   @first_run_ms 120_000
   @tried_within_hours 20
   @pending_days 30
+  # A Classic renewal moves its date within days; past this it ended.
+  @ended_days 30
   @stale_days 7
   @defaults [enabled: true, interval_ms: 86_400_000]
 
@@ -100,11 +106,18 @@ defmodule PidroServer.ClassicPremium.Retry do
   defp due_carryovers do
     young = DateTime.add(DateTime.utc_now(), -@pending_days, :day)
     tried = DateTime.add(DateTime.utc_now(), -@tried_within_hours, :hour)
+    ended = DateTime.add(DateTime.utc_now(), -@ended_days, :day)
+    subscribers = from p in Profiles.classic_subscriber_profiles(), select: p.user_id
 
     Repo.all(
       from c in Carryover,
+        left_join: e in subquery(Entitlements.premium_now()),
+        on: e.user_id == c.user_id,
         where:
-          ((c.state == "pending" and c.inserted_at > ^young) or c.state == "granted") and
+          ((c.state == "pending" and c.inserted_at > ^young) or
+             c.state in ~w(granted reinstated) or
+             (c.state == "imported" and is_nil(e.id) and c.user_id in subquery(subscribers) and
+                (is_nil(c.classic_premium_until) or c.classic_premium_until > ^ended))) and
             (is_nil(c.last_tried_at) or c.last_tried_at < ^tried),
         order_by: [asc_nulls_first: c.last_tried_at],
         limit: @carryover_limit

@@ -14,7 +14,7 @@ defmodule PidroServer.ClassicPremium.Carryover do
   schema "classic_premium_carryovers" do
     field :user_id, :binary_id
     field :classic_user_id, :integer
-    # pending | granted | imported | ended | none
+    # pending | granted | imported | reinstated | ended | none
     field :state, :string
     # Classic's own date, never capped.
     field :classic_premium_until, :utc_datetime

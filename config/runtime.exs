@@ -652,6 +652,18 @@ if config_env() != :test do
     access_token: if(expo_access_token in [nil, ""], do: nil, else: expo_access_token)
 end
 
+# Classic Premium grant cap (PID-496): CLASSIC_PREMIUM_MAX_GRANT_MONTHS replaces
+# the default of 13 months only when set.
+case System.get_env("CLASSIC_PREMIUM_MAX_GRANT_MONTHS") do
+  value when value in [nil, ""] ->
+    :ok
+
+  value ->
+    months = value |> String.trim() |> String.to_integer()
+    months in 1..13 || raise "CLASSIC_PREMIUM_MAX_GRANT_MONTHS must be 1 to 13, got #{value}"
+    config :pidro_server, PidroServer.ClassicPremium, max_grant_months: months
+end
+
 # Premium from RevenueCat (PID-125). Without both secrets nobody is Premium,
 # the webhook and the refresh call answer 503 and the admin grant is off; the
 # test suite configures its own stub in test.exs.

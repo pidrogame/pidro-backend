@@ -8,7 +8,9 @@ defmodule PidroServer.ClassicPremium do
   `PidroServer.Entitlements` (`classic_honored`). The outcome is one
   `classic_premium_carryovers` row per player: `pending` until Classic and
   RevenueCat both answered, then `granted`, `imported` (already Premium from
-  a store), `ended` or `none`. Nothing here writes `entitlements` itself.
+  a store), `ended` or `none`. An `imported` player whose store Premium later
+  lapses while Classic still runs is granted like a `pending` one and becomes
+  `reinstated` (PID-496). Nothing here writes `entitlements` itself.
   """
 
   import Ecto.Query, only: [from: 2]
@@ -23,9 +25,6 @@ defmodule PidroServer.ClassicPremium do
   alias PidroServer.Repo
   alias PidroServer.RevenueCat
 
-  # The longest grant. RevenueCat once said a promotional grant lasts at most
-  # a year: try 13 months once against its sandbox before launch.
-  @max_grant_months 13
   # A grant the cap cut short is extended once it ends within this many days.
   @extend_within_days 30
   # A claim tells the player their Classic Premium ended only this recently.
@@ -67,7 +66,7 @@ defmodule PidroServer.ClassicPremium do
   """
   @spec answer(Carryover.t() | nil) :: %{state: String.t(), until: DateTime.t() | nil} | nil
   def answer(%Carryover{state: state, classic_premium_until: until})
-      when state in ~w(granted imported),
+      when state in ~w(granted imported reinstated),
       do: %{state: "carried", until: until}
 
   def answer(%Carryover{state: "ended", classic_premium_until: until}) do
@@ -83,6 +82,11 @@ defmodule PidroServer.ClassicPremium do
   end
 
   def answer(_nothing), do: nil
+
+  @doc "How many carry-overs were `reinstated` after their store Premium lapsed."
+  @spec reinstated_count() :: non_neg_integer()
+  def reinstated_count,
+    do: Repo.aggregate(from(c in Carryover, where: c.state == "reinstated"), :count)
 
   @doc """
   Queues every claimed Classic subscriber (`legacy_premium`) who has no
@@ -128,8 +132,10 @@ defmodule PidroServer.ClassicPremium do
   end
 
   defp attempt(row) do
-    case carry(row, Entitlements.get(row.user_id)) do
-      {:ok, row} -> row
+    with {:ok, premium} <- premium(row),
+         {:ok, carried} <- carry(row, premium) do
+      reinstated(row, carried, premium)
+    else
       {:error, reason} -> fail(row, inspect(reason))
     end
   rescue
@@ -137,6 +143,13 @@ defmodule PidroServer.ClassicPremium do
   catch
     kind, reason -> fail(row, inspect({kind, reason}))
   end
+
+  # An imported player's store Premium is read from RevenueCat: a missed
+  # renewal webhook can leave the mirror looking expired (PID-496).
+  defp premium(%Carryover{state: "imported", user_id: user_id}),
+    do: Entitlements.sync_from_revenuecat(user_id)
+
+  defp premium(row), do: {:ok, Entitlements.get(row.user_id)}
 
   defp carry(row, %Entitlement{source: "store"} = premium) do
     if running_until(premium),
@@ -157,6 +170,14 @@ defmodule PidroServer.ClassicPremium do
          do: {:error, {:classic, reason}}
   end
 
+  # An imported player is granted only while nothing runs here and Classic
+  # does; otherwise the row stays `imported`, with Classic's date (PID-496).
+  defp honor(%Carryover{state: "imported"} = row, classic, until, premium) do
+    if until && DateTime.after?(until, DateTime.utc_now()) && running_until(premium) == nil,
+      do: grant(row, classic, until),
+      else: save(row, classic_premium_until: until)
+  end
+
   defp honor(row, _classic, nil, _premium), do: save(row, state: "none")
 
   defp honor(row, classic, until, premium) do
@@ -168,7 +189,7 @@ defmodule PidroServer.ClassicPremium do
         grant(row, classic, until)
 
       true ->
-        save(row, state: "granted", classic_premium_until: until)
+        save(row, state: granted(row), classic_premium_until: until)
     end
   end
 
@@ -201,14 +222,46 @@ defmodule PidroServer.ClassicPremium do
   # `premium_store`: it imports that subscription into RevenueCat first.
   defp grant(row, _classic, until) do
     cap =
-      DateTime.utc_now() |> DateTime.shift(month: @max_grant_months) |> DateTime.truncate(:second)
+      DateTime.utc_now()
+      |> DateTime.shift(month: max_grant_months())
+      |> DateTime.truncate(:second)
 
     ends_at = Enum.min([until, cap], DateTime)
 
     with {:ok, _premium} <-
            Entitlements.grant_promotional(row.user_id, ends_at, "classic_honored") do
-      save(row, state: "granted", classic_premium_until: until)
+      save(row, state: granted(row), classic_premium_until: until)
     end
+  end
+
+  defp granted(%Carryover{state: state}) when state in ~w(imported reinstated), do: "reinstated"
+  defp granted(_row), do: "granted"
+
+  # The longest grant, `max_grant_months` in config (13 by default). RevenueCat
+  # once said a promotional grant lasts at most a year: try 13 months once
+  # against its sandbox before launch, else set it to 12.
+  defp max_grant_months,
+    do: Application.fetch_env!(:pidro_server, __MODULE__)[:max_grant_months]
+
+  # The signal that the switch to the new app went wrong for this player.
+  defp reinstated(%Carryover{state: "imported"}, %Carryover{state: "reinstated"} = row, premium) do
+    Logger.warning(
+      "classic_premium.reinstated user_id=#{row.user_id} " <>
+        "classic_premium_until=#{DateTime.to_iso8601(row.classic_premium_until)} " <>
+        "why=#{inspect(lapsed(premium))}"
+    )
+
+    row
+  end
+
+  defp reinstated(_before, row, _premium), do: row
+
+  defp lapsed(nil), do: "no premium entitlement"
+
+  defp lapsed(%Entitlement{source: source, expires_at: ends_at}) do
+    if ends_at && DateTime.before?(ends_at, DateTime.utc_now()),
+      do: "#{source} premium expired #{DateTime.to_iso8601(ends_at)}",
+      else: "#{source} premium inactive in RevenueCat"
   end
 
   defp running_until(%Entitlement{active: true, expires_at: nil}), do: :never
@@ -247,14 +300,15 @@ defmodule PidroServer.ClassicPremium do
     |> Repo.update()
   end
 
-  # A granted player stays granted while Classic or RevenueCat is down: the
-  # retry job keeps visiting them. Everything else waits as `pending`.
+  # A granted, reinstated or imported player keeps their state while Classic
+  # or RevenueCat is down: the retry job keeps visiting them. Everything else
+  # waits as `pending`.
   defp fail(row, reason) do
     Logger.error("Classic Premium carry-over for user #{row.user_id} failed: #{reason}")
 
     row
     |> Ecto.Changeset.change(
-      state: if(row.state == "granted", do: "granted", else: "pending"),
+      state: if(row.state in ~w(granted reinstated imported), do: row.state, else: "pending"),
       attempts: row.attempts + 1,
       last_error: String.slice(reason, 0, 255),
       last_tried_at: now()

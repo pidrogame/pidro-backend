@@ -141,11 +141,12 @@ defmodule PidroServer.ClassicPremiumFixtures do
   end
 
   @doc """
-  A RevenueCat that remembers the latest promotional grant and reports it on
-  the next subscriber read, or answers `{:status, code}` to a grant.
+  A RevenueCat that remembers each subscriber's latest promotional grant and
+  reports it on their next read, or answers `{:status, code}` to a grant.
   """
   def fake_revenuecat(grant_answer \\ :ok, test \\ self()) do
-    {:ok, granted} = Agent.start_link(fn -> nil end)
+    {:ok, granted} = Agent.start_link(fn -> %{} end)
+    subscriber_id = fn conn -> Enum.at(conn.path_info, 2) end
 
     Req.Test.stub(RevenueCat, fn conn ->
       {:ok, body, conn} = Plug.Conn.read_body(conn)
@@ -156,13 +157,13 @@ defmodule PidroServer.ClassicPremiumFixtures do
 
         {"POST", :ok} ->
           end_time_ms = Jason.decode!(body)["end_time_ms"]
-          Agent.update(granted, fn _ -> end_time_ms end)
+          Agent.update(granted, &Map.put(&1, subscriber_id.(conn), end_time_ms))
           send(test, {:revenuecat_grant, conn.request_path, end_time_ms})
           conn |> Plug.Conn.put_status(201) |> Req.Test.json(%{})
 
         {"GET", _} ->
           send(test, {:revenuecat_read, conn.request_path})
-          Req.Test.json(conn, subscriber(Agent.get(granted, & &1)))
+          Req.Test.json(conn, subscriber(Agent.get(granted, & &1[subscriber_id.(conn)])))
       end
     end)
   end

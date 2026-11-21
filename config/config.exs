@@ -317,9 +317,14 @@ config :pidro_server, PidroServer.Accounts.GuestReaper,
   interval_ms: 3_600_000,
   max_idle_days: 30
 
+# Classic Premium carry-over (PidroServer.ClassicPremium): the longest
+# promotional grant, in months. config/runtime.exs takes
+# CLASSIC_PREMIUM_MAX_GRANT_MONTHS when set (12 if RevenueCat refuses 13).
+config :pidro_server, PidroServer.ClassicPremium, max_grant_months: 13
+
 # Classic Premium retry (PidroServer.ClassicPremium.Retry): once a day it tries
-# pending and granted carry-overs again and syncs stale Premium rows from
-# RevenueCat. config/test.exs disables it.
+# pending, granted and lapsed imported carry-overs again and syncs stale
+# Premium rows from RevenueCat. config/test.exs disables it.
 config :pidro_server, PidroServer.ClassicPremium.Retry,
   enabled: true,
   interval_ms: 86_400_000
