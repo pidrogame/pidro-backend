@@ -178,6 +178,32 @@ defmodule PidroServerWeb.LobbyChannelTest do
     assert empty == %{} and none == %{}
   end
 
+  test "join tells guests and registered players which version is required, beside the nudge",
+       %{socket: registered} do
+    {:ok, guest} = create_socket(PidroServer.AccountsFixtures.guest_fixture())
+    off = %{"ios" => nil, "android" => nil}
+
+    for socket <- [guest, registered] do
+      assert {:ok, %{update_required: ^off}, _} =
+               subscribe_and_join(socket, LobbyChannel, "lobby", %{})
+    end
+
+    {:ok, _} =
+      PidroServer.Settings.put_update_required(%{"ios_version" => "3.4.0", "ios_build" => "57"})
+
+    required = %{"ios" => %{"version" => "3.4.0", "build" => "57"}, "android" => nil}
+
+    for socket <- [guest, registered] do
+      assert {:ok, %{update_required: ^required} = reply, _} =
+               subscribe_and_join(socket, LobbyChannel, "lobby", %{})
+
+      # The nudge is separate: still the news policy, untouched by the requirement.
+      policy = PidroServer.News.native_update_policy()
+      assert Map.take(reply, Map.keys(policy)) == policy
+      refute Map.has_key?(policy.minimum_native_builds, "ios")
+    end
+  end
+
   test "a request reaches only its receiver's lobby, and its acceptance only the sender's",
        %{user: user} do
     friend = PidroServer.AccountsFixtures.user_fixture(%{display_name: "Nora"})

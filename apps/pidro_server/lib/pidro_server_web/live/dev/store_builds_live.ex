@@ -2,7 +2,7 @@ defmodule PidroServerWeb.Dev.StoreBuildsLive do
   @moduledoc "Where beta builds reach players, and the next release step."
   use PidroServerWeb, :live_view
   import PidroServerWeb.Dev.AdminComponents
-  alias PidroServer.{News, StoreBuilds}
+  alias PidroServer.{News, Settings, StoreBuilds}
   alias PidroServer.StoreBuilds.Cache
 
   @impl true
@@ -12,7 +12,11 @@ defmodule PidroServerWeb.Dev.StoreBuildsLive do
       :timer.send_interval(60_000, :tick)
     end
 
-    {:ok, socket |> assign(page_title: "Store builds", stores: Cache.snapshot()) |> load()}
+    {:ok,
+     socket
+     |> assign(page_title: "Store builds", stores: Cache.snapshot())
+     |> load_required(Settings.change_update_required())
+     |> load()}
   end
 
   @impl true
@@ -21,11 +25,39 @@ defmodule PidroServerWeb.Dev.StoreBuildsLive do
     {:noreply, load(socket)}
   end
 
+  def handle_event("validate_required", %{"required" => params}, socket),
+    do:
+      {:noreply,
+       assign(socket,
+         required_form:
+           to_form(Settings.change_update_required(params), as: :required, action: :validate)
+       )}
+
+  def handle_event("save_required", %{"required" => params}, socket) do
+    case Settings.put_update_required(params) do
+      {:ok, _required} ->
+        {:noreply,
+         socket
+         |> load_required(Settings.change_update_required())
+         |> put_flash(:info, "Required versions saved")}
+
+      {:error, changeset} ->
+        {:noreply, assign(socket, required_form: to_form(changeset, as: :required))}
+    end
+  end
+
   @impl true
   def handle_info({:store_builds, stores}, socket),
     do: {:noreply, socket |> assign(stores: stores) |> load()}
 
   def handle_info(:tick, socket), do: {:noreply, load(socket)}
+
+  defp load_required(socket, changeset),
+    do:
+      assign(socket,
+        required: Settings.update_required(),
+        required_form: to_form(changeset, as: :required)
+      )
 
   defp load(socket) do
     policy = News.native_update_policy_with_source()
@@ -105,6 +137,37 @@ defmodule PidroServerWeb.Dev.StoreBuildsLive do
           now={@now}
         />
       </div>
+      <section id="update-required" class="rounded-xl border border-stone-200 bg-white p-5">
+        <div class="flex flex-wrap items-baseline justify-between gap-x-5 gap-y-1">
+          <h2 class="text-sm font-semibold text-stone-950">Required to play</h2>
+          <p id="update-required-now" class="text-xs tabular-nums text-stone-600">
+            Now: {Enum.map_join(~w(ios android), " · ", fn platform ->
+              "#{StoreBuilds.name(platform)} #{required_label(@required[platform])}"
+            end)}
+          </p>
+        </div>
+        <p class="mt-1 text-sm text-stone-600">
+          Older apps stop at an update screen with no way past it. Leave a version blank to turn it off. The update notice is separate.
+        </p>
+        <.form
+          for={@required_form}
+          id="update-required-form"
+          phx-change="validate_required"
+          phx-submit="save_required"
+          class="mt-4"
+        >
+          <div class="grid grid-cols-2 gap-x-6 xl:grid-cols-4">
+            <.input field={@required_form[:ios_version]} label="iPhone version" />
+            <.input field={@required_form[:ios_build]} label="iPhone build (optional)" />
+            <.input field={@required_form[:android_version]} label="Android version" />
+            <.input field={@required_form[:android_build]} label="Android build (optional)" />
+          </div>
+          <p class="text-sm font-medium text-red-700">
+            Everyone below this is locked out until they update.
+          </p>
+          <button type="submit" class={[btn(:dark), "mt-4"]}>Save</button>
+        </.form>
+      </section>
       <details id="track-details" class="border-t border-stone-200 pt-3">
         <summary class="cursor-pointer text-sm font-medium text-stone-600">Track details</summary>
         <div class="mt-3 grid gap-x-6 gap-y-1.5 text-xs text-stone-700 tabular-nums sm:grid-cols-2 xl:grid-cols-4">
@@ -354,6 +417,10 @@ defmodule PidroServerWeb.Dev.StoreBuildsLive do
   defp console("android"),
     do:
       "https://play.google.com/apps/publish/?packageName=com.oneapps.pidro.beta#AppDashboardPlace:p=com.oneapps.pidro.beta"
+
+  defp required_label(nil), do: "off"
+  defp required_label(%{"version" => version, "build" => nil}), do: version
+  defp required_label(%{"version" => version, "build" => build}), do: "#{version} (#{build})"
 
   defp checked(nil, _), do: "not checked yet"
 

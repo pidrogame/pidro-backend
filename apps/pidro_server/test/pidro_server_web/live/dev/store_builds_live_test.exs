@@ -207,6 +207,44 @@ defmodule PidroServerWeb.Dev.StoreBuildsLiveTest do
     assert dot?.(ios_done)
   end
 
+  test "the required version form shows what is required, rejects bad input and saves", %{
+    conn: conn
+  } do
+    {:ok, view, _} = live(conn, ~p"/admin/store-builds")
+    assert has_element?(view, "#update-required-now", "iPhone off · Android off")
+
+    assert has_element?(
+             view,
+             "#update-required",
+             "Everyone below this is locked out until they update."
+           )
+
+    view
+    |> form("#update-required-form", required: %{ios_version: "3.4", android_build: "x"})
+    |> render_change()
+
+    assert has_element?(view, "#update-required-form", "must be a version like 3.4.0")
+    assert has_element?(view, "#update-required-form", "must be a build number like 57")
+
+    view
+    |> form("#update-required-form", required: %{ios_version: "3.4", android_build: ""})
+    |> render_submit()
+
+    assert PidroServer.Settings.update_required() == %{"ios" => nil, "android" => nil}
+    assert has_element?(view, "#update-required-now", "iPhone off · Android off")
+
+    view
+    |> form("#update-required-form", required: %{ios_version: "3.4.0", ios_build: "57"})
+    |> render_submit()
+
+    assert has_element?(view, "#update-required-now", "iPhone 3.4.0 (57) · Android off")
+    assert has_element?(view, "input[name='required[ios_version]'][value='3.4.0']")
+
+    {:ok, reloaded, _} = live(conn, ~p"/admin/store-builds")
+    assert has_element?(reloaded, "#update-required-now", "iPhone 3.4.0 (57) · Android off")
+    assert has_element?(reloaded, "input[name='required[ios_build]'][value='57']")
+  end
+
   test "anonymous visitors cannot read store builds" do
     assert {:error, {:redirect, %{to: "/admin/login"}}} =
              live(build_conn(), ~p"/admin/store-builds")

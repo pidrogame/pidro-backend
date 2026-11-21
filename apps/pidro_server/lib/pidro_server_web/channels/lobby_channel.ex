@@ -101,6 +101,7 @@ defmodule PidroServerWeb.LobbyChannel do
        minimum_native_builds: update_policy.minimum_native_builds,
        native_update_popup: update_policy.native_update_popup,
        native_store_urls: Application.get_env(:pidro_server, :native_store_urls, %{}),
+       update_required: PidroServer.Settings.update_required(),
        online_count: PresenceAggregator.get_count()
      }, socket}
   end

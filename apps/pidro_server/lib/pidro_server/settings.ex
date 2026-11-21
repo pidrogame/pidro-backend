@@ -5,7 +5,8 @@ defmodule PidroServer.Settings do
   read and survives restarts and deploys.
 
   The ad schedule (PID-123) is the first user: `ads/0` reads its five values in
-  one query and `put_ads/1` validates and saves them from the admin form.
+  one query and `put_ads/1` validates and saves them from the admin form. The
+  version each platform must reach to keep playing (PID-500) is the second.
   """
 
   import Ecto.Changeset
@@ -94,6 +95,82 @@ defmodule PidroServer.Settings do
       {:ok, ads}
     end
   end
+
+  @update_required_fields [:ios_version, :ios_build, :android_version, :android_build]
+  @build ~r/\A\d{1,10}\z/
+
+  @doc """
+  The version each platform must reach to keep playing (PID-500), sent in the
+  lobby join reply. A platform is `nil` when off, which is the default, or
+  `%{"version" => "3.4.0", "build" => "57" | nil}`.
+  """
+  @spec update_required() :: %{String.t() => nil | %{String.t() => String.t() | nil}}
+  def update_required do
+    stored = get(:update_required, %{})
+
+    # A hand-put value that is not a version reads as off: locking players out
+    # by mistake is worse than not locking them out.
+    Map.new(~w(ios android), fn platform ->
+      case stored do
+        %{^platform => %{"version" => version} = stored} ->
+          {platform, minimum(version, stored["build"])}
+
+        _ ->
+          {platform, nil}
+      end
+    end)
+  end
+
+  @doc "A changeset of the required minimums over the stored ones, for the admin form."
+  @spec change_update_required(map()) :: Ecto.Changeset.t()
+  def change_update_required(attrs \\ %{}) do
+    %{"ios" => ios, "android" => android} = update_required()
+
+    data = %{
+      ios_version: ios["version"],
+      ios_build: ios["build"],
+      android_version: android["version"],
+      android_build: android["build"]
+    }
+
+    {data, Map.new(@update_required_fields, &{&1, :string})}
+    |> cast(attrs, @update_required_fields)
+    |> validate_change(:ios_version, &validate_version/2)
+    |> validate_change(:android_version, &validate_version/2)
+    |> validate_format(:ios_build, @build, message: "must be a build number like 57")
+    |> validate_format(:android_build, @build, message: "must be a build number like 57")
+  end
+
+  @doc """
+  Validates and saves the required minimums. A blank version turns its
+  platform off, whatever its build says: that is the way back from a mistake.
+  """
+  @spec put_update_required(map()) :: {:ok, map()} | {:error, Ecto.Changeset.t()}
+  def put_update_required(attrs) do
+    with {:ok, fields} <- attrs |> change_update_required() |> apply_action(:update) do
+      put(:update_required, %{
+        "ios" => minimum(fields.ios_version, fields.ios_build),
+        "android" => minimum(fields.android_version, fields.android_build)
+      })
+
+      {:ok, update_required()}
+    end
+  end
+
+  defp minimum(version, build) do
+    if version?(version), do: %{"version" => version, "build" => if(build?(build), do: build)}
+  end
+
+  defp validate_version(field, version) do
+    if version?(version), do: [], else: [{field, "must be a version like 3.4.0"}]
+  end
+
+  defp version?(version) when is_binary(version),
+    do: version =~ ~r/\A\d+\.\d+\.\d+\z/ and match?({:ok, _}, Version.parse(version))
+
+  defp version?(_), do: false
+
+  defp build?(build), do: is_binary(build) and build =~ @build
 
   defp put_all(values) do
     now = DateTime.utc_now()
