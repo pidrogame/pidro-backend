@@ -8,7 +8,11 @@ defmodule PidroServer.StoreBuilds do
   import Ecto.Query
   alias PidroServer.Repo
   alias PidroServer.Stats.SeatEvent
-  alias PidroServer.StoreBuilds.Cache
+  alias PidroServer.StoreBuilds.{Cache, Client}
+
+  # TestFlight beta review and App Store review states.
+  @in_review ~w(WAITING_FOR_BETA_REVIEW IN_BETA_REVIEW WAITING_FOR_REVIEW IN_REVIEW)
+  @not_submitted ~w(READY_FOR_BETA_SUBMISSION PREPARE_FOR_SUBMISSION)
 
   @all_good "Both stores have their newest build out, and older installs are nudged to update."
 
@@ -106,7 +110,7 @@ defmodule PidroServer.StoreBuilds do
         platform == "android" and newest.track == "internal" and
             (data.live == nil or newer_build?(newest, data.live)) ->
           {"#{name(platform)} #{build_label(newest)} never reached players",
-           "Android: #{build_label(newest)} is only in internal testing. Release it to open testing and check that the beta track is completed."}
+           "Android: #{build_label(newest)} is only in internal testing. Release it to #{group(platform)} and check that the #{play_track()} track is completed."}
 
         data.live == nil ->
           {"No #{name(platform)} build is live",
@@ -189,10 +193,10 @@ defmodule PidroServer.StoreBuilds do
 
   defp pending_title(platform, newest) do
     case newest.state do
-      state when state in ["WAITING_FOR_BETA_REVIEW", "IN_BETA_REVIEW"] ->
+      state when state in @in_review ->
         "Waiting on Apple"
 
-      "READY_FOR_BETA_SUBMISSION" ->
+      state when state in @not_submitted ->
         "Submit #{name(platform)} #{build_label(newest)} for review"
 
       state ->
@@ -202,10 +206,11 @@ defmodule PidroServer.StoreBuilds do
 
   # A newer build that cannot reach players until someone acts in the console.
   defp stuck("ios", %{friends: false, team: true}), do: {"Team only", "not in Friends"}
-  defp stuck("android", %{track: "internal"}), do: {"Internal only", "not in open testing"}
+  defp stuck("android", %{track: "internal"}), do: {"Internal only", "not in #{group("android")}"}
 
-  defp stuck(_platform, %{state: state}) when state in ~w(BETA_REJECTED INVALID FAILED EXPIRED),
-    do: {state_label(state), nil}
+  defp stuck(_platform, %{state: state})
+       when state in ~w(BETA_REJECTED INVALID FAILED EXPIRED REJECTED METADATA_REJECTED INVALID_BINARY),
+       do: {state_label(state), nil}
 
   defp stuck(_platform, _build), do: nil
 
@@ -256,15 +261,15 @@ defmodule PidroServer.StoreBuilds do
         {value, note} = reason
         stop("Review", :stuck, value, note)
 
-      newest.state in ["WAITING_FOR_BETA_REVIEW", "IN_BETA_REVIEW"] ->
+      newest.state in @in_review ->
         stop(
           "Review",
           :now,
-          if(newest.state == "IN_BETA_REVIEW", do: "In review", else: "Waiting"),
+          if(newest.state in ~w(IN_BETA_REVIEW IN_REVIEW), do: "In review", else: "Waiting"),
           waited(time(newest[:submitted_at]) || time(newest.uploaded_at), now)
         )
 
-      newest.state == "READY_FOR_BETA_SUBMISSION" ->
+      newest.state in @not_submitted ->
         stop("Review", :now, "Not submitted")
 
       true ->
@@ -304,8 +309,15 @@ defmodule PidroServer.StoreBuilds do
   defp pending?(_newest, nil), do: true
   defp pending?(newest, live), do: newer_build?(newest, live)
 
-  defp group("ios"), do: "Friends group"
-  defp group("android"), do: "open testing"
+  @doc "Where players install from, as the configured tracks name it."
+  def group("ios"),
+    do: if(config()[:ios_track] == "app_store", do: "App Store", else: "Friends group")
+
+  def group("android"), do: if(play_track() == "beta", do: "open testing", else: play_track())
+
+  defp play_track, do: config()[:play_track] || "beta"
+  defp config, do: Application.get_env(:pidro_server, Client, [])
+
   defp notice_from(nil), do: "Not set"
   defp notice_from(minimum), do: "From #{build_label(minimum)}"
 
@@ -374,7 +386,7 @@ defmodule PidroServer.StoreBuilds do
         newest != nil and target == newest and live != nil and newer_build?(newest, live) ->
           waiting = segments |> Enum.reject(&newer_build?(&1, live)) |> Enum.sum_by(& &1.count)
 
-          if newest.state in ~w(WAITING_FOR_BETA_REVIEW IN_BETA_REVIEW inProgress),
+          if newest.state in ["inProgress" | @in_review],
             do:
               "#{waiting} of #{total} wait for #{if platform == "ios", do: "Apple", else: "Google Play"}",
             else: "#{waiting} of #{total} can't get #{build_label(newest)} yet"
@@ -523,6 +535,17 @@ defmodule PidroServer.StoreBuilds do
         "INVALID" => "Invalid build",
         "FAILED" => "Processing failed",
         "EXPIRED" => "Expired",
+        "PREPARE_FOR_SUBMISSION" => "Ready to submit for review",
+        "WAITING_FOR_REVIEW" => "Waiting for Apple's review",
+        "IN_REVIEW" => "In Apple's review",
+        "PENDING_DEVELOPER_RELEASE" => "Approved, waiting for release",
+        "PENDING_APPLE_RELEASE" => "Approved, waiting for Apple to release",
+        "PROCESSING_FOR_DISTRIBUTION" => "Approved, being released",
+        "READY_FOR_DISTRIBUTION" => "Live",
+        "REJECTED" => "Rejected by Apple",
+        "METADATA_REJECTED" => "Metadata rejected by Apple",
+        "INVALID_BINARY" => "Invalid build",
+        "DEVELOPER_REJECTED" => "Withdrawn from review",
         "completed" => "Live",
         "draft" => "Draft",
         "inProgress" => "Rolling out",

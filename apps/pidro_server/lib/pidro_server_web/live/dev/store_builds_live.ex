@@ -177,7 +177,9 @@ defmodule PidroServerWeb.Dev.StoreBuildsLive do
             )}
           </span>
           <span :if={newest = get_in(@stores, ["ios", :data, :newest])}>
-            TestFlight {if newest.team, do: "Team", else: "newest"} · {StoreBuilds.build_label(newest)} · {StoreBuilds.state_label(
+            {if testflight?(), do: "TestFlight", else: "App Store"} {if newest.team,
+              do: "Team",
+              else: "newest"} · {StoreBuilds.build_label(newest)} · {StoreBuilds.state_label(
               newest.state
             )}
           </span>
@@ -236,9 +238,7 @@ defmodule PidroServerWeb.Dev.StoreBuildsLive do
       <div class="flex items-start justify-between gap-3">
         <div class="min-w-0 space-y-0.5">
           <h2 class="text-sm font-semibold text-stone-600">
-            {StoreBuilds.name(@platform)} · {if @platform == "ios",
-              do: "TestFlight Friends",
-              else: "Play open testing"}
+            {StoreBuilds.name(@platform)} · {heading(@platform)}
           </h2>
           <p class="truncate text-[2.125rem] font-semibold leading-10 tabular-nums [letter-spacing:-0.02em] text-stone-950">
             {cond do
@@ -409,14 +409,27 @@ defmodule PidroServerWeb.Dev.StoreBuildsLive do
 
   defp console_name("ios"), do: "App Store Connect"
   defp console_name("android"), do: "Play Console"
-  defp open_console("ios"), do: "Open TestFlight"
+  defp open_console("ios"), do: if(testflight?(), do: "Open TestFlight", else: "Open App Store")
   defp open_console("android"), do: "Open Play Console"
 
-  defp console("ios"), do: "https://appstoreconnect.apple.com/apps/6816832730/testflight/ios"
+  defp heading("ios"), do: if(testflight?(), do: "TestFlight Friends", else: "App Store")
+  defp heading("android"), do: "Play #{StoreBuilds.group("android")}"
 
-  defp console("android"),
-    do:
-      "https://play.google.com/apps/publish/?packageName=com.oneapps.pidro.beta#AppDashboardPlace:p=com.oneapps.pidro.beta"
+  defp console("ios") do
+    app = store_config()[:asc_app_id]
+
+    if testflight?(),
+      do: "https://appstoreconnect.apple.com/apps/#{app}/testflight/ios",
+      else: "https://appstoreconnect.apple.com/apps/#{app}/distribution/ios/version/inflight"
+  end
+
+  defp console("android") do
+    package = store_config()[:play_package]
+    "https://play.google.com/apps/publish/?packageName=#{package}#AppDashboardPlace:p=#{package}"
+  end
+
+  defp testflight?, do: store_config()[:ios_track] != "app_store"
+  defp store_config, do: Application.get_env(:pidro_server, PidroServer.StoreBuilds.Client, [])
 
   defp required_label(nil), do: "off"
   defp required_label(%{"version" => version, "build" => nil}), do: version

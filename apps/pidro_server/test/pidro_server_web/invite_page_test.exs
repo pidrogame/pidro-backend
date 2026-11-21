@@ -63,6 +63,87 @@ defmodule PidroServerWeb.InvitePageTest do
     end
   end
 
+  describe "switch day" do
+    setup do
+      app = Application.get_env(:pidro_server, InvitePage)
+      on_exit(fn -> Application.put_env(:pidro_server, InvitePage, app) end)
+    end
+
+    test "runtime.exs gives the beta app by default and the production app from the env" do
+      runtime = Path.expand("../../../../config/runtime.exs", __DIR__)
+
+      env = %{
+        "NATIVE_ANDROID_PACKAGE" => "com.oneapps.pidro",
+        "NATIVE_APP_SCHEME" => "pidro-mobile",
+        "STORE_BUILDS_ASC_APP_ID" => "1137091987",
+        "STORE_BUILDS_PLAY_PACKAGE" => "com.oneapps.pidro",
+        "STORE_BUILDS_IOS_TRACK" => "app_store",
+        "STORE_BUILDS_PLAY_TRACK" => "production"
+      }
+
+      read = fn ->
+        config = Config.Reader.read!(runtime, env: :test)[:pidro_server]
+
+        {config[InvitePage],
+         Keyword.take(config[PidroServer.StoreBuilds.Client], [
+           :asc_app_id,
+           :play_package,
+           :ios_track,
+           :play_track
+         ])}
+      end
+
+      on_exit(fn -> Enum.each(Map.keys(env), &System.delete_env/1) end)
+      Enum.each(Map.keys(env), &System.delete_env/1)
+
+      assert read.() ==
+               {[android_package: "com.oneapps.pidro.beta", app_scheme: "pidro-mobile-beta"],
+                [
+                  asc_app_id: "6816832730",
+                  play_package: "com.oneapps.pidro.beta",
+                  ios_track: "testflight",
+                  play_track: "beta"
+                ]}
+
+      System.put_env(env)
+
+      assert read.() ==
+               {[android_package: "com.oneapps.pidro", app_scheme: "pidro-mobile"],
+                [
+                  asc_app_id: "1137091987",
+                  play_package: "com.oneapps.pidro",
+                  ios_track: "app_store",
+                  play_track: "production"
+                ]}
+    end
+
+    test "invite and player pages open the configured app: beta by default, production after" do
+      player = %{display_name: "Aino", avatar_url: nil}
+
+      for {package, scheme} <- [
+            {"com.oneapps.pidro.beta", "pidro-mobile-beta"},
+            {"com.oneapps.pidro", "pidro-mobile"}
+          ] do
+        if package == "com.oneapps.pidro" do
+          Application.put_env(:pidro_server, InvitePage,
+            android_package: package,
+            app_scheme: scheme
+          )
+        end
+
+        invite = InvitePage.present(preview(:open), :android)
+        friend = InvitePage.player(player, "aino", :ios)
+
+        assert invite.ios_url == "#{scheme}://j/AAAAAAAA"
+        assert friend.ios_url == "#{scheme}://play/aino"
+
+        for page <- [invite, friend] do
+          assert [_, ^package] = Regex.run(~r/;package=([^;]+);/, page.android_url)
+        end
+      end
+    end
+  end
+
   describe "present/2" do
     test "open copy includes live seat context and only desktop builds a QR" do
       preview = preview(:open, seats_taken: 2)

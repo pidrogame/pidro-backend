@@ -13,12 +13,14 @@ defmodule PidroServer.StoreBuilds.ClientTest do
     key = :public_key.generate_key({:namedCurve, :secp256r1})
     pem = :public_key.pem_encode([:public_key.pem_entry_encode(:ECPrivateKey, key)])
 
-    config = [
-      asc_key_id: "key-id",
-      asc_issuer_id: "issuer-id",
-      asc_private_key: pem,
-      req_options: [plug: {Req.Test, __MODULE__}]
-    ]
+    # The beta store records and tracks: runtime.exs defaults with no env set.
+    config =
+      Keyword.merge(Application.fetch_env!(:pidro_server, Client),
+        asc_key_id: "key-id",
+        asc_issuer_id: "issuer-id",
+        asc_private_key: pem,
+        req_options: [plug: {Req.Test, __MODULE__}]
+      )
 
     Req.Test.stub(__MODULE__, fn conn ->
       assert conn.method == "GET"
@@ -73,11 +75,13 @@ defmodule PidroServer.StoreBuilds.ClientTest do
     key = :public_key.generate_key({:rsa, 2048, 65_537})
     pem = :public_key.pem_encode([:public_key.pem_entry_encode(:RSAPrivateKey, key)])
 
-    config = [
-      play_service_account_json:
-        Jason.encode!(%{client_email: "test@example.com", private_key: pem}),
-      req_options: [plug: {Req.Test, __MODULE__}]
-    ]
+    # The beta store records and tracks: runtime.exs defaults with no env set.
+    config =
+      Keyword.merge(Application.fetch_env!(:pidro_server, Client),
+        play_service_account_json:
+          Jason.encode!(%{client_email: "test@example.com", private_key: pem}),
+        req_options: [plug: {Req.Test, __MODULE__}]
+      )
 
     parent = self()
 
@@ -147,16 +151,147 @@ defmodule PidroServer.StoreBuilds.ClientTest do
     play =
       put_in(f["play"], ["tracks", Access.at(0), "releases", Access.at(0), "versionCodes"], ["11"])
 
-    assert Client.parse_play(play).live.number == "9"
-    assert Client.parse_play(play).newest.number == "9"
+    assert Client.parse_play(play, "beta").live.number == "9"
+    assert Client.parse_play(play, "beta").newest.number == "9"
     play = put_in(play, ["tracks", Access.at(2), "releases", Access.at(0), "status"], "draft")
-    assert Client.parse_play(play).live == nil
+    assert Client.parse_play(play, "beta").live == nil
   end
 
   test "arbitrary Play release names are displayed but never used as versions", %{fixture: f} do
     for name <- ["November beta", "3.2.4-beta.1", "3.2.4+9"] do
       play = put_in(f["play"], ["tracks", Access.at(2), "releases", Access.at(0), "name"], name)
-      assert %{live: %{version: nil, label: ^name}} = Client.parse_play(play)
+      assert %{live: %{version: nil, label: ^name}} = Client.parse_play(play, "beta")
+    end
+  end
+
+  describe "switch-day production records and tracks" do
+    setup do
+      %{
+        production:
+          Keyword.merge(Application.fetch_env!(:pidro_server, Client),
+            asc_app_id: "1137091987",
+            play_package: "com.oneapps.pidro",
+            ios_track: "app_store",
+            play_track: "production",
+            req_options: [plug: {Req.Test, __MODULE__}]
+          )
+      }
+    end
+
+    test "iPhone reads the App Store versions of the production app: live and in review", %{
+      production: production
+    } do
+      key = :public_key.generate_key({:namedCurve, :secp256r1})
+      pem = :public_key.pem_encode([:public_key.pem_entry_encode(:ECPrivateKey, key)])
+
+      version = fn id, string, state, created, build ->
+        %{
+          "type" => "appStoreVersions",
+          "id" => id,
+          "attributes" => %{
+            "versionString" => string,
+            "appVersionState" => state,
+            "createdDate" => created
+          },
+          "relationships" => %{
+            "build" => %{"data" => build && %{"type" => "builds", "id" => build}}
+          }
+        }
+      end
+
+      build = fn id, number ->
+        %{"type" => "builds", "id" => id, "attributes" => %{"version" => number}}
+      end
+
+      # Apple's order is not newest first; the live version sits between two others.
+      Req.Test.stub(__MODULE__, fn conn ->
+        assert conn.method == "GET"
+        assert conn.request_path == "/v1/apps/1137091987/appStoreVersions"
+
+        assert URI.decode_query(conn.query_string) == %{
+                 "filter[platform]" => "IOS",
+                 "include" => "build",
+                 "limit" => "200"
+               }
+
+        Req.Test.json(conn, %{
+          "data" => [
+            version.("v323", "3.2.3", "REPLACED_WITH_NEW_VERSION", "2026-10-01T07:00:00Z", "b8"),
+            version.("v330", "3.3.0", "WAITING_FOR_REVIEW", "2026-12-01T07:00:00Z", "b12"),
+            version.("v324", "3.2.4", "READY_FOR_DISTRIBUTION", "2026-11-01T07:00:00Z", "b9")
+          ],
+          "included" => [build.("b8", "8"), build.("b12", "12"), build.("b9", "9")]
+        })
+      end)
+
+      config =
+        Keyword.merge(production, asc_key_id: "k", asc_issuer_id: "i", asc_private_key: pem)
+
+      assert {:ok, %{newest: newest, live: live}} = Client.fetch("ios", config)
+
+      assert {newest.version, newest.number, newest.state} ==
+               {"3.3.0", "12", "WAITING_FOR_REVIEW"}
+
+      assert {live.version, live.number} == {"3.2.4", "9"}
+      refute newest.friends or newest.team
+    end
+
+    test "a version without a build is the newest; none live leaves live empty" do
+      body = %{
+        "data" => [
+          %{
+            "id" => "v1",
+            "attributes" => %{
+              "versionString" => "4.0.0",
+              "appVersionState" => "PREPARE_FOR_SUBMISSION",
+              "createdDate" => "2026-11-20T07:00:00Z"
+            },
+            "relationships" => %{"build" => %{"data" => nil}}
+          }
+        ]
+      }
+
+      assert %{newest: %{version: "4.0.0", number: nil}, live: nil} = Client.parse_app_store(body)
+    end
+
+    test "Android reads the production package and its production track, not the beta track", %{
+      production: production,
+      fixture: f
+    } do
+      key = :public_key.generate_key({:rsa, 2048, 65_537})
+      pem = :public_key.pem_encode([:public_key.pem_entry_encode(:RSAPrivateKey, key)])
+      edits = "/androidpublisher/v3/applications/com.oneapps.pidro/edits"
+      {tracks, edit} = {edits <> "/throwaway/tracks", edits <> "/throwaway"}
+
+      completed =
+        put_in(
+          f["play"],
+          ["tracks", Access.at(0), "releases", Access.at(0), "status"],
+          "completed"
+        )
+
+      for {play, live} <- [{f["play"], nil}, {completed, "8"}] do
+        Req.Test.stub(__MODULE__, fn conn ->
+          case {conn.method, conn.request_path} do
+            {"POST", "/token"} -> Req.Test.json(conn, %{access_token: "fake-token"})
+            {"POST", ^edits} -> Req.Test.json(conn, %{id: "throwaway"})
+            {"GET", ^tracks} -> Req.Test.json(conn, play)
+            {"DELETE", ^edit} -> Plug.Conn.send_resp(conn, 204, "")
+          end
+        end)
+
+        config =
+          Keyword.put(
+            production,
+            :play_service_account_json,
+            Jason.encode!(%{client_email: "test@example.com", private_key: pem})
+          )
+
+        # The beta track's completed 3.2.4 (9) is never production's live build.
+        assert {:ok, result} = Client.fetch("android", config)
+        assert result.live[:number] == live
+        assert result.newest.number == "9" and result.newest.track == "internal"
+      end
     end
   end
 

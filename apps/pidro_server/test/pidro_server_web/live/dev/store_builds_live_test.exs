@@ -19,13 +19,17 @@ defmodule PidroServerWeb.Dev.StoreBuildsLiveTest do
     rsa = :public_key.generate_key({:rsa, 2048, 65_537})
     rsa_pem = :public_key.pem_encode([:public_key.pem_entry_encode(:RSAPrivateKey, rsa)])
 
-    Application.put_env(:pidro_server, Client,
-      asc_key_id: "test",
-      asc_issuer_id: "test",
-      asc_private_key: pem,
-      play_service_account_json:
-        Jason.encode!(%{client_email: "test@example.com", private_key: rsa_pem}),
-      req_options: [plug: {Req.Test, __MODULE__}]
+    Application.put_env(
+      :pidro_server,
+      Client,
+      Keyword.merge(old,
+        asc_key_id: "test",
+        asc_issuer_id: "test",
+        asc_private_key: pem,
+        play_service_account_json:
+          Jason.encode!(%{client_email: "test@example.com", private_key: rsa_pem}),
+        req_options: [plug: {Req.Test, __MODULE__}]
+      )
     )
 
     owner = self()
@@ -243,6 +247,112 @@ defmodule PidroServerWeb.Dev.StoreBuildsLiveTest do
     {:ok, reloaded, _} = live(conn, ~p"/admin/store-builds")
     assert has_element?(reloaded, "#update-required-now", "iPhone 3.4.0 (57) · Android off")
     assert has_element?(reloaded, "input[name='required[ios_build]'][value='57']")
+  end
+
+  test "switch-day config moves the page from the beta records to the App Store and Play production",
+       %{conn: conn} do
+    f =
+      File.read!(Path.expand("../../../fixtures/store_builds.json", __DIR__)) |> Jason.decode!()
+
+    # Beta defaults: TestFlight Friends and Play open testing of the beta records.
+    {:ok, view, _} = live(conn, ~p"/admin/store-builds")
+    assert has_element?(view, "#store-ios h2", "TestFlight Friends")
+    assert has_element?(view, "#store-android h2", "Play open testing")
+
+    assert has_element?(
+             view,
+             ~s(a[href="https://appstoreconnect.apple.com/apps/6816832730/testflight/ios"])
+           )
+
+    assert has_element?(view, ~s(a[href*="packageName=com.oneapps.pidro.beta#"]))
+
+    Application.put_env(
+      :pidro_server,
+      Client,
+      Keyword.merge(Application.get_env(:pidro_server, Client),
+        asc_app_id: "1137091987",
+        play_package: "com.oneapps.pidro",
+        ios_track: "app_store",
+        play_track: "production"
+      )
+    )
+
+    version = fn id, string, state, created, build ->
+      %{
+        "id" => id,
+        "attributes" => %{
+          "versionString" => string,
+          "appVersionState" => state,
+          "createdDate" => created
+        },
+        "relationships" => %{"build" => %{"data" => %{"type" => "builds", "id" => build}}}
+      }
+    end
+
+    completed =
+      put_in(f["play"], ["tracks", Access.at(0), "releases", Access.at(0), "status"], "completed")
+
+    Req.Test.stub(__MODULE__, fn conn ->
+      body =
+        case conn.request_path do
+          "/v1/apps/1137091987/appStoreVersions" ->
+            %{
+              "data" => [
+                version.("v324", "3.2.4", "READY_FOR_DISTRIBUTION", "2026-11-01T07:00:00Z", "b9"),
+                version.("v330", "3.3.0", "WAITING_FOR_REVIEW", "2026-12-01T07:00:00Z", "b12")
+              ],
+              "included" => [
+                %{"type" => "builds", "id" => "b9", "attributes" => %{"version" => "9"}},
+                %{"type" => "builds", "id" => "b12", "attributes" => %{"version" => "12"}}
+              ]
+            }
+
+          "/token" ->
+            %{access_token: "test"}
+
+          "/androidpublisher/v3/applications/com.oneapps.pidro/edits" ->
+            %{id: "test"}
+
+          "/androidpublisher/v3/applications/com.oneapps.pidro/edits/test/tracks" ->
+            completed
+
+          "/androidpublisher/v3/applications/com.oneapps.pidro/edits/test" ->
+            %{}
+        end
+
+      Req.Test.json(conn, body)
+    end)
+
+    Cache.refresh("ios")
+    await_check()
+    Cache.refresh("android")
+    await_check()
+
+    {:ok, view, _} = live(conn, ~p"/admin/store-builds")
+    assert has_element?(view, "#store-ios h2", "App Store")
+    assert has_element?(view, "#store-android h2", "Play production")
+    assert has_element?(view, "#store-ios p", "3.2.4 (9)")
+    assert has_element?(view, "#store-android p", "3.2.3 (8)")
+    assert has_element?(view, "#store-ios li", "Waiting")
+    assert has_element?(view, "#store-ios li", "Still 3.2.4 (9)")
+    assert has_element?(view, "#next-steps", "Waiting on Apple")
+    assert has_element?(view, "#next-steps a", "Open App Store")
+
+    assert has_element?(
+             view,
+             "#track-details",
+             "App Store newest · 3.3.0 (12) · Waiting for Apple's review"
+           )
+
+    assert has_element?(
+             view,
+             ~s(a[href="https://appstoreconnect.apple.com/apps/1137091987/distribution/ios/version/inflight"])
+           )
+
+    assert has_element?(view, ~s(a[href*="packageName=com.oneapps.pidro#"]))
+    refute render(view) =~ "6816832730"
+    refute render(view) =~ "com.oneapps.pidro.beta"
+    refute render(view) =~ "TestFlight"
   end
 
   test "anonymous visitors cannot read store builds" do

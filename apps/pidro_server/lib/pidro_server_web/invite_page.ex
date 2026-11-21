@@ -10,8 +10,6 @@ defmodule PidroServerWeb.InvitePage do
   alias PidroServer.Invites
   alias PidroServer.Invites.Invite
 
-  @android_package "com.oneapps.pidro.beta"
-  @ios_scheme "pidro-mobile-beta"
   @seats_total 4
 
   @type device :: :ios | :android | :desktop | :crawler
@@ -38,7 +36,7 @@ defmodule PidroServerWeb.InvitePage do
       seat_copy: "#{preview.seats_taken} of #{@seats_total} seats taken",
       iphone_install_url: store_url("ios"),
       play_store_url: play_store_url(target.code),
-      ios_url: "#{@ios_scheme}://j/#{target.code}",
+      ios_url: "#{app(:app_scheme)}://j/#{target.code}",
       android_url: android_intent(target_url, play_store_url(target.code)),
       device: device,
       show_qr: show_qr
@@ -85,7 +83,7 @@ defmodule PidroServerWeb.InvitePage do
       avatar_url: avatar_url,
       iphone_install_url: store_url("ios"),
       play_store_url: friend_play_store_url(slug),
-      ios_url: "#{@ios_scheme}://play/#{slug}",
+      ios_url: "#{app(:app_scheme)}://play/#{slug}",
       android_url: android_intent(url, friend_play_store_url(slug)),
       deferred_capture_url:
         PidroServerWeb.DeferredInviteCaptureController.friend_capture_url(slug),
@@ -182,6 +180,9 @@ defmodule PidroServerWeb.InvitePage do
     }
   end
 
+  # The app the page opens: the beta until switch day (docs/deploy/switch-day.md).
+  defp app(key), do: Application.fetch_env!(:pidro_server, __MODULE__)[key]
+
   defp store_url(platform),
     do: Application.get_env(:pidro_server, :native_store_urls, %{})[platform]
 
@@ -216,7 +217,7 @@ defmodule PidroServerWeb.InvitePage do
         else: ""
 
     "intent://#{authority}#{uri.path}#Intent;scheme=#{uri.scheme};" <>
-      "package=#{@android_package};#{fallback}end"
+      "package=#{app(:android_package)};#{fallback}end"
   end
 
   defp port_suffix(nil, _scheme), do: ""

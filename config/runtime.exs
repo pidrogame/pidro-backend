@@ -49,6 +49,20 @@ config :pidro_server,
          do: {platform, value}
        )
 
+# The app invite and player pages open, and the store records the store-builds
+# admin reads. Beta until switch day; docs/deploy/switch-day.md flips them.
+config :pidro_server, PidroServerWeb.InvitePage,
+  android_package: System.get_env("NATIVE_ANDROID_PACKAGE", "com.oneapps.pidro.beta"),
+  app_scheme: System.get_env("NATIVE_APP_SCHEME", "pidro-mobile-beta")
+
+# ios_track: "testflight" (the Friends group) or "app_store" (the version in
+# review or live). play_track: the Play track players install from.
+config :pidro_server, PidroServer.StoreBuilds.Client,
+  asc_app_id: System.get_env("STORE_BUILDS_ASC_APP_ID", "6816832730"),
+  play_package: System.get_env("STORE_BUILDS_PLAY_PACKAGE", "com.oneapps.pidro.beta"),
+  ios_track: System.get_env("STORE_BUILDS_IOS_TRACK", "testflight"),
+  play_track: System.get_env("STORE_BUILDS_PLAY_TRACK", "beta")
+
 case System.get_env("LEAGUES_START_AT") do
   nil ->
     if config_env() == :prod, do: config(:pidro_server, :leagues_start_at, nil)

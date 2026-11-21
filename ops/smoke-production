@@ -118,13 +118,18 @@ if test -n "${PIDRO_INVITE_CODE:-}"; then
     exit 1
   fi
 
+  # The beta app until switch day, the production app after it
+  # (docs/deploy/switch-day.md). Set both variables to require one of them.
+  app_scheme="${NATIVE_APP_SCHEME:-pidro-mobile(-beta)?}"
+  android_package="${NATIVE_ANDROID_PACKAGE:-com\.oneapps\.pidro(\.beta)?}"
+
   probe_invite ios 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)' "$invite_url"
   grep -Fq 'data-open-ios' "$tmp_dir/invite-ios.body"
-  grep -Fq 'pidro-mobile-beta://j/' "$tmp_dir/invite-ios.body"
+  grep -Eq "\"${app_scheme}://j/" "$tmp_dir/invite-ios.body"
 
   probe_invite android 'Mozilla/5.0 (Linux; Android 15; Pixel 9)' "$invite_url"
   grep -Fq 'data-open-android' "$tmp_dir/invite-android.body"
-  grep -Fq 'package=com.oneapps.pidro.beta;' "$tmp_dir/invite-android.body"
+  grep -Eq ";package=${android_package};" "$tmp_dir/invite-android.body"
 
   probe_invite desktop 'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_6)' "$invite_url"
   grep -Fq 'data-invite-qr' "$tmp_dir/invite-desktop.body"

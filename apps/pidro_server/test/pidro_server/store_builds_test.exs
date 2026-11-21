@@ -7,7 +7,7 @@ defmodule PidroServer.StoreBuildsTest do
   setup do
     fixture = File.read!(Path.expand("../fixtures/store_builds.json", __DIR__)) |> Jason.decode!()
     ios = Client.parse_asc(fixture["asc"], fixture["friends"], fixture["team"])
-    android = Client.parse_play(fixture["play"])
+    android = Client.parse_play(fixture["play"], "beta")
 
     stores =
       Map.new([{"ios", ios}, {"android", android}], fn {platform, data} ->

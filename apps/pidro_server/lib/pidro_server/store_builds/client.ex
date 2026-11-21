@@ -1,8 +1,12 @@
 defmodule PidroServer.StoreBuilds.Client do
-  @moduledoc "Reads TestFlight Friends and Play open testing; never publishes a release."
+  @moduledoc """
+  Reads the configured store records and tracks: TestFlight Friends or the App
+  Store version (`ios_track`), and one Play track (`play_track`). Never
+  publishes a release.
+  """
 
   @asc "https://api.appstoreconnect.apple.com"
-  @play "https://androidpublisher.googleapis.com/androidpublisher/v3/applications/com.oneapps.pidro.beta"
+  @play "https://androidpublisher.googleapis.com/androidpublisher/v3/applications/"
   @token "https://oauth2.googleapis.com/token"
 
   def connected?(platform, config \\ Application.get_env(:pidro_server, __MODULE__, [])) do
@@ -50,19 +54,34 @@ defmodule PidroServer.StoreBuilds.Client do
           config[:asc_private_key]
         )
 
-      with {:ok, builds} <-
-             pages(
-               "/v1/builds?filter[app]=6816832730&sort=-uploadedDate&include=buildBetaDetail,preReleaseVersion,betaAppReviewSubmission&limit=200",
-               token,
-               config
-             ),
-           {:ok, groups} <- pages("/v1/apps/6816832730/betaGroups?limit=200", token, config),
-           {:ok, friends} <- group_builds(groups, "Friends", token, config),
-           {:ok, team} <- group_builds(groups, "Team", token, config) do
-        {:ok, parse_asc(builds, friends, team)}
-      end
+      asc_tracks(config[:ios_track], config[:asc_app_id], token, config)
     else
       {:error, :not_connected}
+    end
+  end
+
+  defp asc_tracks("testflight", app, token, config) do
+    with {:ok, builds} <-
+           pages(
+             "/v1/builds?filter[app]=#{app}&sort=-uploadedDate&include=buildBetaDetail,preReleaseVersion,betaAppReviewSubmission&limit=200",
+             token,
+             config
+           ),
+         {:ok, groups} <- pages("/v1/apps/#{app}/betaGroups?limit=200", token, config),
+         {:ok, friends} <- group_builds(groups, "Friends", token, config),
+         {:ok, team} <- group_builds(groups, "Team", token, config) do
+      {:ok, parse_asc(builds, friends, team)}
+    end
+  end
+
+  defp asc_tracks("app_store", app, token, config) do
+    with {:ok, versions} <-
+           pages(
+             "/v1/apps/#{app}/appStoreVersions?filter[platform]=IOS&include=build&limit=200",
+             token,
+             config
+           ) do
+      {:ok, parse_app_store(versions)}
     end
   end
 
@@ -138,6 +157,41 @@ defmodule PidroServer.StoreBuilds.Client do
     }
   end
 
+  @doc """
+  App Store versions as builds: the newest version (in review, waiting or
+  being prepared) and the live one (`READY_FOR_DISTRIBUTION`).
+  """
+  def parse_app_store(body) do
+    included = Map.new(Map.get(body, "included", []), &{{&1["type"], &1["id"]}, &1["attributes"]})
+
+    versions =
+      body["data"]
+      |> Enum.sort_by(& &1["attributes"]["createdDate"], :desc)
+      |> Enum.map(fn version ->
+        attrs = version["attributes"]
+        build = related(version, "build", included)
+
+        %{
+          id: version["id"],
+          version: attrs["versionString"],
+          number: build["version"],
+          uploaded_at: build["uploadedDate"],
+          submitted_at: nil,
+          since: nil,
+          state: attrs["appVersionState"],
+          expired: false,
+          friends: false,
+          team: false
+        }
+      end)
+
+    %{
+      newest: List.first(versions),
+      live: Enum.find(versions, &(&1.state == "READY_FOR_DISTRIBUTION")),
+      tracks: []
+    }
+  end
+
   defp related(build, name, included) do
     case get_in(build, ["relationships", name, "data"]) do
       %{"type" => type, "id" => id} -> Map.get(included, {type, id}, %{})
@@ -170,7 +224,8 @@ defmodule PidroServer.StoreBuilds.Client do
                  assertion: assertion
                ]
              ),
-           {:ok, %{"id" => edit}} <- request(:post, @play <> "/edits", token, config, json: %{}) do
+           {:ok, %{"id" => edit}} <-
+             request(:post, play(config) <> "/edits", token, config, json: %{}) do
         read_edit(edit, token, config)
       end
     else
@@ -181,11 +236,11 @@ defmodule PidroServer.StoreBuilds.Client do
   defp read_edit(edit, token, config) do
     # request returns errors, including transport exceptions. Delete before parsing,
     # even when the read failed, and never commit this edit.
-    result = request(:get, @play <> "/edits/#{edit}/tracks", token, config)
+    result = request(:get, play(config) <> "/edits/#{edit}/tracks", token, config)
 
-    case request(:delete, @play <> "/edits/#{edit}", token, config) do
+    case request(:delete, play(config) <> "/edits/#{edit}", token, config) do
       {:ok, _} ->
-        with {:ok, body} <- result, do: {:ok, parse_play(body)}
+        with {:ok, body} <- result, do: {:ok, parse_play(body, config[:play_track])}
 
       _ ->
         {:error,
@@ -193,7 +248,9 @@ defmodule PidroServer.StoreBuilds.Client do
     end
   end
 
-  def parse_play(%{"tracks" => tracks}) do
+  defp play(config), do: @play <> config[:play_package]
+
+  def parse_play(%{"tracks" => tracks}, track) do
     releases =
       for track <- tracks,
           release <- Map.get(track, "releases", []),
@@ -212,8 +269,8 @@ defmodule PidroServer.StoreBuilds.Client do
       |> Enum.sort_by(&String.to_integer(&1.number), :desc)
 
     %{
-      newest: Enum.find(releases, &(&1.track in ["beta", "internal"])),
-      live: Enum.find(releases, &(&1.track == "beta" and &1.state == "completed")),
+      newest: Enum.find(releases, &(&1.track in [track, "internal"])),
+      live: Enum.find(releases, &(&1.track == track and &1.state == "completed")),
       tracks: releases
     }
   end
