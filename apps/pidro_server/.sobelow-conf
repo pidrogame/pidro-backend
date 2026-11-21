@@ -1,0 +1,10 @@
+# Read by `mix sobelow --root apps/pidro_server` in CI and in `mix precommit`.
+# Medium and High confidence findings fail the run; Low ones are printed for review.
+[
+  exit: "medium",
+  private: true,
+  ignore: [
+    # Phoenix 1.8's put_secure_browser_headers sends a default CSP; Sobelow only sees an explicit map.
+    "Config.CSP"
+  ]
+]

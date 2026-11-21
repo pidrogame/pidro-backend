@@ -54,8 +54,8 @@ Rules belong to the engine; the server only serializes what the engine knows.
 ## Load-bearing paths
 
 A diff that touches any of these gets one independent review before the push
-(`coderabbit review --plain` or `codex review` if available, otherwise a
-separate skeptical pass over the whole diff). Answer every finding.
+(`codex review` if available, otherwise a separate skeptical pass over the
+whole diff). Answer every finding.
 
 - **Engine rules, scoring and turn order:** `apps/pidro_engine/lib/pidro/core/`,
   `apps/pidro_engine/lib/pidro/game/`, `apps/pidro_engine/lib/pidro/finnish/`,

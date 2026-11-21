@@ -34,6 +34,8 @@ defmodule PidroBackend.MixProject do
     [
       precommit: [
         "hex.audit",
+        "deps.audit",
+        "sobelow --root apps/pidro_server",
         "format --check-formatted",
         "compile --warnings-as-errors",
         "test --raise",

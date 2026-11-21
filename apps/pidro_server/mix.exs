@@ -127,6 +127,8 @@ defmodule PidroServer.MixProject do
       {:hammer, "~> 7.4"},
       {:credo, "~> 1.7.19", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 1.4.7", only: [:dev, :test], runtime: false},
+      {:mix_audit, "~> 2.1", only: [:dev, :test], runtime: false},
+      {:sobelow, "~> 0.14", only: [:dev, :test], runtime: false},
       {:excoveralls, "~> 0.18", only: :test},
       {:ex_doc, "~> 0.40.3", only: :dev, runtime: false},
       {:open_api_spex, "~> 3.22.3"},

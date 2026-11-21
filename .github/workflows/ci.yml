@@ -110,6 +110,8 @@ jobs:
             mix precommit
           else
             mix hex.audit
+            mix deps.audit
+            mix sobelow --root apps/pidro_server
             mix format --check-formatted
             mix compile --warnings-as-errors
             ops/credo-diff
