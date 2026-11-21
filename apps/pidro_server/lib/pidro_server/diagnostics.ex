@@ -39,6 +39,44 @@ defmodule PidroServer.Diagnostics do
 
   def fields(_), do: %{}
 
+  @doc """
+  Sentry's before_send (PID-492): a report says what failed and where, never who it
+  happened to. Drops the request, the user, extra (a crashed process's state and last
+  message), breadcrumbs and stack frame arguments, and cuts quoted strings (names, seat
+  passwords, tokens in an inspected term) and email addresses out of messages.
+  """
+  def sentry_event(%Sentry.Event{} = event) do
+    %{
+      event
+      | request: %Sentry.Interfaces.Request{},
+        user: %{},
+        extra: %{},
+        breadcrumbs: [],
+        message:
+          event.message && %Sentry.Interfaces.Message{formatted: redact(event.message.formatted)},
+        exception:
+          Enum.map(
+            event.exception,
+            &%{&1 | value: redact(&1.value), stacktrace: no_vars(&1.stacktrace)}
+          ),
+        threads:
+          event.threads && Enum.map(event.threads, &%{&1 | stacktrace: no_vars(&1.stacktrace)})
+    }
+  end
+
+  defp no_vars(%{frames: frames} = stacktrace) when is_list(frames),
+    do: %{stacktrace | frames: Enum.map(frames, &%{&1 | vars: %{}})}
+
+  defp no_vars(stacktrace), do: stacktrace
+
+  defp redact(text) when is_binary(text) do
+    text
+    |> String.replace(~r/"(?:[^"\\]|\\.)*"/, ~s("…"))
+    |> String.replace(~r/[\w.+-]+@[\w-]+(\.[\w-]+)+/, "[email]")
+  end
+
+  defp redact(other), do: other
+
   def emit(event, data, level \\ :info) do
     data =
       data

@@ -49,6 +49,14 @@ defmodule PidroServer.Application do
     # for other strategies and supported options
     opts = [strategy: :one_for_one, name: PidroServer.Supervisor]
 
+    # Crashed processes (channels, GenServers, Tasks) go to Sentry when a DSN is
+    # set (PID-492); the endpoint reports request exceptions itself. Dropped under
+    # overload, like the default handler.
+    _ =
+      :logger.add_handler(:sentry, Sentry.LoggerHandler, %{
+        config: %{sync_threshold: nil, discard_threshold: 100}
+      })
+
     # Before the endpoint serves a join; detached first so a restart in the same VM boots.
     _ = :telemetry.detach(PidroServerWeb.GameChannel)
 

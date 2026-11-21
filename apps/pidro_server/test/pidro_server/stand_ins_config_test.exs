@@ -111,6 +111,39 @@ defmodule PidroServer.StandInsConfigTest do
     assert compile_config(:dev)[:watching_tables] == false
   end
 
+  test "Sentry sends only from production with SENTRY_DSN, tagged with the Kamal build" do
+    saved = Map.new(~w(SENTRY_DSN KAMAL_VERSION), &{&1, System.get_env(&1)})
+
+    on_exit(fn ->
+      Enum.each(saved, fn
+        {name, nil} -> System.delete_env(name)
+        {name, value} -> System.put_env(name, value)
+      end)
+    end)
+
+    sha = String.duplicate("c", 40)
+    dsn = "https://public@o1.ingest.sentry.io/1"
+    System.put_env("KAMAL_VERSION", sha)
+
+    System.delete_env("SENTRY_DSN")
+    assert sentry_config(:prod) == [dsn: nil, environment_name: :prod, release: sha]
+    System.put_env("SENTRY_DSN", "")
+    assert sentry_config(:prod)[:dsn] == nil
+
+    System.put_env("SENTRY_DSN", dsn)
+    assert sentry_config(:prod) == [dsn: dsn, environment_name: :prod, release: sha]
+
+    # An explicit nil, so the SDK does not fall back to reading SENTRY_DSN itself.
+    for env <- [:dev, :test], do: assert(Keyword.fetch!(sentry_config(env), :dsn) == nil)
+  end
+
+  defp sentry_config(env) do
+    {config, _warning} =
+      with_io(:stderr, fn -> Config.Reader.read!(@runtime_config, env: env, target: :host) end)
+
+    config |> Keyword.fetch!(:sentry) |> Enum.sort()
+  end
+
   defp compile_config(env) do
     @compile_config
     |> Config.Reader.read!(env: env, target: :host)

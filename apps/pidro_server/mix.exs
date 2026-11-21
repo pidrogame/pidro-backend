@@ -125,6 +125,7 @@ defmodule PidroServer.MixProject do
       {:bandit, "~> 1.14.0"},
       {:cors_plug, "~> 3.0"},
       {:hammer, "~> 7.4"},
+      {:sentry, "~> 14.0"},
       {:credo, "~> 1.7.19", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 1.4.7", only: [:dev, :test], runtime: false},
       {:mix_audit, "~> 2.1", only: [:dev, :test], runtime: false},

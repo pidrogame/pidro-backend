@@ -234,6 +234,22 @@ Until both are set, a deploy runs as usual and Premium is off: `/me` says
 disabled with a line saying why. For `just deploy`, set them in
 `.kamal/secrets-common`.
 
+`SENTRY_DSN` is optional too and not in that check (PID-492). With it, the
+server reports exceptions raised in a request and crashed processes (channels,
+GenServers, Tasks) to Sentry, tagged with the environment and the release (the
+deployed git SHA, from `KAMAL_VERSION`). A report carries the exception and its
+stack trace but no request data, user, process state or frame arguments; see
+`PidroServer.Diagnostics.sentry_event/1`. Logs still go to Logflare only.
+Without it, a deploy runs as usual and nothing is sent; dev and test never send.
+To turn it on, create the Sentry project and copy its DSN:
+
+```bash
+gh secret set SENTRY_DSN
+```
+
+For `just deploy`, add a `SENTRY_DSN=` line to `.kamal/secrets-common` (Kamal
+fails on a missing secret; empty keeps Sentry off).
+
 ### Classic Premium carry-over (PID-391)
 
 Nothing here needs new configuration: it uses the Classic secret and the two

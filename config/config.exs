@@ -236,6 +236,10 @@ config :logger, :default_handler,
   formatter: {PidroServer.DiagnosticsFormatter, %{}},
   config: [sync_mode_qlen: 200, drop_mode_qlen: 200, flush_qlen: 1000]
 
+# Errors to Sentry (PID-492). config/runtime.exs sets the DSN, the environment
+# and the release; PidroServer.Diagnostics.sentry_event/1 strips personal data.
+config :sentry, before_send: {PidroServer.Diagnostics, :sentry_event}
+
 # Use Jason for JSON parsing in Phoenix
 config :phoenix, :json_library, Jason
 

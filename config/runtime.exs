@@ -87,9 +87,17 @@ config :pidro_server, :admin_seed_email, System.get_env("ADMIN_EMAIL")
 
 # Kamal injects the selected image version, including rollback targets. The
 # deploy workflow builds a clean checkout and verifies this is its exact SHA.
-config :pidro_server,
-       :server_build,
-       System.get_env("KAMAL_VERSION") || System.get_env("SERVER_BUILD") || "unknown"
+server_build = System.get_env("KAMAL_VERSION") || System.get_env("SERVER_BUILD") || "unknown"
+config :pidro_server, :server_build, server_build
+
+# Errors to Sentry (PID-492), only from production and only with SENTRY_DSN set.
+# The explicit nil keeps the SDK from reading SENTRY_DSN itself in dev and test.
+sentry_dsn = System.get_env("SENTRY_DSN")
+
+config :sentry,
+  dsn: if(config_env() == :prod and sentry_dsn not in [nil, ""], do: sentry_dsn),
+  environment_name: config_env(),
+  release: server_build
 
 # Lifecycle timeout overrides via environment variables.
 # These apply in all environments but are primarily useful in production

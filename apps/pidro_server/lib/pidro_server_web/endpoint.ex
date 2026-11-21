@@ -1,4 +1,6 @@
 defmodule PidroServerWeb.Endpoint do
+  # Reports exceptions raised while serving a request to Sentry (PID-492).
+  use Sentry.PlugCapture
   use Phoenix.Endpoint, otp_app: :pidro_server
 
   # Admin browser sessions are encrypted, HTTP-only, and expire after 14 days.

@@ -87,6 +87,8 @@ env:
     - ASC_ISSUER_ID
     - ASC_PRIVATE_KEY_BASE64
     - PLAY_SERVICE_ACCOUNT_JSON_BASE64
+    # Optional: without it no errors go to Sentry.
+    - SENTRY_DSN
 
 logging:
   driver: local

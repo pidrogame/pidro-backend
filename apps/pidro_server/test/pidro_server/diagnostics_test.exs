@@ -90,6 +90,29 @@ defmodule PidroServer.DiagnosticsTest do
     assert :ok == Diagnostics.emit(:action_received, %{}, :invalid_level)
   end
 
+  test "a Sentry event keeps the error and where it happened, not who it happened to" do
+    term = {:seat, "Marcel Fahle", "4821", %{email: "m.fahle@example.com"}}
+
+    event =
+      %MatchError{term: term}
+      |> Sentry.Event.transform_exception(
+        stacktrace: [{PidroServer.Games.Room, :join, [term], file: ~c"room.ex", line: 7}],
+        extra: %{genserver_state: term},
+        user: %{email: "m.fahle@example.com"},
+        message: "raised for m.fahle@example.com"
+      )
+      |> Diagnostics.sentry_event()
+
+    sent = event |> Sentry.Event.remove_non_payload_keys() |> inspect(limit: :infinity)
+    for value <- ["Marcel", "4821", "m.fahle"], do: refute(sent =~ value)
+
+    assert [%{type: "MatchError", value: value, stacktrace: %{frames: [frame]}}] = event.exception
+    assert value =~ "no match of right hand side value"
+    assert value =~ ~s({:seat, "…", "…", %{email: "…"}})
+    assert frame.function == "PidroServer.Games.Room.join/1"
+    assert event.message.formatted == "raised for [email]"
+  end
+
   test "runtime build follows the selected Kamal deployment including rollback, not a stale override" do
     saved = Map.new(~w(KAMAL_VERSION SERVER_BUILD), &{&1, System.get_env(&1)})
 
