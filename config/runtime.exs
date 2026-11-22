@@ -114,6 +114,10 @@ config :pidro_server, :server_build, server_build
 # The explicit nil keeps the SDK from reading SENTRY_DSN itself in dev and test.
 sentry_dsn = System.get_env("SENTRY_DSN")
 
+# Kamal passes the optional secret as SENTRY_DSN="" while it is unset, and the SDK
+# still reads the variable when it starts and refuses to boot on "".
+if sentry_dsn == "", do: System.delete_env("SENTRY_DSN")
+
 config :sentry,
   dsn: if(config_env() == :prod and sentry_dsn not in [nil, ""], do: sentry_dsn),
   environment_name: config_env(),

@@ -137,6 +137,21 @@ defmodule PidroServer.StandInsConfigTest do
     for env <- [:dev, :test], do: assert(Keyword.fetch!(sentry_config(env), :dsn) == nil)
   end
 
+  test "an empty SENTRY_DSN, as Kamal passes an unset secret, does not stop Sentry booting" do
+    saved = System.get_env("SENTRY_DSN")
+
+    on_exit(fn ->
+      if saved, do: System.put_env("SENTRY_DSN", saved), else: System.delete_env("SENTRY_DSN")
+    end)
+
+    System.put_env("SENTRY_DSN", "")
+    assert sentry_config(:prod)[:dsn] == nil
+
+    # Sentry.Application.start/2 and every put_config validate a list without :dsn,
+    # which fills it from SENTRY_DSN; on "" that raised and the release died at boot.
+    assert Sentry.Config.validate!([])[:dsn] == nil
+  end
+
   defp sentry_config(env) do
     {config, _warning} =
       with_io(:stderr, fn -> Config.Reader.read!(@runtime_config, env: env, target: :host) end)
