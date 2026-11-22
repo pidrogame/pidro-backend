@@ -25,7 +25,7 @@ defmodule PidroServerWeb.InvitePageTest do
       player = InvitePage.player(%{display_name: "Aino", avatar_url: nil}, "aino", :android)
 
       for {page, referrer} <- [{invite, "invite=AAAAAAAA"}, {player, "friend=aino"}] do
-        assert page.iphone_install_url == "https://example.com/ios?campaign=launch"
+        assert page.iphone_install_url == "http://localhost:4002/get"
         uri = URI.parse(page.play_store_url)
         base = URI.parse(android)
         assert %{uri | query: nil} == %{base | query: nil}
@@ -43,7 +43,7 @@ defmodule PidroServerWeb.InvitePageTest do
       end
 
       for page <- [InvitePage.not_found(:ios), InvitePage.player(nil, "unknown", :desktop)] do
-        assert page.iphone_install_url == "https://example.com/ios?campaign=launch"
+        assert page.iphone_install_url == "http://localhost:4002/get"
         assert page.play_store_url == android
       end
     end
@@ -141,6 +141,61 @@ defmodule PidroServerWeb.InvitePageTest do
           assert [_, ^package] = Regex.run(~r/;package=([^;]+);/, page.android_url)
         end
       end
+    end
+  end
+
+  describe "install_target/1" do
+    setup do
+      app = Application.get_env(:pidro_server, InvitePage)
+      on_exit(fn -> Application.put_env(:pidro_server, InvitePage, app) end)
+    end
+
+    test "during the beta, iPhone and desktop get the beta page and Android the beta listing" do
+      Application.put_env(:pidro_server, :native_store_urls, %{
+        "ios" => "https://testflight.apple.com/join/2JR95b65",
+        "android" => "https://play.google.com/store/apps/details?id=com.oneapps.pidro.beta"
+      })
+
+      assert InvitePage.install_url() == "http://localhost:4002/get"
+      assert InvitePage.install_target(:ios) == "http://localhost:4002/beta"
+      assert InvitePage.install_target(:desktop) == "http://localhost:4002/beta"
+      assert InvitePage.install_target(:crawler) == "http://localhost:4002/beta"
+
+      assert InvitePage.install_target(:android) ==
+               "https://play.google.com/store/apps/details?id=com.oneapps.pidro.beta"
+    end
+
+    test "after switch day, phones get their stores and desktop the home page" do
+      Application.put_env(:pidro_server, :native_store_urls, %{
+        "ios" => "https://apps.apple.com/app/id1137091987",
+        "android" => "https://play.google.com/store/apps/details?id=com.oneapps.pidro"
+      })
+
+      Application.put_env(:pidro_server, InvitePage,
+        android_package: "com.oneapps.pidro",
+        app_scheme: "pidro-mobile"
+      )
+
+      assert InvitePage.install_target(:ios) == "https://apps.apple.com/app/id1137091987"
+
+      assert InvitePage.install_target(:android) ==
+               "https://play.google.com/store/apps/details?id=com.oneapps.pidro"
+
+      assert InvitePage.install_target(:desktop) == "http://localhost:4002/"
+      assert InvitePage.install_target(:crawler) == "http://localhost:4002/"
+    end
+
+    test "a missing store falls back to the page for desktop" do
+      Application.put_env(:pidro_server, :native_store_urls, %{})
+      assert InvitePage.install_target(:android) == "http://localhost:4002/beta"
+
+      Application.put_env(:pidro_server, InvitePage,
+        android_package: "com.oneapps.pidro",
+        app_scheme: "pidro-mobile"
+      )
+
+      assert InvitePage.install_target(:ios) == "http://localhost:4002/"
+      assert InvitePage.install_target(:android) == "http://localhost:4002/"
     end
   end
 

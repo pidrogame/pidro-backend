@@ -392,7 +392,14 @@ defmodule PidroServer.Invites do
   `https://www.pidro.online/play/bengt`.
   """
   @spec play_url(String.t()) :: String.t()
-  def play_url(slug), do: link_base_url() |> URI.merge("/play/#{slug}") |> URI.to_string()
+  def play_url(slug), do: site_url("/play/#{slug}")
+
+  @doc """
+  A path on the invite link host, e.g. `site_url("/get")` is
+  `https://www.pidro.online/get`.
+  """
+  @spec site_url(String.t()) :: String.t()
+  def site_url(path), do: link_base_url() |> URI.merge(path) |> URI.to_string()
 
   @doc "The origin's share template with the link and the dashed code (R26)."
   @spec share_text(Invite.t()) :: String.t()

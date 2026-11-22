@@ -56,11 +56,20 @@ defmodule PidroServerWeb.InvitePageControllerTest do
         )
       end
 
+      get_target = fn agent ->
+        conn = build_conn() |> put_req_header("user-agent", agent) |> get(~p"/get")
+        assert conn.status == 302
+        redirected_to(conn)
+      end
+
+      assert get_target.("Mozilla/5.0 (iPhone; CPU iPhone OS 18_0)") ==
+               if(mode == :beta, do: "http://localhost:4002/beta", else: ios_store)
+
       for path <- pages do
         ios = get_page.(path, "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0)")
         android = get_page.(path, "Mozilla/5.0 (Linux; Android 15)")
 
-        assert ios =~ ios_store, "#{mode} #{path}"
+        assert ios =~ ~s(href="http://localhost:4002/get"), "#{mode} #{path}"
         assert ios =~ copy, "#{mode} #{path}"
         if absent, do: refute(ios =~ absent, "#{mode} #{path} still says Beta")
 
@@ -175,8 +184,7 @@ defmodule PidroServerWeb.InvitePageControllerTest do
 
       assert attribute(ios, "[data-open-ios]", "href") == "pidro-mobile-beta://j/#{invite.code}"
 
-      assert attribute(ios, "[data-ios-fallback] a", "href") ==
-               "https://testflight.apple.com/join/2JR95b65"
+      assert attribute(ios, "[data-ios-fallback] a", "href") == "http://localhost:4002/get"
 
       assert attribute(ios, "[data-ios-fallback] a", "data-deferred-capture") ==
                "http://localhost:4002/j/#{invite.code}/deferred"
@@ -222,8 +230,7 @@ defmodule PidroServerWeb.InvitePageControllerTest do
         |> html_response(200)
         |> LazyHTML.from_document()
 
-      assert attribute(document, "[data-store=apple]", "href") ==
-               "https://testflight.apple.com/join/2JR95b65"
+      assert attribute(document, "[data-store=apple]", "href") == "http://localhost:4002/get"
 
       assert attribute(document, "[data-store=google]", "href") =~
                "play.google.com/store/apps/details?id=com.oneapps.pidro.beta&referrer="
@@ -328,8 +335,8 @@ defmodule PidroServerWeb.InvitePageControllerTest do
         refute html =~ "package=com.oneapps.pidro;", "#{page} on #{device} opens Classic"
         refute html =~ "pidro-mobile://", "#{page} on #{device} opens Classic"
 
-        assert html =~ "https://testflight.apple.com/join/2JR95b65",
-               "#{page} on #{device} lost the beta link"
+        assert html =~ ~s(href="http://localhost:4002/get"),
+               "#{page} on #{device} lost the install link"
       end
     end
 
@@ -349,8 +356,7 @@ defmodule PidroServerWeb.InvitePageControllerTest do
       assert LazyHTML.query(document, "[data-open-ios], [data-open-android]")
              |> LazyHTML.to_tree() == []
 
-      assert attribute(document, "[data-store=apple]", "href") ==
-               "https://testflight.apple.com/join/2JR95b65"
+      assert attribute(document, "[data-store=apple]", "href") == "http://localhost:4002/get"
 
       assert attribute(document, "[data-store=apple]", "data-deferred-capture") == nil
       assert LazyHTML.query(document, "[data-invite-privacy]") |> LazyHTML.to_tree() == []
@@ -364,8 +370,7 @@ defmodule PidroServerWeb.InvitePageControllerTest do
       assert attribute(document, "meta[property='og:title']", "content") == "Come play Pidro"
       refute html_response(conn, 404) =~ "ZZZZZZZZ"
 
-      assert attribute(document, "[data-store=apple]", "href") ==
-               "https://testflight.apple.com/join/2JR95b65"
+      assert attribute(document, "[data-store=apple]", "href") == "http://localhost:4002/get"
     end
 
     test "limits each invite independently from the API preview and other invite codes", %{

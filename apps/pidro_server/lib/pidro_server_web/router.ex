@@ -110,6 +110,7 @@ defmodule PidroServerWeb.Router do
 
     get "/j/:code", InvitePageController, :show, private: %{rate_limit: [:invite_page]}
     get "/play/:slug", PlayPageController, :show
+    get "/get", InstallRedirectController, :show
   end
 
   scope "/", PidroServerWeb do
