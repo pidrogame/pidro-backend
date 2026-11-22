@@ -9,8 +9,8 @@ value as its default (`config/runtime.exs`), so the switch is one change to
 
 | Variable | Drives | Beta default |
 | --- | --- | --- |
-| `NATIVE_STORE_URL_IOS`, `NATIVE_STORE_URL_ANDROID` | Store buttons on invite and player pages, email store links, the lobby's update notice | TestFlight link, beta Play listing |
-| `NATIVE_ANDROID_PACKAGE` | The app the Android invite/player button opens (`intent://…;package=…`), and the pages' wording: a `.beta` package says "Get Pidro Beta", any other "Get Pidro" | `com.oneapps.pidro.beta` |
+| `NATIVE_STORE_URL_IOS`, `NATIVE_STORE_URL_ANDROID` | Store buttons on invite and player pages, email store links, the lobby's update notice, and where `/get` sends phones after the switch | TestFlight link, beta Play listing |
+| `NATIVE_ANDROID_PACKAGE` | The app the Android invite/player button opens (`intent://…;package=…`), the pages' wording (a `.beta` package says "Get Pidro Beta", any other "Get Pidro"), and `/get`: a `.beta` package sends iPhone and desktop to `www.pidro.online/beta` | `com.oneapps.pidro.beta` |
 | `NATIVE_APP_SCHEME` | The app the iPhone invite/player button opens (`<scheme>://j/<code>`) | `pidro-mobile-beta` |
 | `STORE_BUILDS_ASC_APP_ID`, `STORE_BUILDS_PLAY_PACKAGE` | The store records [Store builds](https://app.pidro.online/admin/store-builds) reads and links to | `6816832730`, `com.oneapps.pidro.beta` |
 | `STORE_BUILDS_IOS_TRACK` | `testflight` (Friends group) or `app_store` (the App Store version in review or live) | `testflight` |
@@ -62,7 +62,21 @@ when no app-update post is published, and step 3 sets the minimums.
      the public listing;
    - Store builds shows **App Store** and **Play production**; press Refresh
      for Google Play.
-3. **App-update post.** In Store builds, **New app-update post** fills the
+3. **`/get`.** The production app shares `www.pidro.online/get`, and the
+   invite pages' iPhone button goes there too. It is a 302 by device
+   (`InstallRedirectController`), so the flip above already moved it. Check:
+
+   ```sh
+   curl -sI -A 'iPhone' https://www.pidro.online/get | grep -i location    # App Store
+   curl -sI -A 'Android' https://www.pidro.online/get | grep -i location   # Google Play
+   curl -sI https://www.pidro.online/get | grep -i location                # home page
+   ```
+
+   Only then, on the site (`pidro_landing_v2`), redirect `/beta` to `/get`.
+   Not before: until the flip `/get` sends iPhone and desktop to `/beta`, so
+   the other order loops. Mailed and beta-shared `/beta` links then reach the
+   stores too.
+4. **App-update post.** In Store builds, **New app-update post** fills the
    minimums from the live production builds. Review and publish it. Until
    then the previous post's beta minimums still nudge, now to the public
    listings.
@@ -74,6 +88,10 @@ The change is environment only, so revert it rather than the image:
 values again (see "Fix forward" in [../deploy.md](../deploy.md#rolling-back)).
 Check with
 `NATIVE_APP_SCHEME=pidro-mobile-beta NATIVE_ANDROID_PACKAGE=com.oneapps.pidro.beta PIDRO_INVITE_CODE=<code> ops/smoke-production`.
+
+If the site already redirects `/beta` to `/get`, revert that on the site
+first: with the beta values `/get` sends iPhone and desktop to `/beta`, and
+the two redirects loop.
 
 `scripts/rollback` is faster but restarts the previous container; run the
 pinned smoke afterwards to see which values it serves. If an app-update post

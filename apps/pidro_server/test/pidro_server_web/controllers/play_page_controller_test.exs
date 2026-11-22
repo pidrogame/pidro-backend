@@ -37,8 +37,7 @@ defmodule PidroServerWeb.PlayPageControllerTest do
 
       assert attribute(document, "[data-store=apple]", "data-deferred-platform") == "ios"
 
-      assert attribute(document, "[data-store=apple]", "href") ==
-               "https://testflight.apple.com/join/2JR95b65"
+      assert attribute(document, "[data-store=apple]", "href") == "http://localhost:4002/get"
 
       assert attribute(document, "[data-store=google]", "href") ==
                "https://play.google.com/store/apps/details?id=com.oneapps.pidro.beta&referrer=friend%3Dbengt-aberg"

@@ -34,7 +34,7 @@ defmodule PidroServerWeb.InvitePage do
       seats_taken: preview.seats_taken,
       seats_total: @seats_total,
       seat_copy: "#{preview.seats_taken} of #{@seats_total} seats taken",
-      iphone_install_url: store_url("ios"),
+      iphone_install_url: iphone_install_url(),
       play_store_url: play_store_url(target.code),
       ios_url: "#{app(:app_scheme)}://j/#{target.code}",
       android_url: android_intent(target_url, play_store_url(target.code)),
@@ -58,7 +58,7 @@ defmodule PidroServerWeb.InvitePage do
       body:
         "The link may be incomplete or no longer available. You can still open Pidro and find a table.",
       table_action: :none,
-      iphone_install_url: store_url("ios"),
+      iphone_install_url: iphone_install_url(),
       play_store_url: store_url("android"),
       device: device,
       beta: beta?()
@@ -83,7 +83,7 @@ defmodule PidroServerWeb.InvitePage do
       name: name,
       initial: String.first(name),
       avatar_url: avatar_url,
-      iphone_install_url: store_url("ios"),
+      iphone_install_url: iphone_install_url(),
       play_store_url: friend_play_store_url(slug),
       ios_url: "#{app(:app_scheme)}://play/#{slug}",
       android_url: android_intent(url, friend_play_store_url(slug)),
@@ -102,12 +102,40 @@ defmodule PidroServerWeb.InvitePage do
       description: "Pidro is the Finnish card game for four. Get the app and play.",
       heading: "Play Pidro",
       deferred_capture_url: nil,
-      iphone_install_url: store_url("ios"),
+      iphone_install_url: iphone_install_url(),
       play_store_url: store_url("android"),
       device: device,
       beta: beta?()
     }
   end
+
+  @doc """
+  The one link the app shares to install Pidro: `/get` on the invite link host.
+  `install_target/1` decides where it goes.
+  """
+  @spec install_url() :: String.t()
+  def install_url, do: Invites.site_url("/get")
+
+  @doc """
+  Where `/get` sends a device. During the beta, iPhone and desktop go to the
+  site's `/beta` page and Android to the beta's Play listing. After switch day
+  (`docs/deploy/switch-day.md`), iPhone and Android go to their stores and
+  desktop to the home page. Reads the same values as the invite pages, so the
+  switch-day change moves both.
+  """
+  @spec install_target(device()) :: String.t()
+  def install_target(device) do
+    fallback = if beta?(), do: Invites.site_url("/beta"), else: Invites.site_url("/")
+
+    case device do
+      :ios -> if(beta?(), do: fallback, else: store_url("ios") || fallback)
+      :android -> store_url("android") || fallback
+      _desktop_or_crawler -> fallback
+    end
+  end
+
+  # Only offered while an iPhone store is configured, like the Play button.
+  defp iphone_install_url, do: if(store_url("ios"), do: install_url())
 
   defp target_invite(%{state: :moved, invite: %Invite{successor: %Invite{} = successor}}),
     do: successor
