@@ -170,17 +170,6 @@
   color: var(--desk-muted);
   font-size: 12px;
 }
-.desk-avatar {
-  display: grid;
-  place-items: center;
-  width: 34px;
-  height: 34px;
-  flex-shrink: 0;
-  background: oklch(93% 0.025 245);
-  color: var(--desk-blue);
-  border-radius: 50%;
-  font-weight: 600;
-}
 .desk-empty {
   padding: 32px 0;
   color: var(--desk-muted);

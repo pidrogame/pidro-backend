@@ -19,6 +19,7 @@ defmodule PidroServerWeb.Dev.DashboardLiveTest do
 
   test "shows real arrivals and updates a deduplicated human roster", %{conn: conn} do
     user = PidroServer.AccountsFixtures.user_fixture()
+    {:ok, _} = PidroServer.Accounts.Avatars.put_face(user, "b")
     PidroServer.AccountsFixtures.guest_fixture()
     now = DateTime.utc_now()
     PidroServer.AccountsFixtures.guest_fixture(%{inserted_at: DateTime.add(now, -86_400)})
@@ -44,6 +45,15 @@ defmodule PidroServerWeb.Dev.DashboardLiveTest do
     assert has_element?(view, "#online-total", "1")
     assert view |> element("#new-total") |> render() =~ ">2</dd>"
     assert has_element?(view, "#online-#{user.id}", "Playing")
+    assert has_element?(view, "#online-#{user.id} img[src$='/images/faces/b.png']")
+
+    assert has_element?(
+             view,
+             "section[aria-labelledby='recent-title'] img[src$='/images/faces/b.png']"
+           )
+
+    {:ok, _} = PidroServer.Accounts.Avatars.put_face(user, "a")
+    assert has_element?(view, "#online-#{user.id} img[src$='/images/faces/a.png']")
     PresenceAggregator.reset_for_test()
     send(view.pid, :sample)
     assert has_element?(view, "#online-total", "0")

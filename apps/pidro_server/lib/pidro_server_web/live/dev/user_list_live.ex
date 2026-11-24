@@ -286,12 +286,14 @@ defmodule PidroServerWeb.Dev.UserListLive do
                 </tr>
               </thead>
               <tbody class="divide-y divide-stone-100 bg-white">
-                <tr :for={user <- @users} class="transition hover:bg-orange-50/50">
+                <tr
+                  :for={user <- @users}
+                  id={"player-#{user.id}"}
+                  class="transition hover:bg-orange-50/50"
+                >
                   <td class="px-4 py-3">
                     <div class="flex items-center gap-3">
-                      <div class="flex size-10 shrink-0 items-center justify-center rounded-md bg-stone-950 text-sm font-black text-white shadow-sm">
-                        {initials(User.public_name(user))}
-                      </div>
+                      <.player_avatar name={User.public_name(user)} url={user.avatar_url} />
                       <div>
                         <.link
                           navigate={~p"/admin/users/#{user.id}"}
@@ -549,15 +551,6 @@ defmodule PidroServerWeb.Dev.UserListLive do
   defp last_result(%{total: total, page: page, per_page: per_page}) do
     min(page * per_page, total)
   end
-
-  defp initials(username) when is_binary(username) do
-    username
-    |> String.trim()
-    |> String.slice(0, 2)
-    |> String.upcase()
-  end
-
-  defp initials(_username), do: "??"
 
   defp short_id(id) when is_binary(id), do: String.slice(id, 0, 8)
   defp short_id(_id), do: "unknown"

@@ -637,6 +637,10 @@ defmodule PidroServer.Games.RoomManager do
     GenServer.call(__MODULE__, {:list_rooms, filter})
   end
 
+  @doc "Counts in-progress rooms across owners without copying room state to the caller."
+  @spec count_playing_rooms() :: non_neg_integer()
+  def count_playing_rooms, do: GenServer.call(__MODULE__, :count_playing_rooms)
+
   @doc "Notifies every RoomManager node that user identity metadata changed."
   def identity_changed(user_id) do
     Phoenix.PubSub.broadcast(
@@ -1989,6 +1993,10 @@ defmodule PidroServer.Games.RoomManager do
       |> filter_rooms(filter)
 
     {:reply, rooms, state}
+  end
+
+  def handle_call(:count_playing_rooms, _from, %State{} = state) do
+    {:reply, Enum.count(listed_rooms(state), &(&1.status == :playing)), state}
   end
 
   @impl true

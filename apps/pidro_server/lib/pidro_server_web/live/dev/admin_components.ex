@@ -18,6 +18,32 @@ defmodule PidroServerWeb.Dev.AdminComponents do
 
   defp reload(_params, uri, socket), do: {:halt, Phoenix.LiveView.redirect(socket, external: uri)}
 
+  attr :name, :string, required: true
+  attr :url, :string, required: true
+  attr :class, :string, default: "size-10"
+
+  def player_avatar(assigns) do
+    ~H"""
+    <span
+      aria-hidden="true"
+      class={[
+        "relative grid shrink-0 place-items-center overflow-hidden rounded-full bg-sky-100 text-sm font-semibold text-sky-900",
+        @class
+      ]}
+    >
+      {@name |> String.trim() |> String.slice(0, 2) |> String.upcase()}
+      <%!-- With intrinsic sizing, a failed empty-alt image leaves the initials visible. --%>
+      <img
+        :if={@url}
+        src={@url}
+        alt=""
+        loading="lazy"
+        class="absolute left-0 top-0 max-h-full max-w-full bg-sky-100"
+      />
+    </span>
+    """
+  end
+
   attr :seats, :map, required: true
 
   def participant_teams(assigns) do
@@ -249,6 +275,11 @@ defmodule PidroServerWeb.Dev.AdminComponents do
                   ]}
                 >
                   <.icon name={icon} class="size-4 shrink-0" />{label}
+                  <.live_component
+                    :if={key == "games"}
+                    module={PidroServerWeb.Dev.LiveGameBadge}
+                    id="live-game-count"
+                  />
                   <span
                     :if={key == "store-builds" and @attention}
                     id="store-builds-attention"

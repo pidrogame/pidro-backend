@@ -12,6 +12,24 @@ defmodule PidroServerWeb.Dev.UserManagementLiveTest do
 
   setup :register_and_log_in_admin
 
+  test "player rows show the uploaded photo, chosen face, or initials", %{conn: conn} do
+    alias PidroServer.Accounts.{Avatars, UserAvatar}
+
+    photo = AccountsFixtures.user_fixture()
+    face = AccountsFixtures.guest_fixture()
+    plain = AccountsFixtures.user_fixture(%{display_name: "River"})
+    {:ok, _} = Avatars.put_face(photo, "a")
+    {:ok, _} = Avatars.put_face(face, "b")
+    PidroServer.Repo.insert!(%UserAvatar{user_id: photo.id, version: "portrait", image: "jpeg"})
+
+    {:ok, view, _} = live(conn, ~p"/admin/users")
+
+    assert has_element?(view, "#player-#{photo.id} img[src$='/avatar/portrait']")
+    assert has_element?(view, "#player-#{face.id} img[src$='/images/faces/b.png']")
+    refute has_element?(view, "#player-#{plain.id} img")
+    assert has_element?(view, "#player-#{plain.id} [aria-hidden='true']", "RI")
+  end
+
   @tag :flaky_connections
   test "player connection summary counts only the last seven days", %{conn: conn} do
     user = AccountsFixtures.user_fixture()

@@ -30,6 +30,19 @@ defmodule PidroServer.Accounts.Avatars do
   @doc "`resolve/3` for one user, looking up their photo."
   def url_for(%User{} = user), do: resolve(metadata_for(user.id), user.avatar_face, user.id)
 
+  @doc "Runs a user query with resolved avatar URLs, fetching only the photo version."
+  def list_users_with_urls(query) do
+    from(u in query,
+      left_join: a in UserAvatar,
+      on: a.user_id == u.id,
+      select: {u, a.version}
+    )
+    |> Repo.all()
+    |> Enum.map(fn {user, version} ->
+      %{user | avatar_url: resolve(version, user.avatar_face, user.id)}
+    end)
+  end
+
   @doc "What the player's own payloads say about their picture: /auth/me and GET /profile."
   def current_user_fields(user) do
     version = metadata_for(user.id)

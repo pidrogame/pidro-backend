@@ -4,13 +4,16 @@ defmodule PidroServerWeb.Dev.DashboardLive do
   import PidroServerWeb.Dev.AdminComponents
   import Ecto.Query
 
-  alias PidroServer.Accounts.{Auth, User}
+  alias PidroServer.Accounts.{Auth, Avatars, User}
   alias PidroServer.Games.{AdminGameSummary, PresenceAggregator, RoomManager}
   alias PidroServer.Repo
 
   @impl true
   def mount(_, _, socket) do
-    if connected?(socket), do: Process.send_after(self(), :sample, 2_000)
+    if connected?(socket) do
+      Phoenix.PubSub.subscribe(PidroServer.PubSub, "room_manager:identity")
+      Process.send_after(self(), :sample, 2_000)
+    end
 
     {:ok,
      socket
@@ -23,6 +26,16 @@ defmodule PidroServerWeb.Dev.DashboardLive do
     socket = sample(socket)
     Process.send_after(self(), :sample, 2_000)
     {:noreply, socket}
+  end
+
+  def handle_info({:identity_changed, id}, socket) do
+    profiles = socket.assigns.profiles
+
+    if Map.has_key?(profiles, id) do
+      {:noreply, assign(socket, :profiles, Map.merge(profiles, Auth.get_users_map([id])))}
+    else
+      {:noreply, socket}
+    end
   end
 
   def handle_info(message, socket) do
@@ -97,7 +110,7 @@ defmodule PidroServerWeb.Dev.DashboardLive do
         end
 
       recent =
-        Repo.all(
+        Avatars.list_users_with_urls(
           from u in User,
             where: u.inserted_at >= ^start and u.inserted_at < ^tomorrow,
             order_by: [desc: u.inserted_at, desc: u.id],
@@ -223,7 +236,12 @@ defmodule PidroServerWeb.Dev.DashboardLive do
           </p>
           <ul class="desk-people">
             <li :for={id <- @roster} id={"online-#{id}"}>
-              <span class="desk-avatar">{String.first(player_name(@profiles[id]))}</span><div>
+              <.player_avatar
+                name={player_name(@profiles[id])}
+                url={@profiles[id] && @profiles[id].avatar_url}
+                class="size-[34px]"
+              />
+              <div>
                 <.link :if={@profiles[id]} navigate={~p"/admin/users/#{id}"}>{player_name(
                   @profiles[id]
                 )}</.link><span :if={!@profiles[id]}>Player</span><small>{activity(@online[id])}</small>
@@ -277,7 +295,8 @@ defmodule PidroServerWeb.Dev.DashboardLive do
           <p :if={@recent == []} class="desk-empty">Today's newest players will appear here.</p>
           <ul class="desk-people">
             <li :for={user <- @recent}>
-              <span class="desk-avatar">{String.first(User.public_name(user))}</span><div>
+              <.player_avatar name={User.public_name(user)} url={user.avatar_url} class="size-[34px]" />
+              <div>
                 <.link navigate={~p"/admin/users/#{user.id}"}>{User.public_name(user)}</.link><small>{if user.guest,
                   do: "Guest account",
                   else: "Registered account"}</small>

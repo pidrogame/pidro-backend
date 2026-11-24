@@ -625,16 +625,8 @@ defmodule PidroServer.Accounts.Auth do
     if valid_uuids == [] do
       %{}
     else
-      from(u in User,
-        left_join: a in PidroServer.Accounts.UserAvatar,
-        on: a.user_id == u.id,
-        where: u.id in ^valid_uuids,
-        select: {u, a.version}
-      )
-      |> Repo.all()
-      |> Enum.map(fn {user, version} ->
-        %{user | avatar_url: Avatars.resolve(version, user.avatar_face, user.id)}
-      end)
+      from(u in User, where: u.id in ^valid_uuids)
+      |> Avatars.list_users_with_urls()
       |> with_badges()
       |> Map.new(&{&1.id, &1})
     end
@@ -683,7 +675,7 @@ defmodule PidroServer.Accounts.Auth do
       |> sort_users(Keyword.get(opts, :sort, :recent))
       |> limit(^per_page)
       |> offset(^((page - 1) * per_page))
-      |> Repo.all()
+      |> Avatars.list_users_with_urls()
 
     %{
       entries: entries,

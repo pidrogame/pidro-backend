@@ -95,6 +95,22 @@ defmodule PidroServerWeb.Dev.GameListLiveTest do
     refute has_element?(view, "#developer-controls[open]")
   end
 
+  test "sidebar on another admin page counts only games in progress", %{conn: conn} do
+    RoomFixtures.waiting_room_fixture()
+    {one, _} = playing_room()
+    {two, _} = playing_room()
+    {:ok, view, _} = live(conn, ~p"/admin/game-settings")
+    badge = "#admin-sidebar a[href='/admin/games'] #live-game-count"
+    eventually(fn -> assert has_element?(view, badge, "2 in progress") end)
+
+    send(RoomManager, {:game_over, one.code, :north_south, %{north_south: 62, east_west: 19}})
+    assert {:ok, %{status: :finished}} = RoomManager.get_room(one.code)
+    eventually(fn -> assert has_element?(view, badge, "1 in progress") end, 140)
+
+    :ok = RoomManager.close_room(two.code)
+    eventually(fn -> assert has_element?(view, badge <> "[hidden]") end, 140)
+  end
+
   test "renders pacing controls and saves runtime values", %{conn: conn} do
     {:ok, view, html} = live(conn, ~p"/admin/game-settings")
 
