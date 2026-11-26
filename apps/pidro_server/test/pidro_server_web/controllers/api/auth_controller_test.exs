@@ -571,8 +571,8 @@ defmodule PidroServerWeb.API.AuthControllerTest do
     defp classic_login(name, password, install_id \\ "install-455"),
       do: login(%{"username" => name, "password" => password, "install_id" => install_id})
 
-    defp move_classic!(classic_id, fields) do
-      AccountsFixtures.user_fixture()
+    defp move_classic!(classic_id, fields, attrs \\ %{}) do
+      AccountsFixtures.user_fixture(attrs)
       |> User.classic_claim_changeset(
         Map.merge(
           %{classic_user_id: classic_id, classic_claimed_at: ~U[2026-11-03 09:15:00.000000Z]},
@@ -667,9 +667,9 @@ defmodule PidroServerWeb.API.AuthControllerTest do
       refute_received {:classic_asked, _}
     end
 
-    test "a moved account answers how and when it moved, with no ticket and no token", ctx do
+    test "an Apple or Facebook moved account answers how and when it moved, with no ticket and no token",
+         ctx do
       for {classic_id, fields, method} <- [
-            {72_101, %{password_hash: "hash"}, "password"},
             {72_102, %{apple_sub: "owner-apple"}, "apple"},
             {72_103, %{facebook_id: "owner-facebook"}, "facebook"}
           ] do
@@ -703,6 +703,231 @@ defmodule PidroServerWeb.API.AuthControllerTest do
         assert Repo.aggregate(ClassicClaimTicket, :count) == tickets
         assert Repo.get!(User, owner.id).token_version == owner.token_version
       end
+    end
+
+    defp sign_in_link(params), do: post(build_conn(), ~p"/api/v1/classic/sign-in-link", params)
+
+    defp reset_token(email) do
+      [_url, token] = Regex.run(~r/reset-password\?token=([^\s"&<]+)/, email.text_body)
+      URI.decode_www_form(token)
+    end
+
+    test "PID-513: the public reset cannot reach a moved owner from the Classic login" do
+      owner =
+        move_classic!(72_110, %{password_hash: "hash"}, %{
+          username: "new_sara",
+          email: "sara@example.com"
+        })
+
+      for identifier <- ["OldSara", "old.sara@classic.example"] do
+        assert post(build_conn(), ~p"/api/v1/auth/password-reset", %{identifier: identifier})
+               |> json_response(200)
+      end
+
+      await_background_mail()
+      refute_received {:email, _}
+      assert Repo.get!(User, owner.id).password_reset_token_hash == nil
+      refute_received {:classic_asked, _}
+    end
+
+    test "PID-513: a moved password owner's ticket sends the owner the reset link", ctx do
+      owner =
+        move_classic!(72_111, %{password_hash: "hash"}, %{
+          username: "new_sara",
+          email: "sara@example.com"
+        })
+
+      profile =
+        classic_profile(72_111, "OldSara") |> Map.put("email", "old.sara@classic.example")
+
+      ctx.classic.({:ok, profile})
+
+      for login <- ["OldSara", "old.sara@classic.example"] do
+        body = classic_login(login, "old-password") |> json_response(200)
+
+        for schema <- ["Classic account moved response", "Password sign-in response"] do
+          OpenApiSpex.TestAssertions.assert_schema(body, schema, PidroServerWeb.ApiSpec.spec())
+        end
+
+        assert %{"ticket" => ticket, "expires_at" => _expires_at} = data = body["data"]
+
+        assert data["already_claimed"] == %{
+                 "sign_in_method" => "password",
+                 "claimed_at" => "2026-11-03T09:15:00.000000Z",
+                 "email_hint" => "s•••@example.com"
+               }
+
+        refute Map.has_key?(data, "token")
+        refute Map.has_key?(data["classic"], "new_account")
+
+        assert sign_in_link(%{ticket: ticket, install_id: "install-455"})
+               |> json_response(200) == %{"data" => %{"email_hint" => "s•••@example.com"}}
+
+        assert_received {:email, %{to: [{"new_sara", "sara@example.com"}]} = email}
+        assert email.html_body =~ "Choose a new password"
+        refute_received {:email, _}
+
+        # The ticket never claims the moved account.
+        assert build_conn()
+               |> post(~p"/api/v1/classic/claim", %{ticket: ticket, install_id: "install-455"})
+               |> json_response(409)
+
+        signed_in =
+          build_conn()
+          |> post(~p"/api/v1/auth/password-reset/confirm", %{
+            token: reset_token(email),
+            password: "brand new 513"
+          })
+          |> json_response(200)
+          |> Map.fetch!("data")
+
+        assert signed_in["user"]["id"] == owner.id
+        assert is_binary(signed_in["token"])
+      end
+
+      assert classic_login("new_sara", "brand new 513") |> json_response(200)
+      assert Repo.get!(User, owner.id).classic_user_id == 72_111
+
+      # A plain wrong password still says wrong password.
+      ctx.classic.(401)
+      tickets = Repo.aggregate(ClassicClaimTicket, :count)
+
+      assert classic_login("OldSara", "wrong-password") |> json_response(401) ==
+               @invalid_credentials
+
+      assert Repo.aggregate(ClassicClaimTicket, :count) == tickets
+    end
+
+    test "PID-513: a moved password owner without an email gets a null hint and no link", ctx do
+      owner = move_classic!(72_112, %{password_hash: "hash"})
+      Repo.update_all(from(u in User, where: u.id == ^owner.id), set: [email: nil])
+      ctx.classic.({:ok, classic_profile(72_112, "Moved")})
+
+      data = classic_login("Moved", "old-password") |> json_response(200) |> Map.fetch!("data")
+
+      assert data["already_claimed"] == %{
+               "sign_in_method" => "password",
+               "claimed_at" => "2026-11-03T09:15:00.000000Z",
+               "email_hint" => nil
+             }
+
+      assert %{"errors" => [%{"code" => "NOT_FOUND"}]} =
+               sign_in_link(%{ticket: data["ticket"], install_id: "install-455"})
+               |> json_response(404)
+
+      refute_received {:email, _}
+      assert Repo.get!(User, owner.id).password_reset_token_hash == nil
+    end
+
+    test "PID-513: the sign-in link refuses forged, expired, foreign and ownerless tickets",
+         ctx do
+      move_classic!(72_113, %{password_hash: "hash"}, %{email: "sara@example.com"})
+      apple_owner = move_classic!(72_114, %{apple_sub: "owner-apple"})
+      ctx.classic.({:ok, classic_profile(72_113, "Moved")})
+
+      ticket =
+        classic_login("Moved", "old-password") |> json_response(200) |> get_in(["data", "ticket"])
+
+      issue = fn classic_id, attrs ->
+        {:ok, %{ticket: ticket}} =
+          %{
+            classic_user_id: classic_id,
+            method: :password,
+            install_id: "install-455",
+            legacy_data: %{}
+          }
+          |> Map.merge(attrs)
+          |> ClassicClaims.issue_ticket()
+
+        ticket
+      end
+
+      # An Apple match or a signed-in verify proves no old password to this install.
+      apple = issue.(72_113, %{method: :apple, provider_id: "apple-sub"})
+      signed_in = issue.(72_113, %{install_id: nil, user_id: apple_owner.id})
+
+      for {params, status, code} <- [
+            {%{ticket: "forged", install_id: "install-455"}, 422, "INVALID_CLAIM_TICKET"},
+            {%{install_id: "install-455"}, 422, "INVALID_CLAIM_TICKET"},
+            {%{ticket: ticket, install_id: "other-install"}, 422,
+             "CLAIM_TICKET_BINDING_MISMATCH"},
+            {%{ticket: ticket}, 422, "CLAIM_TICKET_BINDING_MISMATCH"},
+            {%{ticket: apple, install_id: "install-455"}, 422, "INVALID_CLAIM_TICKET"},
+            {%{ticket: signed_in, install_id: "install-455"}, 422,
+             "CLAIM_TICKET_BINDING_MISMATCH"},
+            # Classic account still free, or owned by an Apple account.
+            {%{ticket: issue.(72_115, %{}), install_id: "install-455"}, 404, "NOT_FOUND"},
+            {%{ticket: issue.(72_114, %{}), install_id: "install-455"}, 404, "NOT_FOUND"}
+          ] do
+        assert %{"errors" => [%{"code" => ^code}]} = sign_in_link(params) |> json_response(status)
+      end
+
+      Repo.update_all(ClassicClaimTicket, set: [expires_at: DateTime.add(DateTime.utc_now(), -1)])
+
+      assert %{"errors" => [%{"code" => "CLAIM_TICKET_EXPIRED"}]} =
+               sign_in_link(%{ticket: ticket, install_id: "install-455"}) |> json_response(410)
+
+      refute_received {:email, _}
+      assert Repo.get!(User, apple_owner.id).password_reset_token_hash == nil
+    end
+
+    test "PID-513: the sign-in link shares the public reset's limits and answers 503 when mail fails",
+         ctx do
+      move_classic!(72_116, %{password_hash: "hash"}, %{email: "sara@example.com"})
+      ctx.classic.({:ok, classic_profile(72_116, "Moved")})
+
+      ticket =
+        classic_login("Moved", "old-password") |> json_response(200) |> get_in(["data", "ticket"])
+
+      link = %{ticket: ticket, install_id: "install-455"}
+
+      mailer_env = Application.fetch_env!(:pidro_server, PidroServer.Mailer)
+      reset_env = Application.fetch_env!(:pidro_server, :password_reset)
+      Application.put_env(:pidro_server, PidroServer.Mailer, adapter: ErrorMailer)
+      Application.put_env(:pidro_server, :password_reset, debug_tokens: false)
+
+      log =
+        capture_log(fn ->
+          assert %{"errors" => [%{"code" => "MAIL_UNAVAILABLE"}]} =
+                   sign_in_link(link) |> json_response(503)
+        end)
+
+      Application.put_env(:pidro_server, PidroServer.Mailer, mailer_env)
+      Application.put_env(:pidro_server, :password_reset, reset_env)
+      assert log =~ "Password reset email delivery failed"
+      refute log =~ "reset-password?token="
+
+      # The owner's address bucket is the public reset's: the failed try spent
+      # one of two, this send the other, and the public reset is denied too.
+      with_limit(:password_reset_identifier, 2, 3_600_000)
+      assert sign_in_link(link) |> json_response(200)
+      assert_received {:email, %{to: [{_name, "sara@example.com"}]}}
+
+      for denied <- [
+            sign_in_link(link),
+            post(build_conn(), ~p"/api/v1/auth/password-reset", %{identifier: "Sara@Example.com"})
+          ] do
+        assert %{"errors" => [%{"code" => "RATE_LIMITED"}]} = json_response(denied, 429)
+        assert [_seconds] = get_resp_header(denied, "retry-after")
+      end
+
+      # And the per-IP bucket is the public reset's too.
+      with_limit(:password_reset_identifier, 1_000_000, 3_600_000)
+      with_limit(:password_reset, 1, 900_000)
+      ip = {10, 5, 1, 3}
+
+      assert build_conn()
+             |> from_ip(ip)
+             |> post(~p"/api/v1/auth/password-reset", %{identifier: "x"})
+             |> json_response(200)
+
+      assert build_conn()
+             |> from_ip(ip)
+             |> post(~p"/api/v1/classic/sign-in-link", link)
+             |> json_response(429)
+
+      await_background_mail()
+      refute_received {:email, _}
     end
 
     test "wrong credentials answer the same 401 whether or not the name exists anywhere", ctx do

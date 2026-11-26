@@ -35,6 +35,7 @@ defmodule PidroServerWeb.API.AuthController do
   alias PidroServer.Accounts.{
     AgeTerms,
     Auth,
+    ClassicClaims,
     ClassicVerification,
     FacebookCredential,
     ProviderAuth,
@@ -169,7 +170,9 @@ defmodule PidroServerWeb.API.AuthController do
     against Classic. A Classic account not moved yet answers `classic_found`
     with an install-bound ticket, as Apple and Facebook sign-in do. One already
     moved answers `classic_found` with its preview and `already_claimed`
-    (`sign_in_method`, `claimed_at`), and no ticket or token.
+    (`sign_in_method`, `claimed_at`), and no token. When its owner signs in
+    with a password, it also answers a `ticket` for `/classic/sign-in-link`
+    and `already_claimed.email_hint`, null when the owner has no email.
     A try that reaches Classic also counts against the `classic_claim` limit
     shared with `/classic/verify`, and answers its 429 when that is spent.
 
@@ -581,6 +584,86 @@ defmodule PidroServerWeb.API.AuthController do
     |> json(%{data: password_reset_request_response(nil)})
   end
 
+  operation(:classic_sign_in_link,
+    summary: "Email the owner of a moved Classic account a password reset link",
+    description: """
+    Takes the `ticket` a password sign-in answered for a Classic account moved
+    to an account that signs in with a password, and sends that account the
+    password reset mail, whichever Classic login was typed. Answers the
+    `email_hint` it went to. Shares the public reset's per-IP limit and its
+    per-address limit, keyed on the owner's email.
+    """,
+    request_body:
+      {"Classic sign-in link request", "application/json",
+       %OpenApiSpex.Schema{
+         type: :object,
+         properties: %{
+           ticket: %OpenApiSpex.Schema{type: :string},
+           install_id: %OpenApiSpex.Schema{type: :string, maxLength: 64}
+         },
+         required: [:ticket, :install_id]
+       }},
+    responses: [
+      ok:
+        {"Reset link sent", "application/json",
+         %OpenApiSpex.Schema{
+           type: :object,
+           required: [:data],
+           properties: %{
+             data: %OpenApiSpex.Schema{
+               type: :object,
+               required: [:email_hint],
+               properties: %{
+                 email_hint: %OpenApiSpex.Schema{type: :string, example: "s•••@example.com"}
+               }
+             }
+           }
+         }},
+      not_found:
+        {"No password account with an email owns the Classic account", "application/json",
+         ErrorSchemas.not_found_error()},
+      gone: {"Ticket expired", "application/json", ErrorSchemas.error_response()},
+      unprocessable_entity:
+        {"Invalid ticket or install", "application/json", ErrorSchemas.error_response()},
+      too_many_requests:
+        {"Rate limit exceeded; see Retry-After", "application/json",
+         ErrorSchemas.too_many_requests_error()},
+      service_unavailable:
+        {"The mail could not be sent", "application/json", ErrorSchemas.error_response()}
+    ]
+  )
+
+  @doc """
+  Sends the password reset mail to the owner of a moved Classic account.
+
+  Unlike the public reset, the ticket already showed the player who owns the
+  account, so the mail goes out before the answer and a failure answers 503.
+  """
+  @spec classic_sign_in_link(Plug.Conn.t(), map()) :: Plug.Conn.t() | {:error, atom()}
+  def classic_sign_in_link(conn, %{"ticket" => ticket} = params) do
+    with {:ok, owner, hint} <- ClassicClaims.sign_in_link_owner(ticket, params),
+         %Plug.Conn{halted: false} <- limit_reset_address(conn, owner.email),
+         {:ok, reset} <- Auth.request_password_reset(owner) do
+      maybe_log_debug_password_reset(reset)
+
+      case deliver_password_reset(reset) do
+        {:ok, _sent} -> json(conn, %{data: %{email_hint: hint}})
+        {:error, _reason} -> {:error, :mail_unavailable}
+      end
+    end
+  end
+
+  def classic_sign_in_link(_conn, _params), do: {:error, :invalid_claim_ticket}
+
+  # The public reset's per-address bucket: one inbox gets no more links this
+  # way than by typing its address into the public reset.
+  defp limit_reset_address(conn, email) do
+    %{conn | params: %{"identifier" => email}}
+    |> put_private(:rate_limit, [:password_reset_identifier])
+    |> RateLimit.call([])
+    |> Map.put(:params, conn.params)
+  end
+
   operation(:reset_password,
     summary: "Reset a password with a reset token",
     description: """
@@ -892,23 +975,27 @@ defmodule PidroServerWeb.API.AuthController do
 
   defp maybe_deliver_password_reset(nil), do: :ok
 
-  defp maybe_deliver_password_reset(%{user: %{email: email} = user, token: token})
+  defp maybe_deliver_password_reset(%{user: %{email: email}} = reset)
        when is_binary(email) and email != "" do
     # Sent after the answer: neither its time nor its outcome may tell a known
     # address from an unknown one. `deliver_logged/2` catches every failure, so
     # the task never crashes with the mail in its exit reason.
     Task.Supervisor.start_child(PidroServer.TaskSupervisor, fn ->
-      Emails.transactional_email(:password_reset, {user.username || email, email}, %{
-        username: if(String.trim(user.username || "") == "", do: "there", else: user.username),
-        reset_url: password_reset_url(token)
-      })
-      |> Mailer.deliver_logged("Password reset")
+      deliver_password_reset(reset)
     end)
 
     :ok
   end
 
   defp maybe_deliver_password_reset(_reset), do: :ok
+
+  defp deliver_password_reset(%{user: %{email: email} = user, token: token}) do
+    Emails.transactional_email(:password_reset, {user.username || email, email}, %{
+      username: if(String.trim(user.username || "") == "", do: "there", else: user.username),
+      reset_url: password_reset_url(token)
+    })
+    |> Mailer.deliver_logged("Password reset")
+  end
 
   defp maybe_log_debug_password_reset(nil), do: :ok
 

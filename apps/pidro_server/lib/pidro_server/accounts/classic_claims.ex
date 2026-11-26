@@ -145,6 +145,9 @@ defmodule PidroServer.Accounts.ClassicClaims do
   @doc """
   How and when a Classic account was moved here, or nil while it is free.
   Password sign-in answers this to a player who typed an old-app password.
+  An owner who signs in with a password also gets the `email_hint` of the
+  address a reset link would reach, nil without one: the player has just
+  proved they know that account's old password.
   """
   def already_moved(classic_user_id, method) do
     case Repo.get_by(User, classic_user_id: classic_user_id) do
@@ -152,9 +155,53 @@ defmodule PidroServer.Accounts.ClassicClaims do
         nil
 
       owner ->
-        %{sign_in_method: sign_in_method(owner, method), claimed_at: owner.classic_claimed_at}
+        moved = %{
+          sign_in_method: sign_in_method(owner, method),
+          claimed_at: owner.classic_claimed_at
+        }
+
+        if moved.sign_in_method == :password,
+          do: Map.put(moved, :email_hint, email_hint(owner.email)),
+          else: moved
     end
   end
+
+  @doc """
+  The password account that owns a ticket's Classic account and the
+  `email_hint` of the address a reset link would reach. A live, install-bound
+  password ticket proves the player knows the old-app password, so the link
+  goes to the owner whatever Classic login they typed.
+  """
+  def sign_in_link_owner(token, params) when is_binary(token) and is_map(params) do
+    with %ClassicClaimTicket{method: :password} = ticket <-
+           find_ticket(token) || {:error, :invalid_claim_ticket},
+         :ok <- validate_binding(ticket, nil, params),
+         :ok <- validate_expiry(ticket, DateTime.utc_now()),
+         %User{password_hash: hash} = owner when is_binary(hash) <-
+           Repo.get_by(User, classic_user_id: ticket.classic_user_id),
+         hint when is_binary(hint) <- email_hint(owner.email) do
+      {:ok, owner, hint}
+    else
+      %ClassicClaimTicket{} -> {:error, :invalid_claim_ticket}
+      {:error, reason} -> {:error, reason}
+      _no_address -> {:error, :not_found}
+    end
+  end
+
+  def sign_in_link_owner(_token, _params), do: {:error, :invalid_claim_ticket}
+
+  @doc "An address shown as its first character, `•••` and its domain, or nil."
+  def email_hint(email) when is_binary(email) do
+    case String.split(email, "@") do
+      [<<first::utf8, _rest::binary>>, domain] when domain != "" ->
+        <<first::utf8>> <> "•••@" <> domain
+
+      _no_address ->
+        nil
+    end
+  end
+
+  def email_hint(_email), do: nil
 
   @doc "Redeems a ticket for the current user, or creates a user for an install-bound claim."
   def redeem(token, current_user, params)

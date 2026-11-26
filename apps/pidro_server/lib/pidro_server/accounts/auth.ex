@@ -522,7 +522,8 @@ defmodule PidroServer.Accounts.Auth do
   end
 
   @doc """
-  Requests a password reset for a username or email address.
+  Requests a password reset for a username or email address, or for a user
+  the caller has already found.
 
   Returns `{:ok, nil}` when the account does not exist so callers can avoid
   account enumeration. When a user is found, stores a hashed reset token and
@@ -530,22 +531,23 @@ defmodule PidroServer.Accounts.Auth do
   """
   def request_password_reset(identifier) when is_binary(identifier) do
     case get_user_by_username_or_email(identifier) do
-      nil ->
-        {:ok, nil}
+      nil -> {:ok, nil}
+      %User{} = user -> request_password_reset(user)
+    end
+  end
 
-      %User{} = user ->
-        token = generate_password_reset_token()
-        token_hash = hash_password_reset_token(token)
+  def request_password_reset(%User{} = user) do
+    token = generate_password_reset_token()
+    token_hash = hash_password_reset_token(token)
 
-        with {:ok, user} <-
-               user
-               |> User.password_reset_changeset(%{
-                 password_reset_token_hash: token_hash,
-                 password_reset_sent_at: DateTime.utc_now()
-               })
-               |> Repo.update() do
-          {:ok, %{user: user, token: token}}
-        end
+    with {:ok, user} <-
+           user
+           |> User.password_reset_changeset(%{
+             password_reset_token_hash: token_hash,
+             password_reset_sent_at: DateTime.utc_now()
+           })
+           |> Repo.update() do
+      {:ok, %{user: user, token: token}}
     end
   end
 

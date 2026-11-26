@@ -60,6 +60,21 @@ defmodule PidroServer.Accounts.ClassicClaimsTest do
     end
   end
 
+  test "email_hint/1 keeps the first character and the whole domain" do
+    for {email, hint} <- [
+          {"sara@example.com", "s•••@example.com"},
+          {"Åsa.b@posti.fi", "Å•••@posti.fi"},
+          {"x@mail.example.co.uk", "x•••@mail.example.co.uk"},
+          {nil, nil},
+          {"", nil},
+          {"no-at-sign", nil},
+          {"@example.com", nil},
+          {"sara@", nil}
+        ] do
+      assert ClassicClaims.email_hint(email) == hint
+    end
+  end
+
   defp link!(user, classic_user_id, fields) do
     user
     |> User.classic_claim_changeset(

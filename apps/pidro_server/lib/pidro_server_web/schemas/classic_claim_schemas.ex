@@ -146,6 +146,7 @@ defmodule PidroServerWeb.Schemas.ClassicClaimSchemas do
         "Present when another player owns the Classic account; names how that player signs in.",
       nullable: true,
       required: [:sign_in_method],
+      additionalProperties: false,
       properties: %{
         sign_in_method: %Schema{
           type: :string,
@@ -205,7 +206,7 @@ defmodule PidroServerWeb.Schemas.ClassicClaimSchemas do
       type: :object,
       title: "Classic account moved response",
       description:
-        "Password sign-in with an old-app password for an account already moved here: no ticket, no token.",
+        "Password sign-in with an old-app password for an account already moved here: no token. An owner who signs in with a password also gets a ticket for /classic/sign-in-link and an email_hint, null without an email.",
       properties: %{
         data: %Schema{
           type: :object,
@@ -213,6 +214,8 @@ defmodule PidroServerWeb.Schemas.ClassicClaimSchemas do
           additionalProperties: false,
           properties: %{
             classic_found: %Schema{type: :boolean, enum: [true]},
+            ticket: %Schema{type: :string},
+            expires_at: %Schema{type: :string, format: :"date-time"},
             classic: ClassicPreview,
             already_claimed: %Schema{
               type: :object,
@@ -223,7 +226,8 @@ defmodule PidroServerWeb.Schemas.ClassicClaimSchemas do
                   enum: ["password", "apple", "facebook"],
                   nullable: true
                 },
-                claimed_at: %Schema{type: :string, format: :"date-time"}
+                claimed_at: %Schema{type: :string, format: :"date-time"},
+                email_hint: %Schema{type: :string, nullable: true, example: "s•••@example.com"}
               }
             }
           }

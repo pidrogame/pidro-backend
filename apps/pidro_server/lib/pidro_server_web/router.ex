@@ -179,6 +179,10 @@ defmodule PidroServerWeb.Router do
     post "/auth/password-reset/confirm", AuthController, :reset_password,
       private: %{rate_limit: [:password_reset_confirm]}
 
+    # The reset mail for a moved Classic account's owner, sent on its ticket.
+    post "/classic/sign-in-link", AuthController, :classic_sign_in_link,
+      private: %{rate_limit: [:password_reset]}
+
     # Direct and invited guest creation share the address, daily and install
     # abuse limits.
     post "/auth/guest", AuthController, :guest,

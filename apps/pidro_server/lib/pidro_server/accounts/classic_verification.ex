@@ -64,8 +64,10 @@ defmodule PidroServer.Accounts.ClassicVerification do
 
   A match answers like an Apple or Facebook match, with an install-bound
   ticket. A Classic account already moved here answers its preview and how
-  and when it was moved, and no ticket: the old password never signs anyone
-  in to it and never moves it again.
+  and when it was moved: the old password never signs anyone in to it and
+  never moves it again. An owner who signs in with a password also gets a
+  ticket, which can only send that owner a reset link; claiming with it
+  answers the claim's 409.
   """
   def verify_sign_in(login, password, params, opts \\ []) do
     classic = Keyword.get(opts, :classic_client, ClassicClient)
@@ -76,16 +78,32 @@ defmodule PidroServer.Accounts.ClassicVerification do
          {:ok, classic_user_id} <- classic_user_id(profile) do
       case ClassicClaims.already_moved(classic_user_id, :password) do
         nil -> issue_ticket(binding, :password, profile, nil, :password, nil)
-        moved -> moved(profile, moved)
+        moved -> moved(binding, profile, classic_user_id, moved)
       end
     end
   end
 
-  defp moved(profile, moved) do
-    with {:ok, preview} <- profile |> legacy_data() |> preview() do
-      {:ok, %{classic: preview, already_claimed: moved}}
+  defp moved(binding, profile, classic_user_id, moved) do
+    legacy = legacy_data(profile)
+
+    with {:ok, preview} <- preview(legacy),
+         {:ok, ticket} <- moved_ticket(binding, classic_user_id, legacy, moved) do
+      {:ok, Map.merge(ticket, %{classic: preview, already_claimed: moved})}
     end
   end
+
+  defp moved_ticket(binding, classic_user_id, legacy, %{sign_in_method: :password}) do
+    binding
+    |> Map.merge(%{
+      classic_user_id: classic_user_id,
+      method: :password,
+      matched_on: :password,
+      legacy_data: legacy
+    })
+    |> ClassicClaims.issue_ticket()
+  end
+
+  defp moved_ticket(_binding, _classic_user_id, _legacy, _moved), do: {:ok, %{}}
 
   @doc "The user or install binding shared by Classic ownership proofs."
   def binding(%{id: user_id}, _params), do: {:ok, %{user_id: user_id}}
