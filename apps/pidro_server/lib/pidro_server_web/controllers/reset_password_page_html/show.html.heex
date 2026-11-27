@@ -104,20 +104,18 @@
         </script>
       </section>
     <% :sent -> %>
-      <h1>{@copy.heading}</h1>
-      <section class="invite-panel" data-state="sent">
-        <p class="invite-notice invite-notice--info" role="status">
-          <svg
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            aria-hidden="true"
-          >
-            <path d="M4 6h16v12H4z M4 7l8 6 8-6" stroke-linejoin="round" />
-          </svg>
-          {@copy.sent}
-        </p>
+      <div class="invite-icon-tile" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+          <rect x="3" y="5" width="18" height="14" rx="2" /><path
+            d="m3 7 9 6 9-6"
+            stroke-linejoin="round"
+          />
+        </svg>
+      </div>
+      <h1>{@copy.sent_heading}</h1>
+      <section class="invite-panel" data-state="sent" role="status">
+        <p class="invite-copy">{@copy.sent}</p>
+        <p class="invite-copy">{@copy.lifetime}</p>
       </section>
   <% end %>
 </main>

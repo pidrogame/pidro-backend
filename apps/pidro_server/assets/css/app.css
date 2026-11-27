@@ -325,6 +325,25 @@
   letter-spacing: -0.01em;
 }
 
+/* The app's icon tile, like the envelope on its "Check your email". */
+.invite-icon-tile {
+  display: flex;
+  width: 4.75rem;
+  height: 4.75rem;
+  align-items: center;
+  justify-content: center;
+  margin: 0.5rem auto 0;
+  border: 1px solid rgb(91 221 255 / 68%);
+  border-radius: 18px;
+  background-color: rgb(7 45 82 / 82%);
+  color: #46dcff;
+}
+
+.invite-icon-tile svg {
+  width: 2.5rem;
+  height: 2.5rem;
+}
+
 /* A form field in the panel, like the app's text input. */
 .invite-form {
   display: grid;

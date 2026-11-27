@@ -380,6 +380,8 @@ defmodule PidroServerWeb.InvitePageControllerTest do
       document = conn |> html_response(404) |> LazyHTML.from_document()
 
       assert LazyHTML.text(LazyHTML.query(document, "h1")) =~ "invite"
+      # The heading says it once; no line above it saying it again.
+      refute LazyHTML.text(document) =~ "Invite not found"
       assert attribute(document, "meta[property='og:title']", "content") == "Come play Pidro"
       refute html_response(conn, 404) =~ "ZZZZZZZZ"
 

@@ -166,9 +166,11 @@ defmodule PidroServerWeb.ResetPasswordPageControllerTest do
     end
 
     defp sent?(page) do
-      text(page, "h1") == "Choose a new password" and
-        text(page, ".invite-notice--info") ==
-          "If that matches a Pidro account, a link to choose a new password is on its way."
+      text(page, "h1") == "Check your email" and
+        page |> LazyHTML.query("[data-state=sent] p") |> Enum.map(&LazyHTML.text/1) == [
+          "If that matches a Pidro account, a link to choose a new password is on its way.",
+          "The link works for one hour."
+        ]
     end
 
     test "a known name mails a new link that works, and the old one dies", %{token: old} do
@@ -240,7 +242,8 @@ defmodule PidroServerWeb.ResetPasswordPageControllerTest do
         |> new_link("nobody-at-all")
         |> document(200)
 
-      assert text(swedish, ".invite-notice--info") =~ "Om uppgifterna matchar ett Pidro-konto"
+      assert text(swedish, "h1") == "Kolla din e-post"
+      assert text(swedish, "[data-state=sent]") =~ "Länken fungerar i en timme."
 
       assert build_conn()
              |> post(~p"/app/reset-password/link", %{})

@@ -1,7 +1,7 @@
 defmodule PidroServerWeb.ResetPasswordPageHTML do
   @moduledoc """
   The browser reset page, in English and Swedish. The words are the app's own
-  (`auth.choose_password`, `auth.reset_invalid`, `auth.new_link` ...), so
+  (`auth.choose_password`, `auth.reset_invalid`, `auth.check_inbox` ...), so
   the page and the app's reset screen say the same thing.
   """
 
@@ -31,7 +31,9 @@ defmodule PidroServerWeb.ResetPasswordPageHTML do
       invalid: "This reset link is missing or no longer valid.",
       identifier: "Player name or email",
       new_link: "Send a new link",
-      sent: "If that matches a Pidro account, a link to choose a new password is on its way."
+      sent_heading: "Check your email",
+      sent: "If that matches a Pidro account, a link to choose a new password is on its way.",
+      lifetime: "The link works for one hour."
     },
     sv: %{
       lang: "sv",
@@ -52,8 +54,10 @@ defmodule PidroServerWeb.ResetPasswordPageHTML do
       invalid: "Återställningslänken saknas eller är inte längre giltig.",
       identifier: "Spelarnamn eller e-post",
       new_link: "Hämta en ny länk",
+      sent_heading: "Kolla din e-post",
       sent:
-        "Om uppgifterna matchar ett Pidro-konto är en länk för att välja ett nytt lösenord på väg."
+        "Om uppgifterna matchar ett Pidro-konto är en länk för att välja ett nytt lösenord på väg.",
+      lifetime: "Länken fungerar i en timme."
     }
   }
 

@@ -53,7 +53,6 @@ defmodule PidroServerWeb.InvitePage do
       canonical_url: nil,
       title: "Come play Pidro",
       description: "This invite could not be found. Open Pidro to find a table and play.",
-      eyebrow: "Invite not found",
       heading: "We couldn't find that invite",
       body:
         "The link may be incomplete or no longer available. You can still open Pidro and find a table.",
