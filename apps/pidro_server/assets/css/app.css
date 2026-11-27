@@ -20,11 +20,30 @@
   themes: false;
 }
 
-/* Public invite handoff ---------------------------------------------------- */
+/* Link pages: /j/:code, /play/:slug and /app/reset-password --------------- */
+/* The app's look: its felt, Bree Serif gold titles, Nunito text, its window
+   panel and its wood button (pidro-frontend src/design/tokens.ts). Fonts and
+   the felt are served with the CSS, so they load from its origin. */
+
+@font-face {
+  font-family: "Bree Serif";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/fonts/BreeSerif-Regular.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: Nunito;
+  font-style: normal;
+  font-weight: 200 1000;
+  font-display: swap;
+  src: url("/fonts/Nunito.woff2") format("woff2");
+}
 
 .invite-document {
   color-scheme: dark;
-  background: #06152b;
+  background-color: #07264c;
 }
 
 .invite-document,
@@ -34,117 +53,95 @@
 }
 
 .invite-document body {
-  background-color: #071a36;
-  color: #f8fbff;
-  font-family:
-    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background:
+    linear-gradient(rgb(2 21 42 / 30%), rgb(2 21 42 / 30%)),
+    url("/images/invite/felt.webp") center / cover no-repeat,
+    #07264c;
+  color: #ffffff;
+  font-family: Nunito, ui-sans-serif, system-ui, sans-serif;
+  font-weight: 500;
 }
 
 .invite-shell {
-  position: relative;
-  display: grid;
+  display: flex;
   min-height: 100svh;
-  place-items: center;
-  overflow: hidden;
-  padding: 1rem;
-  isolation: isolate;
-}
-
-.invite-shell::before {
-  position: absolute;
-  z-index: -1;
-  width: min(82vw, 42rem);
-  height: min(82vw, 42rem);
-  border: 1px solid rgb(87 219 240 / 18%);
-  border-radius: 50%;
-  box-shadow:
-    0 0 0 5rem rgb(8 48 87 / 32%),
-    0 0 0 10rem rgb(4 27 56 / 45%);
-  content: "";
-}
-
-.invite-panel {
-  position: relative;
-  width: min(100%, 40rem);
-  padding: 1.5rem 1.25rem 1.25rem;
-  overflow: hidden;
-  border: 1px solid rgb(126 198 230 / 25%);
-  border-top: 3px solid #f2c94c;
-  border-radius: 1.75rem 0.65rem 1.75rem 0.65rem;
-  background-color: rgb(5 30 62 / 94%);
-  box-shadow: 0 1.75rem 5rem rgb(0 0 0 / 42%);
+  box-sizing: border-box;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  padding: 1.5rem 1rem 2rem;
   text-align: center;
 }
 
-.invite-panel::after {
-  position: absolute;
-  right: -2.5rem;
-  bottom: -3.25rem;
-  width: 9rem;
-  height: 9rem;
-  border: 1px solid rgb(242 201 76 / 24%);
-  border-radius: 50%;
-  content: "";
-}
-
-.invite-brand {
-  display: flex;
-  min-height: 5.75rem;
-  align-items: center;
-  justify-content: center;
-  margin: -0.5rem auto 0.5rem;
+.invite-shell > * {
+  width: 100%;
+  max-width: 26rem;
+  box-sizing: border-box;
 }
 
 .invite-brand img {
-  width: 10.75rem;
+  width: 9.5rem;
   height: auto;
-  filter: drop-shadow(0 0.75rem 1.25rem rgb(36 216 242 / 16%));
+  margin: 0 auto;
 }
 
 .invite-eyebrow {
-  margin: 0 0 0.6rem;
-  color: #f2c94c;
-  font-size: 0.75rem;
+  margin: 0;
+  color: rgb(239 249 255 / 78%);
+  font-size: 1rem;
   font-weight: 800;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
 }
 
-.invite-panel h1 {
-  max-width: 17ch;
-  margin: 0 auto;
-  color: #ffffff;
-  font-size: clamp(2rem, 8vw, 3.25rem);
-  font-weight: 850;
-  letter-spacing: -0.045em;
-  line-height: 0.98;
+.invite-shell h1 {
+  margin: 0;
+  color: #ffd447;
+  font-family: "Bree Serif", Georgia, serif;
+  font-size: clamp(1.85rem, 7.5vw, 2.4rem);
+  font-weight: 400;
+  line-height: 1.2;
+  text-shadow: 0 2px 3px rgb(20 8 0 / 60%);
   text-wrap: balance;
   overflow-wrap: anywhere;
 }
 
+/* The app's window: one quiet panel under the title. */
+.invite-panel {
+  display: grid;
+  gap: 0.9rem;
+  margin-top: 0.5rem;
+  padding: 1.25rem;
+  border: 1px solid rgb(91 221 255 / 68%);
+  border-radius: 0.75rem;
+  background-color: rgb(5 36 69 / 96%);
+  box-shadow: 0 10px 30px rgb(1 13 27 / 45%);
+}
+
+.invite-panel > * {
+  margin: 0;
+}
+
 .invite-copy {
-  max-width: 34rem;
-  margin: 1rem auto 0;
-  color: #b9cce3;
+  color: rgb(239 249 255 / 78%);
   font-size: 1rem;
-  line-height: 1.6;
+  line-height: 1.45;
   text-wrap: pretty;
 }
 
 .invite-avatar {
   display: flex;
-  width: 6rem;
-  height: 6rem;
+  width: 5.5rem;
+  height: 5.5rem;
   align-items: center;
   justify-content: center;
-  margin: 0 auto 1rem;
+  margin: 0 auto;
   overflow: hidden;
-  border: 2px solid #f2c94c;
+  border: 2px solid #e2af45;
   border-radius: 50%;
-  background: #0d2a52;
-  color: #f2c94c;
-  font-size: 2.5rem;
-  font-weight: 800;
+  background-color: rgb(18 74 119 / 80%);
+  color: #ffd447;
+  font-family: "Bree Serif", Georgia, serif;
+  font-size: 2.25rem;
 }
 
 .invite-avatar img {
@@ -155,302 +152,325 @@
 
 .invite-seat-count {
   display: flex;
-  width: fit-content;
   align-items: center;
-  gap: 0.7rem;
-  margin: 1.15rem auto 0;
-  color: #dce9f7;
-  font-size: 0.88rem;
+  justify-content: center;
+  gap: 0.6rem;
+  color: #ffffff;
+  font-weight: 800;
 }
 
 .invite-seat-dots {
-  display: flex;
+  display: inline-flex;
   gap: 0.3rem;
 }
 
 .invite-seat-dots i {
-  display: block;
-  width: 0.62rem;
-  height: 0.62rem;
-  border: 1px solid #5f7897;
+  width: 0.7rem;
+  height: 0.7rem;
+  border: 1.5px solid #e2af45;
   border-radius: 50%;
-  background-color: transparent;
 }
 
 .invite-seat-dots i.is-filled {
-  border-color: #57dbf0;
-  background-color: #57dbf0;
-  box-shadow: 0 0 0.55rem rgb(87 219 240 / 38%);
+  background-color: #e2af45;
 }
 
 .invite-actions {
-  margin-top: 1.4rem;
+  display: grid;
+  gap: 0.9rem;
 }
 
+.invite-actions > * {
+  margin: 0;
+}
+
+/* The app's wood button: gold rim, dark keyline, wood face, gloss on top. */
 .invite-primary {
-  display: inline-flex;
-  min-width: min(100%, 18rem);
-  min-height: 3.25rem;
+  display: flex;
+  width: 100%;
+  min-height: 3.75rem;
+  box-sizing: border-box;
   align-items: center;
   justify-content: center;
-  padding: 0.75rem 1.25rem;
-  border: 1px solid #79e8f8;
-  border-radius: 0.6rem;
-  background-color: #57dbf0;
-  box-shadow: 0 0.85rem 2.4rem rgb(36 216 242 / 18%);
-  color: #04152d;
-  font-size: 1rem;
-  font-weight: 850;
+  padding: 0.5rem 1rem 0.8rem;
+  border: 2.5px solid transparent;
+  border-radius: 14px;
+  background:
+    linear-gradient(rgb(255 248 225 / 30%), rgb(255 248 225 / 8%)) padding-box top / 100% 46%
+      no-repeat,
+    linear-gradient(#b57a31 0%, #91541c 42%, #6c370e 78%, #4e2509 100%) padding-box,
+    linear-gradient(#f6de9a 0%, #e2af45 35%, #c4892a 65%, #8f5e12 100%) border-box;
+  box-shadow:
+    inset 0 0 0 1.5px #2a1505,
+    inset 0 3.5px 0 rgb(255 240 200 / 40%),
+    inset 0 -7.5px 0 rgb(0 0 0 / 34%),
+    0 8px 16px rgb(0 0 0 / 50%),
+    0 2px 4px rgb(0 0 0 / 35%);
+  color: #ffd447;
+  cursor: pointer;
+  font-family: "Bree Serif", Georgia, serif;
+  font-size: 1.5rem;
+  font-weight: 400;
+  line-height: 1.2;
   text-decoration: none;
-  transition:
-    transform 150ms ease,
-    background-color 150ms ease,
-    box-shadow 150ms ease;
+  text-shadow: 0 2px 3px rgb(20 8 0 / 60%);
 }
 
 .invite-primary:hover {
-  background-color: #83e9f7;
-  box-shadow: 0 1rem 2.75rem rgb(36 216 242 / 25%);
-  transform: translateY(-1px);
+  filter: brightness(1.06);
 }
 
 .invite-primary:active {
-  transform: translateY(1px);
+  box-shadow:
+    inset 0 0 0 1.5px #2a1505,
+    inset 0 3.5px 0 rgb(255 240 200 / 26%),
+    inset 0 -4.5px 0 rgb(0 0 0 / 30%),
+    0 3px 7px rgb(0 0 0 / 45%);
+  transform: translateY(2px);
+}
+
+.invite-primary:disabled {
+  cursor: progress;
+  filter: saturate(0.7) brightness(0.85);
 }
 
 .invite-primary:focus-visible,
 .invite-store-links a:focus-visible,
-.invite-fallback a:focus-visible,
-.invite-privacy-note a:focus-visible {
-  outline: 3px solid #f2c94c;
-  outline-offset: 4px;
+.invite-panel a:focus-visible {
+  outline: 3px solid rgb(139 234 255 / 80%);
+  outline-offset: 3px;
 }
 
 .invite-desktop-note {
-  margin: 0 0 0.85rem;
-  color: #f7fbff;
-  font-size: 1rem;
-  font-weight: 750;
+  color: #ffffff;
+  font-size: 1.05rem;
+  font-weight: 800;
 }
 
-.invite-store-label {
-  margin: 1.15rem 0 0.7rem;
-  color: #8ea7c4;
-  font-size: 0.76rem;
-  font-weight: 750;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+.invite-store-label,
+.invite-privacy-note,
+.invite-fallback,
+.invite-install-note,
+.invite-code {
+  color: rgb(218 237 247 / 70%);
+  font-size: 0.9rem;
+  line-height: 1.45;
 }
 
+.invite-privacy-note {
+  font-size: 0.8rem;
+}
+
+.invite-panel p a {
+  color: #ffffff;
+  font-weight: 700;
+}
+
+.invite-install-note strong,
+.invite-code strong {
+  color: #ffffff;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+}
+
+/* Store badges: one size and shape, stacked on a phone, side by side wider. */
 .invite-store-links {
   display: flex;
-  flex-wrap: wrap;
+  flex-direction: column;
   align-items: center;
-  justify-content: center;
-  gap: 0.65rem;
+  gap: 0.6rem;
 }
 
 .invite-store-links a {
   display: inline-flex;
-  min-width: 9.5rem;
-  min-height: 3.25rem;
-  align-items: center;
-  justify-content: center;
-  border-radius: 0.45rem;
+  border-radius: 0.5rem;
 }
 
 .invite-store-links img {
   display: block;
   width: auto;
-  max-width: 10.5rem;
-  height: 3.05rem;
-  object-fit: contain;
+  height: 3.125rem;
 }
 
-.invite-privacy-note {
-  max-width: 30rem;
-  margin: 0.8rem auto 0;
-  color: #829bb7;
-  font-size: 0.76rem;
-  line-height: 1.45;
+.invite-badge {
+  box-sizing: border-box;
+  width: 10.5rem;
+  height: 3.125rem;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0 0.85rem 0 0.75rem;
+  border: 1px solid #a6a6a6;
+  background-color: #000000;
+  color: #ffffff;
+  font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif;
+  text-align: left;
+  text-decoration: none;
 }
 
-.invite-privacy-note a {
-  color: #b9cce3;
-  font-weight: 700;
+.invite-badge svg {
+  width: 1.65rem;
+  height: 1.65rem;
+  flex: none;
 }
 
-.invite-fallback,
-.invite-install-note {
-  margin: 1rem 0 0;
-  color: #b9cce3;
+.invite-badge span {
+  display: grid;
+  font-size: 0.7rem;
+  line-height: 1.1;
+}
+
+.invite-badge strong {
+  font-size: 1.3rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+/* A form field in the panel, like the app's text input. */
+.invite-form {
+  display: grid;
+  gap: 0.5rem;
+  text-align: left;
+}
+
+.invite-form label {
+  color: rgb(239 249 255 / 78%);
   font-size: 0.9rem;
+  font-weight: 800;
 }
 
-.invite-fallback a,
-.invite-store-links a.invite-store-text {
-  color: #87e8f5;
+.invite-field {
+  display: flex;
+  border: 1px solid rgb(184 225 246 / 28%);
+  border-radius: 0.5rem;
+  background-color: #08243d;
+}
+
+.invite-field:focus-within {
+  border-color: rgb(139 234 255 / 80%);
+  box-shadow: 0 0 0 3px rgb(139 234 255 / 30%);
+}
+
+.invite-field input {
+  min-width: 0;
+  min-height: 3.1rem;
+  flex: 1;
+  padding: 0 0.85rem;
+  border: 0;
+  background: transparent;
+  color: #ffffff;
+  font: inherit;
+  font-size: 1rem;
+  font-weight: 600;
+  outline: none;
+}
+
+.invite-field button {
+  padding: 0 0.85rem;
+  border: 0;
+  background: transparent;
+  color: #8beaff;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 800;
+}
+
+.invite-form .invite-hint {
+  margin: 0 0 0.5rem;
+  color: rgb(218 237 247 / 62%);
+  font-size: 0.85rem;
+}
+
+.invite-form .invite-hint--error {
+  color: #ffe3e3;
   font-weight: 700;
 }
 
-.invite-install-note strong {
-  color: #f7fbff;
-  letter-spacing: 0.08em;
-  white-space: nowrap;
+/* The app's notice: a danger one for a refusal, an info one for an answer. */
+.invite-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid rgb(255 138 145 / 58%);
+  border-radius: 0.5rem;
+  background-color: rgb(112 24 32 / 58%);
+  color: #ffe3e3;
+  font-size: 0.9rem;
+  font-weight: 700;
+  line-height: 1.35;
+  text-align: left;
+}
+
+.invite-notice svg {
+  width: 1.15rem;
+  height: 1.15rem;
+  flex: none;
+  margin-top: 0.05rem;
+  color: #ff9b9b;
+}
+
+.invite-notice--info {
+  border-color: rgb(91 221 255 / 42%);
+  background-color: rgb(18 74 119 / 58%);
+  color: #ffffff;
+}
+
+.invite-notice--info svg {
+  color: #8beaff;
 }
 
 .invite-qr {
   display: grid;
   width: fit-content;
   justify-items: center;
-  gap: 0.6rem;
-  margin: 1.35rem auto 0;
+  gap: 0.5rem;
+  margin: 0 auto;
 }
 
 .invite-qr img {
-  width: 11.5rem;
-  height: 11.5rem;
+  width: 10rem;
+  height: 10rem;
   padding: 0.5rem;
-  border: 1px solid rgb(242 201 76 / 48%);
-  border-radius: 0.75rem;
+  border-radius: 0.6rem;
   background: #ffffff;
 }
 
 .invite-qr figcaption {
-  color: #a9bdd5;
-  font-size: 0.82rem;
-}
-
-.invite-code {
-  margin: 1.1rem 0 0;
-  color: #829bb7;
-  font-size: 0.78rem;
-}
-
-.invite-code strong {
-  color: #c6d8eb;
-  font-variant-numeric: tabular-nums;
-  letter-spacing: 0.08em;
-}
-
-.invite-suit {
-  position: absolute;
-  z-index: -1;
-  color: rgb(242 201 76 / 18%);
-  font-family: Georgia, serif;
-  font-size: clamp(5rem, 18vw, 11rem);
-  line-height: 1;
-  user-select: none;
-}
-
-.invite-suit--heart {
-  top: 5%;
-  right: -1rem;
-  transform: rotate(9deg);
-}
-
-.invite-suit--club {
-  bottom: 3%;
-  left: -0.8rem;
-  transform: rotate(-12deg);
-}
-
-/* The reset email's page (PID-515), in the invite page's look. */
-.reset-form {
-  display: grid;
-  max-width: 22rem;
-  gap: 0.5rem;
-  margin: 1.5rem auto 0;
-  text-align: left;
-}
-
-.reset-form label {
-  color: #b9cce3;
-  font-size: 0.9rem;
-  font-weight: 750;
-}
-
-.reset-field {
-  display: flex;
-  border: 1px solid rgb(126 198 230 / 45%);
-  border-radius: 0.6rem;
-  background-color: #04152d;
-}
-
-.reset-field:focus-within {
-  outline: 3px solid #f2c94c;
-  outline-offset: 2px;
-}
-
-.reset-field input {
-  min-width: 0;
-  min-height: 3.25rem;
-  flex: 1;
-  padding: 0 0.9rem;
-  border: 0;
-  background: transparent;
-  color: #ffffff;
-  font: inherit;
-  font-size: 1rem;
-  outline: none;
-}
-
-.reset-field button {
-  padding: 0 0.9rem;
-  border: 0;
-  background: transparent;
-  color: #87e8f5;
-  font: inherit;
-  font-size: 0.9rem;
-  font-weight: 750;
-  cursor: pointer;
-}
-
-.reset-rule {
-  margin: 0 0 0.6rem;
-  color: #8ea7c4;
+  color: rgb(218 237 247 / 70%);
   font-size: 0.85rem;
-}
-
-.reset-rule--error {
-  color: #ffb4a8;
-  font-weight: 750;
-}
-
-.reset-form .invite-primary {
-  width: 100%;
-  cursor: pointer;
-  font-family: inherit;
 }
 
 .invite-crawler {
   display: grid;
   min-height: 100vh;
   place-items: center;
-  background-color: #071a36;
-  color: #f8fbff;
+  background-color: #07264c;
+  color: #ffffff;
   font: 700 1rem/1.4 ui-sans-serif, system-ui, sans-serif;
 }
 
 @media (min-width: 44rem) {
-  .invite-shell {
-    padding: 2rem;
+  .invite-shell > * {
+    max-width: 28rem;
   }
 
   .invite-panel {
-    padding: 2rem 3rem 1.75rem;
+    padding: 1.5rem;
   }
 
   .invite-brand img {
-    width: 12.25rem;
+    width: 11rem;
+  }
+
+  .invite-store-links {
+    flex-direction: row;
+    justify-content: center;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .invite-primary,
-  .invite-primary:hover,
   .invite-primary:active {
-    transition: none;
     transform: none;
   }
 }

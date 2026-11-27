@@ -72,7 +72,7 @@ document.querySelectorAll("[data-reveal-password]").forEach((button) => {
 });
 
 // A second click would post a burned token and show the refusal.
-document.querySelectorAll(".reset-form").forEach((form) => {
+document.querySelectorAll(".invite-form").forEach((form) => {
   form.addEventListener("submit", () => {
     form.querySelector("button[type=submit]").disabled = true;
   });

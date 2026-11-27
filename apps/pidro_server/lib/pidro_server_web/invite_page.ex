@@ -144,6 +144,10 @@ defmodule PidroServerWeb.InvitePage do
     }
   end
 
+  @doc "Whether the iPhone link goes to the App Store, so the page may show Apple's badge."
+  @spec app_store?() :: boolean()
+  def app_store?, do: String.contains?(store_url("ios") || "", "apps.apple.com")
+
   # Only offered while an iPhone store is configured, like the Play button.
   defp iphone_install_url, do: if(store_url("ios"), do: install_url())
 

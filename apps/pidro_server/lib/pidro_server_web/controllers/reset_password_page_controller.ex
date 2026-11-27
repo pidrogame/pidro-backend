@@ -50,6 +50,7 @@ defmodule PidroServerWeb.ResetPasswordPageController do
           "default-src 'self'",
           "img-src 'self' data: #{static_origin}",
           "style-src 'self' #{static_origin}",
+          "font-src 'self' #{static_origin}",
           "script-src 'self' #{static_origin}",
           "object-src 'none'",
           "base-uri 'none'",

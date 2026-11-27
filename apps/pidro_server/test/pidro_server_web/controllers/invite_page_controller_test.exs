@@ -40,9 +40,10 @@ defmodule PidroServerWeb.InvitePageControllerTest do
 
     for {mode, scheme, package, ios_store, copy, absent} <- [
           {:beta, "pidro-mobile-beta", "com.oneapps.pidro.beta",
-           "https://testflight.apple.com/join/2JR95b65", "Get Pidro Beta for iPhone", nil},
+           "https://testflight.apple.com/join/2JR95b65", ~s(aria-label="Get Pidro for iPhone"),
+           nil},
           {:production, "pidro-mobile", "com.oneapps.pidro",
-           "https://apps.apple.com/app/id1137091987", "Get Pidro for iPhone", "Beta"}
+           "https://apps.apple.com/app/id1137091987", ~s(alt="Download on the App Store"), "Beta"}
         ] do
       if mode == :production do
         Application.put_env(:pidro_server, :native_store_urls, %{
@@ -72,6 +73,7 @@ defmodule PidroServerWeb.InvitePageControllerTest do
         assert ios =~ ~s(href="http://localhost:4002/get"), "#{mode} #{path}"
         assert ios =~ copy, "#{mode} #{path}"
         if absent, do: refute(ios =~ absent, "#{mode} #{path} still says Beta")
+        if mode == :beta, do: assert(ios =~ "Get the beta", "#{mode} #{path}")
 
         if path != ~p"/j/ZZZZZZZZ" do
           assert ios =~ ~s(href="#{scheme}:/#{path}"), "#{mode} #{path}"
@@ -121,6 +123,17 @@ defmodule PidroServerWeb.InvitePageControllerTest do
         end
       end
     end
+  end
+
+  test "link pages on pidro.online may load the fonts from this origin", %{conn: conn} do
+    font = get(conn, "/fonts/BreeSerif-Regular.woff2")
+
+    assert font.status == 200
+    assert get_resp_header(font, "access-control-allow-origin") == ["*"]
+
+    csp = build_conn() |> get(~p"/j/ZZZZZZZZ") |> get_resp_header("content-security-policy")
+    assert [policy] = csp
+    assert policy =~ "font-src 'self' http://localhost:4002"
   end
 
   describe "GET /j/:code" do

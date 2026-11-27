@@ -3,5 +3,7 @@ defmodule PidroServerWeb.PlayPageHTML do
 
   use PidroServerWeb, :html
 
+  import PidroServerWeb.InvitePageHTML, only: [store_badges: 1]
+
   embed_templates "play_page_html/*"
 end

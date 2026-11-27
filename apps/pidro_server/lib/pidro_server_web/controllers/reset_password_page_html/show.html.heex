@@ -1,25 +1,22 @@
 <main class="invite-shell" lang={@copy.lang}>
-  <div class="invite-suit invite-suit--heart" aria-hidden="true">♥</div>
-  <div class="invite-suit invite-suit--club" aria-hidden="true">♣</div>
+  <div class="invite-brand">
+    <img
+      src={static_url(@conn, ~p"/images/invite/logo.png")}
+      width="196"
+      height="121"
+      alt="Pidro"
+    />
+  </div>
 
-  <section class="invite-panel" data-state={@state}>
-    <div class="invite-brand">
-      <img
-        src={static_url(@conn, ~p"/images/invite/logo.png")}
-        width="196"
-        height="121"
-        alt="Pidro"
-      />
-    </div>
-
-    <%= case @state do %>
-      <% :form -> %>
-        <h1>{@copy.heading}</h1>
-        <form class="reset-form" method="post" action={~p"/app/reset-password"}>
+  <%= case @state do %>
+    <% :form -> %>
+      <h1>{@copy.heading}</h1>
+      <section class="invite-panel" data-state="form">
+        <form class="invite-form" method="post" action={~p"/app/reset-password"}>
           <input type="hidden" name="_csrf_token" value={get_csrf_token()} />
           <input type="hidden" name="token" value={@token} />
           <label for="password">{@copy.label}</label>
-          <div class="reset-field">
+          <div class="invite-field">
             <input
               id="password"
               name="password"
@@ -45,7 +42,7 @@
           </div>
           <p
             id="password-rule"
-            class={["reset-rule", @too_short && "reset-rule--error"]}
+            class={["invite-hint", @too_short && "invite-hint--error"]}
             role={@too_short && "alert"}
           >
             {if @too_short, do: @copy.too_short, else: @copy.rule}
@@ -54,41 +51,24 @@
         </form>
         <script defer src={static_url(@conn, ~p"/assets/js/invite.js")}>
         </script>
-      <% :done -> %>
-        <h1>{@copy.done_heading}</h1>
+      </section>
+    <% :done -> %>
+      <h1>{@copy.done_heading}</h1>
+      <section class="invite-panel" data-state="done">
         <p class="invite-copy">{@copy.done_body}</p>
-      <% :invalid -> %>
-        <h1>{@copy.invalid_heading}</h1>
+        <p :if={@page.iphone_install_url || @page.play_store_url} class="invite-store-label">
+          {@copy.store_label}
+        </p>
+        <.store_badges page={@page} iphone={@copy.iphone} />
+      </section>
+    <% :invalid -> %>
+      <h1>{@copy.invalid_heading}</h1>
+      <section class="invite-panel" data-state="invalid">
         <p class="invite-copy">{@copy.invalid_body}</p>
-    <% end %>
-
-    <div :if={@state != :form} class="invite-actions">
-      <p :if={@page.iphone_install_url || @page.play_store_url} class="invite-store-label">
-        {@copy.store_label}
-      </p>
-      <div class="invite-store-links" aria-label="Download Pidro">
-        <a
-          :if={@page.iphone_install_url}
-          href={@page.iphone_install_url}
-          class="invite-store-text"
-          data-store="apple"
-        >
-          {if @page.beta, do: @copy.iphone_beta, else: @copy.iphone}
-        </a>
-        <a
-          :if={@page.play_store_url}
-          href={@page.play_store_url}
-          data-store="google"
-          aria-label="Get Pidro on Google Play"
-        >
-          <img
-            src={static_url(@conn, ~p"/images/invite/google-play.png")}
-            width="168"
-            height="50"
-            alt="Get it on Google Play"
-          />
-        </a>
-      </div>
-    </div>
-  </section>
+        <p :if={@page.iphone_install_url || @page.play_store_url} class="invite-store-label">
+          {@copy.store_label}
+        </p>
+        <.store_badges page={@page} iphone={@copy.iphone} />
+      </section>
+  <% end %>
 </main>

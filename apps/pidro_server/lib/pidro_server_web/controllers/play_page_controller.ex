@@ -38,6 +38,7 @@ defmodule PidroServerWeb.PlayPageController do
           "default-src 'self'",
           "img-src 'self' data: #{static_origin} #{PidroServerWeb.Endpoint.url()}",
           "style-src 'self' #{static_origin}",
+          "font-src 'self' #{static_origin}",
           "script-src 'self' #{static_origin}",
           "connect-src #{PidroServerWeb.DeferredInviteCaptureController.endpoint_origin()}",
           "object-src 'none'",

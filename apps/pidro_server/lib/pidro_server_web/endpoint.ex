@@ -43,6 +43,8 @@ defmodule PidroServerWeb.Endpoint do
     at: "/",
     from: :pidro_server,
     gzip: not code_reloading?,
+    # Link pages on pidro.online load these fonts from this origin (PID-515).
+    headers: %{"access-control-allow-origin" => "*"},
     only: PidroServerWeb.static_paths()
 
   # Code reloading can be explicitly enabled under the

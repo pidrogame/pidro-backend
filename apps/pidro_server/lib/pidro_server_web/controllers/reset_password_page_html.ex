@@ -7,6 +7,8 @@ defmodule PidroServerWeb.ResetPasswordPageHTML do
 
   use PidroServerWeb, :html
 
+  import PidroServerWeb.InvitePageHTML, only: [store_badges: 1]
+
   embed_templates "reset_password_page_html/*"
 
   @copy %{
@@ -24,8 +26,7 @@ defmodule PidroServerWeb.ResetPasswordPageHTML do
       done_heading: "Your password is changed",
       done_body: "Open Pidro and sign in.",
       store_label: "No Pidro on this device? Get the app, it's free.",
-      iphone: "Get Pidro for iPhone",
-      iphone_beta: "Get Pidro Beta for iPhone",
+      iphone: %{small: "Get Pidro for", label: "Get Pidro for iPhone"},
       invalid_heading: "This reset link is no longer valid",
       invalid_body:
         "A link works once, for one hour. For a new one, open Pidro, tap Sign in, then “Forgot your password or name?”."
@@ -44,8 +45,7 @@ defmodule PidroServerWeb.ResetPasswordPageHTML do
       done_heading: "Ditt lösenord är ändrat",
       done_body: "Öppna Pidro och logga in.",
       store_label: "Inget Pidro på den här enheten? Hämta appen, den är gratis.",
-      iphone: "Hämta Pidro för iPhone",
-      iphone_beta: "Hämta Pidro Beta för iPhone",
+      iphone: %{small: "Hämta Pidro för", label: "Hämta Pidro för iPhone"},
       invalid_heading: "Länken är inte längre giltig",
       invalid_body:
         "En länk fungerar en gång, i en timme. Öppna Pidro, tryck på Logga in och sedan ”Glömt lösenord eller namn?” för att få en ny."
