@@ -571,21 +571,7 @@ defmodule PidroServer.Accounts.Auth do
       token matches
   """
   def reset_user_password(token, password) when is_binary(token) and is_binary(password) do
-    token_hash = hash_password_reset_token(token)
-
-    cutoff =
-      DateTime.add(
-        DateTime.utc_now(),
-        -Application.fetch_env!(:pidro_server, :password_reset_ttl_seconds),
-        :second
-      )
-
-    query =
-      from u in User,
-        where: u.password_reset_token_hash == ^token_hash,
-        where: u.password_reset_sent_at > ^cutoff
-
-    case Repo.one(query) do
+    case Repo.one(live_password_reset_query(token)) do
       nil ->
         {:error, :invalid_or_expired_password_reset_token}
 
@@ -606,6 +592,31 @@ defmodule PidroServer.Accounts.Auth do
 
   def reset_user_password(_token, _password),
     do: {:error, :invalid_or_expired_password_reset_token}
+
+  @doc """
+  Whether `reset_user_password/2` would accept `token`. Reads only, so a mail
+  scanner that opens the link leaves the token alive.
+  """
+  @spec password_reset_token_live?(term()) :: boolean()
+  def password_reset_token_live?(token) when is_binary(token),
+    do: Repo.exists?(live_password_reset_query(token))
+
+  def password_reset_token_live?(_token), do: false
+
+  defp live_password_reset_query(token) do
+    token_hash = hash_password_reset_token(token)
+
+    cutoff =
+      DateTime.add(
+        DateTime.utc_now(),
+        -Application.fetch_env!(:pidro_server, :password_reset_ttl_seconds),
+        :second
+      )
+
+    from u in User,
+      where: u.password_reset_token_hash == ^token_hash,
+      where: u.password_reset_sent_at > ^cutoff
+  end
 
   @doc """
   Fetches a map of users by their IDs.

@@ -134,6 +134,16 @@ defmodule PidroServerWeb.InvitePage do
     end
   end
 
+  @doc "The install links of a page about no invite or player, such as the reset page."
+  @spec store_links() :: map()
+  def store_links do
+    %{
+      iphone_install_url: iphone_install_url(),
+      play_store_url: store_url("android"),
+      beta: beta?()
+    }
+  end
+
   # Only offered while an iPhone store is configured, like the Play button.
   defp iphone_install_url, do: if(store_url("ios"), do: install_url())
 

@@ -19,6 +19,17 @@ defmodule PidroServerWeb.Router do
     plug PidroServerWeb.Plugs.RateLimit
   end
 
+  # The reset email's link for a browser (PID-515): the invite page's look,
+  # with a session cookie only to carry the form's CSRF token.
+  pipeline :reset_page do
+    plug :accepts, ["html"]
+    plug :fetch_session
+    plug :protect_from_forgery
+    plug :put_root_layout, html: {PidroServerWeb.Layouts, :invite}
+    plug :put_secure_browser_headers
+    plug PidroServerWeb.Plugs.RateLimit
+  end
+
   # Credential-free URL-encoded beacon sent directly to Phoenix immediately
   # before a matching mobile store navigation. Deliberately has no session or
   # CSRF state; the controller applies exact browser-origin validation.
@@ -111,6 +122,15 @@ defmodule PidroServerWeb.Router do
     get "/j/:code", InvitePageController, :show, private: %{rate_limit: [:invite_page]}
     get "/play/:slug", PlayPageController, :show
     get "/get", InstallRedirectController, :show
+  end
+
+  scope "/app", PidroServerWeb do
+    pipe_through :reset_page
+
+    get "/reset-password", ResetPasswordPageController, :show
+
+    post "/reset-password", ResetPasswordPageController, :update,
+      private: %{rate_limit: [:password_reset_page]}
   end
 
   scope "/", PidroServerWeb do

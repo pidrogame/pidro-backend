@@ -58,6 +58,26 @@ const captureDeferredInvite = (link) => {
   }).catch(() => {});
 };
 
+// The reset page's Show/Hide (PID-515); without JavaScript the button stays hidden.
+document.querySelectorAll("[data-reveal-password]").forEach((button) => {
+  const input = document.getElementById(button.getAttribute("aria-controls"));
+  button.hidden = false;
+
+  button.addEventListener("click", () => {
+    const shown = input.type === "text";
+    input.type = shown ? "password" : "text";
+    button.textContent = shown ? button.dataset.show : button.dataset.hide;
+    button.setAttribute("aria-pressed", String(!shown));
+  });
+});
+
+// A second click would post a burned token and show the refusal.
+document.querySelectorAll(".reset-form").forEach((form) => {
+  form.addEventListener("submit", () => {
+    form.querySelector("button[type=submit]").disabled = true;
+  });
+});
+
 document.querySelectorAll("[data-deferred-capture]").forEach((link) => {
   link.addEventListener("click", () => captureDeferredInvite(link));
 });
