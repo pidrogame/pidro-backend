@@ -45,7 +45,8 @@ env:
     PORT: "4000"
     POOL_SIZE: "20"
     CORS_ORIGINS: "https://www.pidro.online,https://play.pidro.online,https://app.pidro.online"
-    WEB_URL: "https://play.pidro.online"
+    # Reset emails link to pidro.online/app/reset-password: the app opens it, a browser gets our page (PID-515).
+    WEB_URL: "https://pidro.online/app"
     MAIL_FROM_ADDRESS: "noreply@pidro.online"
     MAIL_REPLY_TO: "support@pidro.online"
     # Set a minimum only once its store build is live; empty means no notice.
