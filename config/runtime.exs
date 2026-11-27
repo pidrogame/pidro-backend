@@ -186,6 +186,8 @@ rate_limit_overrides =
     {:password_reset_confirm, :scale_ms, "RATE_LIMIT_PASSWORD_RESET_CONFIRM_SCALE_MS"},
     {:password_reset_page, :limit, "RATE_LIMIT_PASSWORD_RESET_PAGE_LIMIT"},
     {:password_reset_page, :scale_ms, "RATE_LIMIT_PASSWORD_RESET_PAGE_SCALE_MS"},
+    {:password_reset_link, :limit, "RATE_LIMIT_PASSWORD_RESET_LINK_LIMIT"},
+    {:password_reset_link, :scale_ms, "RATE_LIMIT_PASSWORD_RESET_LINK_SCALE_MS"},
     {:room_create, :limit, "RATE_LIMIT_ROOM_CREATE_LIMIT"},
     {:room_create, :scale_ms, "RATE_LIMIT_ROOM_CREATE_SCALE_MS"},
     {:room_lookup, :limit, "RATE_LIMIT_ROOM_LOOKUP_LIMIT"},

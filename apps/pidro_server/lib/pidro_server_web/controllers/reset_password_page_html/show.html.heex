@@ -56,19 +56,68 @@
       <h1>{@copy.done_heading}</h1>
       <section class="invite-panel" data-state="done">
         <p class="invite-copy">{@copy.done_body}</p>
+        <a
+          :if={@page.device in [:ios, :android]}
+          class="invite-primary"
+          href={@page.app_url}
+          data-open-app
+        >
+          {@copy.open}
+        </a>
         <p :if={@page.iphone_install_url || @page.play_store_url} class="invite-store-label">
           {@copy.store_label}
         </p>
         <.store_badges page={@page} iphone={@copy.iphone} />
       </section>
     <% :invalid -> %>
-      <h1>{@copy.invalid_heading}</h1>
+      <h1>{@copy.heading}</h1>
       <section class="invite-panel" data-state="invalid">
-        <p class="invite-copy">{@copy.invalid_body}</p>
-        <p :if={@page.iphone_install_url || @page.play_store_url} class="invite-store-label">
-          {@copy.store_label}
+        <p class="invite-notice" role="alert">
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            aria-hidden="true"
+          >
+            <circle cx="12" cy="12" r="10" /><path d="M12 7v6M12 16.5v.5" stroke-linecap="round" />
+          </svg>
+          {@copy.invalid}
         </p>
-        <.store_badges page={@page} iphone={@copy.iphone} />
+        <form class="invite-form" method="post" action={~p"/app/reset-password/link"}>
+          <input type="hidden" name="_csrf_token" value={get_csrf_token()} />
+          <label for="identifier">{@copy.identifier}</label>
+          <div class="invite-field">
+            <input
+              id="identifier"
+              name="identifier"
+              type="text"
+              autocomplete="username"
+              autocapitalize="none"
+              spellcheck="false"
+              required
+            />
+          </div>
+          <button type="submit" class="invite-primary">{@copy.new_link}</button>
+        </form>
+        <script defer src={static_url(@conn, ~p"/assets/js/invite.js")}>
+        </script>
+      </section>
+    <% :sent -> %>
+      <h1>{@copy.heading}</h1>
+      <section class="invite-panel" data-state="sent">
+        <p class="invite-notice invite-notice--info" role="status">
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            aria-hidden="true"
+          >
+            <path d="M4 6h16v12H4z M4 7l8 6 8-6" stroke-linejoin="round" />
+          </svg>
+          {@copy.sent}
+        </p>
       </section>
   <% end %>
 </main>

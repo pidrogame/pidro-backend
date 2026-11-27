@@ -584,6 +584,20 @@ defmodule PidroServerWeb.API.AuthController do
     |> json(%{data: password_reset_request_response(nil)})
   end
 
+  @doc """
+  The reset request above without its answer, for the browser reset page's
+  Send a new link (PID-515). The mail goes out in the background either way.
+  """
+  @spec send_password_reset(String.t()) :: :ok
+  def send_password_reset(identifier) when is_binary(identifier) do
+    with {:ok, reset} <- Auth.request_password_reset(identifier) do
+      maybe_log_debug_password_reset(reset)
+      maybe_deliver_password_reset(reset)
+    end
+
+    :ok
+  end
+
   operation(:classic_sign_in_link,
     summary: "Email the owner of a moved Classic account a password reset link",
     description: """

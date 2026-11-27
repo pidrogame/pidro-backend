@@ -1,7 +1,7 @@
 defmodule PidroServerWeb.ResetPasswordPageHTML do
   @moduledoc """
   The browser reset page, in English and Swedish. The words are the app's own
-  (`auth.choose_password`, `auth.set_password`, `auth.sign_in_forgot` ...), so
+  (`auth.choose_password`, `auth.reset_invalid`, `auth.new_link` ...), so
   the page and the app's reset screen say the same thing.
   """
 
@@ -27,9 +27,11 @@ defmodule PidroServerWeb.ResetPasswordPageHTML do
       done_body: "Open Pidro and sign in.",
       store_label: "No Pidro on this device? Get the app, it's free.",
       iphone: %{small: "Get Pidro for", label: "Get Pidro for iPhone"},
-      invalid_heading: "This reset link is no longer valid",
-      invalid_body:
-        "A link works once, for one hour. For a new one, open Pidro, tap Sign in, then “Forgot your password or name?”."
+      open: "Open Pidro",
+      invalid: "This reset link is missing or no longer valid.",
+      identifier: "Player name or email",
+      new_link: "Send a new link",
+      sent: "If that matches a Pidro account, a link to choose a new password is on its way."
     },
     sv: %{
       lang: "sv",
@@ -46,9 +48,12 @@ defmodule PidroServerWeb.ResetPasswordPageHTML do
       done_body: "Öppna Pidro och logga in.",
       store_label: "Inget Pidro på den här enheten? Hämta appen, den är gratis.",
       iphone: %{small: "Hämta Pidro för", label: "Hämta Pidro för iPhone"},
-      invalid_heading: "Länken är inte längre giltig",
-      invalid_body:
-        "En länk fungerar en gång, i en timme. Öppna Pidro, tryck på Logga in och sedan ”Glömt lösenord eller namn?” för att få en ny."
+      open: "Öppna Pidro",
+      invalid: "Återställningslänken saknas eller är inte längre giltig.",
+      identifier: "Spelarnamn eller e-post",
+      new_link: "Hämta en ny länk",
+      sent:
+        "Om uppgifterna matchar ett Pidro-konto är en länk för att välja ett nytt lösenord på väg."
     }
   }
 

@@ -69,6 +69,9 @@ config :pidro_server, PidroServerWeb.Plugs.RateLimit,
   password_reset_confirm: %{limit: 5, scale_ms: 900_000, key: :ip},
   # The reset page arrives through Vercel like `/j/:code`, so count per link.
   password_reset_page: %{limit: 5, scale_ms: 900_000, key: {:param, "token"}},
+  # Its Send a new link: per client too, generous because Vercel visitors share
+  # edge addresses, but a cap for anyone who posts to this origin directly.
+  password_reset_link: %{limit: 20, scale_ms: 900_000, key: :ip},
   classic_sign_in_code: %{limit: 10, scale_ms: 900_000, key: :ip},
   classic_sign_in_code_identifier: %{limit: 3, scale_ms: 3_600_000, key: {:param, "login"}},
   room_create: %{limit: 10, scale_ms: 60_000, key: :user},

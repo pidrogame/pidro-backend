@@ -144,6 +144,10 @@ defmodule PidroServerWeb.InvitePage do
     }
   end
 
+  @doc "The app's own link, which opens Pidro at its start."
+  @spec app_url() :: String.t()
+  def app_url, do: "#{app(:app_scheme)}://"
+
   @doc "Whether the iPhone link goes to the App Store, so the page may show Apple's badge."
   @spec app_store?() :: boolean()
   def app_store?, do: String.contains?(store_url("ios") || "", "apps.apple.com")

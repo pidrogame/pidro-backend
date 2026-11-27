@@ -6,13 +6,16 @@ defmodule PidroServerWeb.ResetPasswordPageController do
 
   `GET` only checks the token, because mail scanners follow links. `POST`
   resets with `Auth.reset_user_password/2`, the API's reset, and signs in
-  nowhere: the page tells the player to open Pidro.
+  nowhere: the page offers to open Pidro. A refused link offers a new one,
+  requested like the app's forgot password, with the same answer for any name.
   """
 
   use PidroServerWeb, :controller
 
   alias PidroServer.Accounts.Auth
+  alias PidroServerWeb.API.AuthController
   alias PidroServerWeb.InvitePage
+  alias PidroServerWeb.InvitePage.UserAgent
   alias PidroServerWeb.ResetPasswordPageHTML
 
   def show(conn, %{"token" => token}) do
@@ -37,6 +40,13 @@ defmodule PidroServerWeb.ResetPasswordPageController do
   end
 
   def update(conn, _params), do: invalid(conn)
+
+  def link(conn, %{"identifier" => identifier}) when is_binary(identifier) do
+    :ok = AuthController.send_password_reset(identifier)
+    page(conn, :sent)
+  end
+
+  def link(conn, _params), do: invalid(conn)
 
   defp invalid(conn), do: conn |> put_status(:not_found) |> page(:invalid)
 
@@ -63,7 +73,7 @@ defmodule PidroServerWeb.ResetPasswordPageController do
     conn
     |> put_resp_header("cache-control", "no-store")
     |> put_resp_header("referrer-policy", "no-referrer")
-    |> put_resp_header("vary", "Accept-Language")
+    |> put_resp_header("vary", "Accept-Language, User-Agent")
     |> put_resp_header("x-robots-tag", "noindex")
     |> put_resp_header("content-security-policy", csp)
     |> render(
@@ -75,7 +85,9 @@ defmodule PidroServerWeb.ResetPasswordPageController do
           Map.merge(InvitePage.store_links(), %{
             title: copy.title,
             description: copy.description,
-            canonical_url: nil
+            canonical_url: nil,
+            app_url: InvitePage.app_url(),
+            device: conn |> get_req_header("user-agent") |> List.first() |> UserAgent.classify()
           }),
         crawler?: false,
         token: nil,

@@ -150,6 +150,7 @@ config :pidro_server, PidroServerWeb.Plugs.RateLimit,
   password_reset_identifier: %{limit: 1_000_000, scale_ms: 3_600_000, key: :identifier},
   password_reset_confirm: %{limit: 1_000_000, scale_ms: 900_000, key: :ip},
   password_reset_page: %{limit: 1_000_000, scale_ms: 900_000, key: {:param, "token"}},
+  password_reset_link: %{limit: 1_000_000, scale_ms: 900_000, key: :ip},
   classic_sign_in_code: %{limit: 1_000_000, scale_ms: 900_000, key: :ip},
   classic_sign_in_code_identifier: %{
     limit: 1_000_000,

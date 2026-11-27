@@ -87,6 +87,7 @@ config :pidro_server, dev_routes: true
 #   password_reset_identifier  3 per 3_600_000 ms        30 per 3_600_000 ms
 #   password_reset_confirm     5 per 900_000 ms          50 per 900_000 ms
 #   password_reset_page        5 per 900_000 ms          50 per 900_000 ms
+#   password_reset_link        20 per 900_000 ms         200 per 900_000 ms
 #   room_create                10 per 60_000 ms          100 per 60_000 ms
 #   room_lookup                120 per 60_000 ms         1_200 per 60_000 ms
 #   invite_mint                10 per 60_000 ms          100 per 60_000 ms
@@ -119,6 +120,7 @@ config :pidro_server, PidroServerWeb.Plugs.RateLimit,
   password_reset_identifier: %{limit: 30, scale_ms: 3_600_000, key: :identifier},
   password_reset_confirm: %{limit: 50, scale_ms: 900_000, key: :ip},
   password_reset_page: %{limit: 50, scale_ms: 900_000, key: {:param, "token"}},
+  password_reset_link: %{limit: 200, scale_ms: 900_000, key: :ip},
   classic_sign_in_code: %{limit: 100, scale_ms: 900_000, key: :ip},
   classic_sign_in_code_identifier: %{limit: 30, scale_ms: 3_600_000, key: {:param, "login"}},
   room_create: %{limit: 100, scale_ms: 60_000, key: :user},

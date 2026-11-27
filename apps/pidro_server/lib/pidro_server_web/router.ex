@@ -131,6 +131,12 @@ defmodule PidroServerWeb.Router do
 
     post "/reset-password", ResetPasswordPageController, :update,
       private: %{rate_limit: [:password_reset_page]}
+
+    # The API reset's per-address bucket, shared with it, behind a generous
+    # per-client one: the API's own per-IP limit would, through Vercel, be
+    # shared by every visitor on a few edge addresses.
+    post "/reset-password/link", ResetPasswordPageController, :link,
+      private: %{rate_limit: [:password_reset_link, :password_reset_identifier]}
   end
 
   scope "/", PidroServerWeb do
